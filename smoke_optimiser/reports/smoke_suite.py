@@ -29,6 +29,7 @@ class SummaryModel(BaseModel):
     tests_passed: int
     tests_failed: int
     total_branches: int
+    full_suite_branches_covered: int
     smoke_tests_selected: int
     smoke_branches_covered: int
     smoke_coverage_pct: float
@@ -84,6 +85,7 @@ def write_smoke_suite(
         tests_passed=result.tests_passed,
         tests_failed=result.tests_failed,
         total_branches=result.total_branches,
+        full_suite_branches_covered=result.full_suite_branches_covered,
         smoke_tests_selected=len(result.selected_tests),
         smoke_branches_covered=result.smoke_branches_covered,
         smoke_coverage_pct=result.smoke_coverage_pct,

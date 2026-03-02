@@ -23,6 +23,14 @@ def format_summary(result: SmokeResult, config: ResolvedConfig, meta: ProfilingM
         f"({result.total_tests_profiled} total)"
     )
 
+    full_suite_cov_pct = (
+        (result.full_suite_branches_covered / result.total_branches * 100.0) if result.total_branches > 0 else 0.0
+    )
+    full_suite_cov_line = (
+        f"  Coverage:     {result.full_suite_branches_covered:,} / "
+        f"{result.total_branches:,} branches ({full_suite_cov_pct:.1f}%)"
+    )
+
     coverage_line = (
         f"  Coverage:     {result.smoke_branches_covered:,} / "
         f"{result.total_branches:,} branches ({result.smoke_coverage_pct:.1f}%)"
@@ -41,6 +49,7 @@ def format_summary(result: SmokeResult, config: ResolvedConfig, meta: ProfilingM
         "",
         profiled_line,
         f"  Full suite:   {result.full_suite_runtime_s:.1f}s runtime, {result.total_branches:,} branches",
+        full_suite_cov_line,
         "",
         f"  Smoke suite:  {len(result.selected_tests)} tests selected",
         coverage_line,

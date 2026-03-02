@@ -8,6 +8,7 @@ PRD_EXAMPLE_RUNTIME = 3.0
 TIME_CAP_3S = 3.0
 TIME_CAP_RUNTIME_2S = 2.0
 TARGET_COV_50 = 50.0
+FULL_SUITE_2_BRANCHES = 2
 
 
 def _create_outcome(test_id: str, duration: float, branches: list[str]) -> ProfilingOutcome:
@@ -43,6 +44,7 @@ def test_optimise_prd_example() -> None:
     assert result.smoke_branches_covered == PRD_EXAMPLE_TOTAL_BRANCHES
     assert result.smoke_coverage_pct == PRD_EXAMPLE_FULL_COVERAGE
     assert result.smoke_suite_runtime_s == PRD_EXAMPLE_RUNTIME
+    assert result.full_suite_branches_covered == PRD_EXAMPLE_TOTAL_BRANCHES
 
 
 def test_optimise_time_cap() -> None:
@@ -57,6 +59,8 @@ def test_optimise_time_cap() -> None:
     result = optimise(filtered, total_branches, TIME_CAP_3S, 100.0)
     assert len(result.selected_tests) == 1
     assert result.smoke_suite_runtime_s == TIME_CAP_RUNTIME_2S
+    # Full suite covers 2, but smoke only picks 1
+    assert result.full_suite_branches_covered == FULL_SUITE_2_BRANCHES
 
 
 def test_optimise_target_cov() -> None:
@@ -70,6 +74,7 @@ def test_optimise_target_cov() -> None:
     # Target 50% means only one test is needed
     result = optimise(filtered, total_branches, 10.0, TARGET_COV_50)
     assert len(result.selected_tests) == 1
+    assert result.full_suite_branches_covered == FULL_SUITE_2_BRANCHES
 
 
 def test_optimise_tie_breaking() -> None:
@@ -82,6 +87,7 @@ def test_optimise_tie_breaking() -> None:
 
     result = optimise(filtered, total_branches, 10.0, 100.0)
     assert result.selected_tests[0].test_id == "test_1_lower_alpha"
+    assert result.full_suite_branches_covered == 1
 
 
 def test_optimise_coverage_equivalents() -> None:
@@ -95,3 +101,4 @@ def test_optimise_coverage_equivalents() -> None:
     result = optimise(filtered, total_branches, 10.0, 100.0)
     assert len(result.coverage_equivalents) == 1
     assert set(result.coverage_equivalents[0].tests) == {"test_a", "test_b"}
+    assert result.full_suite_branches_covered == 1

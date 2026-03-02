@@ -116,9 +116,13 @@ def optimise(
         **filtered.excluded,
     }
     hash_to_tests = defaultdict(list)
+
+    # Calculate full suite coverage
+    full_suite_coverage_set: set[str] = set()
     for test_id, outcome in all_passed.items():
         h = _get_branch_set_hash(outcome.branches_covered)
         hash_to_tests[h].append(test_id)
+        full_suite_coverage_set.update(outcome.branches_covered)
 
     equivalents = []
     group_id = 1
@@ -147,6 +151,7 @@ def optimise(
         tests_passed=tests_passed,
         tests_failed=len(filtered.failed),
         total_branches=len(total_branches),
+        full_suite_branches_covered=len(full_suite_coverage_set),
         smoke_branches_covered=len(covered_set),
         smoke_coverage_pct=(len(covered_set) / len(total_branches) * 100.0) if total_branches else 0.0,
         full_suite_runtime_s=full_suite_runtime,

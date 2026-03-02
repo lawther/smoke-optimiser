@@ -10,6 +10,7 @@ TOTAL_TESTS = 100
 PASSED_TESTS = 95
 FAILED_TESTS = 5
 TOTAL_BRANCHES = 1000
+FULL_SUITE_BRANCHES = 900
 SMOKE_BRANCHES = 800
 SMOKE_COVERAGE = 80.0
 FULL_RUNTIME = 300.0
@@ -36,6 +37,7 @@ def test_smoke_result_construction() -> None:
         tests_passed=PASSED_TESTS,
         tests_failed=FAILED_TESTS,
         total_branches=TOTAL_BRANCHES,
+        full_suite_branches_covered=FULL_SUITE_BRANCHES,
         smoke_branches_covered=SMOKE_BRANCHES,
         smoke_coverage_pct=SMOKE_COVERAGE,
         full_suite_runtime_s=FULL_RUNTIME,
@@ -44,6 +46,7 @@ def test_smoke_result_construction() -> None:
     )
     assert sr.total_tests_profiled == TOTAL_TESTS
     assert sr.smoke_coverage_pct == SMOKE_COVERAGE
+    assert sr.full_suite_branches_covered == FULL_SUITE_BRANCHES
 
 
 def test_coverage_equivalent_group() -> None:

@@ -138,6 +138,7 @@ def test_smoke_suite_roundtrip(tmp_path: Path) -> None:
         tests_passed=PASSED_TESTS,
         tests_failed=0,
         total_branches=TOTAL_BRANCHES,
+        full_suite_branches_covered=TOTAL_BRANCHES,
         smoke_branches_covered=TOTAL_BRANCHES,
         smoke_coverage_pct=SMOKE_COVERAGE,
         full_suite_runtime_s=FULL_RUNTIME,
@@ -190,6 +191,7 @@ def test_format_summary() -> None:
         tests_passed=9,
         tests_failed=1,
         total_branches=100,
+        full_suite_branches_covered=90,
         smoke_branches_covered=80,
         smoke_coverage_pct=80.0,
         full_suite_runtime_s=100.0,
@@ -212,3 +214,4 @@ def test_format_summary() -> None:
     assert "smoke-optimiser results" in summary
     assert "80.0%" in summary
     assert "1 failing tests were excluded" in summary
+    assert "Coverage:     90 / 100 branches (90.0%)" in summary

@@ -30,6 +30,7 @@ class SmokeResult:
     tests_passed: int
     tests_failed: int
     total_branches: int
+    full_suite_branches_covered: int
     smoke_branches_covered: int
     smoke_coverage_pct: float
     full_suite_runtime_s: float
