@@ -3,6 +3,7 @@ import os
 import shutil
 import subprocess
 import sys
+from collections import defaultdict
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -33,6 +34,7 @@ def pytest_runtest_makereport(item, call):
 
 def pytest_unconfigure(config):
     if hasattr(config, '_smoke_outcomes'):
+        # Unique name per worker if needed, but here we just need one
         with open('.smoke_outcomes.json', 'w') as f:
             json.dump(config._smoke_outcomes, f)
 """
@@ -98,80 +100,82 @@ def run_profiling(config: ResolvedConfig, project_root: Path) -> ProfilingData:
     hook_file.write_text(PYTEST_HOOK_CODE)
     coveragerc.write_text(COVERAGERC_CONTENT)
 
-    # 1. Run pytest with coverage and our hook
-    pytest_cmd = [
-        sys.executable,
-        "-m",
-        "pytest",
-        "-p",
-        "_smoke_hook",
-        f"--cov-config={coveragerc}",
-        "--cov-branch",
-        "--cov-context=test",
-    ]
+    # 1. Run pytest iterations
+    # We aggregate durations across runs
+    all_durations: dict[str, list[float]] = defaultdict(list)
+    final_outcomes: dict[str, bool] = {}
+    final_markers: dict[str, frozenset[str]] = {}
 
-    has_cov_arg = False
-    if config.pytest_args:
-        args = config.pytest_args.split()
-        pytest_cmd.extend(args)
-        has_cov_arg = any(arg.startswith("--cov") for arg in args)
-
-    if not has_cov_arg:
-        # Check if the ResolvedConfig has a cov_source that came from CLI or heuristic
-        # If it matches what we would discover now, and wasn't explicitly passed, warn.
-        # But wait, config.cov_source ALWAYS has a value now.
-
-        # To determine if heuristic was used, we'd need to know if it was None in CLI/file.
-        # Let's simplify: if we are here and hasn't passed --cov in pytest_args,
-        # we use config.cov_source.
-
-        # The CLI 'main' knows if 'src' was None.
-        # Let's just always print the warning if we are injecting --cov based on ResolvedConfig
-        # unless it was explicitly provided via --src.
-        # Actually, let's just use it.
-        pytest_cmd.append(f"--cov={config.cov_source}")
-
-    # Add project root to PYTHONPATH so pytest can find _smoke_hook and src code
     env = os.environ.copy()
     env["PYTHONPATH"] = str(project_root) + os.pathsep + env.get("PYTHONPATH", "")
 
-    try:
+    for i in range(config.iterations):
+        if config.iterations > 1:
+            typer.echo(f"  Iteration {i + 1}/{config.iterations}...")
+
+        pytest_cmd = [
+            sys.executable,
+            "-m",
+            "pytest",
+            "-p",
+            "_smoke_hook",
+            f"--cov-config={coveragerc}",
+            "--cov-branch",
+            "--cov-context=test",
+        ]
+
+        has_cov_arg = False
+        if config.pytest_args:
+            args = config.pytest_args.split()
+            pytest_cmd.extend(args)
+            has_cov_arg = any(arg.startswith("--cov") for arg in args)
+
+        if not has_cov_arg:
+            pytest_cmd.append(f"--cov={config.cov_source}")
+
         subprocess.run(pytest_cmd, cwd=project_root, check=False, env=env)
 
-        # 2. Export coverage to JSON
-        subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                "coverage",
-                "json",
-                f"--rcfile={coveragerc}",
-                "--show-contexts",
-                "-o",
-                str(coverage_json),
-            ],
-            cwd=project_root,
-            check=False,
-        )
-
-        if not coverage_json.exists():
-            typer.secho("Error: Coverage data was not generated.", fg=typer.colors.RED, err=True)
-            sys.exit(1)
-
-        # 3. Load outcomes
-        test_durations = {}
-        test_outcomes = {}
-        test_markers = {}
+        # Load outcomes from this run
         if outcomes_json.exists():
             with open(outcomes_json) as f:
                 raw_outcomes = json.load(f)
                 for nodeid, data in raw_outcomes.items():
-                    test_durations[nodeid] = data["duration"]
-                    test_outcomes[nodeid] = data["passed"]
-                    test_markers[nodeid] = frozenset(data["markers"])
+                    all_durations[nodeid].append(data["duration"])
+                    # Use the last run's outcome/markers (should be consistent)
+                    final_outcomes[nodeid] = data["passed"]
+                    final_markers[nodeid] = frozenset(data["markers"])
+            outcomes_json.unlink()
 
+    # 2. Export coverage to JSON (from the last run)
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "coverage",
+            "json",
+            f"--rcfile={coveragerc}",
+            "--show-contexts",
+            "-o",
+            str(coverage_json),
+        ],
+        cwd=project_root,
+        check=False,
+    )
+
+    if not coverage_json.exists():
+        typer.secho("Error: Coverage data was not generated.", fg=typer.colors.RED, err=True)
+        # Cleanup before exit
+        for f in [hook_file, coveragerc]:
+            if f.exists():
+                f.unlink()
+        sys.exit(1)
+
+    # 3. Average the durations
+    avg_durations = {nodeid: sum(durations) / len(durations) for nodeid, durations in all_durations.items()}
+
+    try:
         # 4. Parse coverage JSON and merge
-        data = parse_coverage_json(coverage_json, test_durations, test_outcomes, test_markers)
+        data = parse_coverage_json(coverage_json, avg_durations, final_outcomes, final_markers)
 
         # Fill in the missing metadata
         final_meta = ProfilingMeta(

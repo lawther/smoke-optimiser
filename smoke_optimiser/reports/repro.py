@@ -44,4 +44,6 @@ def build_repro_command(config: ResolvedConfig) -> str:
     src_val = config.cov_source if config.cov_source is not None else ""
     parts.append(f"--src={shlex.quote(src_val)}")
 
+    parts.append(f"--iterations={config.iterations}")
+
     return " ".join(parts)

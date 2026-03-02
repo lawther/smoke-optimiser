@@ -71,6 +71,10 @@ def main(
         str | None,
         typer.Option("--src", help="Source directory/package for coverage instrumentation."),
     ] = None,
+    iterations: Annotated[
+        int | None,
+        typer.Option("--iterations", help="Number of times to run the suite to average timing."),
+    ] = None,
 ) -> None:
     """smoke-optimiser: Identify a minimal, high-value smoke test suite."""
     if profile_only and optimise_only:
@@ -98,6 +102,7 @@ def main(
         "allow_ordered": allow_ordered,
         "smoke_file_path": smoke_file_path,
         "cov_source": src,
+        "iterations": iterations,
     }
 
     project_root = Path.cwd()

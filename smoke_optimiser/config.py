@@ -27,6 +27,7 @@ class FileConfig(BaseModel):
     allow_ordered: bool = Field(default=False)
     smoke_file_path: Path = Field(default=Path("./.smoke_suite.json"))
     cov_source: str | None = Field(default=None)
+    iterations: int = Field(default=1, ge=1)
 
 
 @dataclass(frozen=True)
@@ -43,6 +44,7 @@ class ResolvedConfig:
     allow_ordered: bool
     smoke_file_path: Path
     cov_source: str
+    iterations: int
 
 
 def _discover_cov_target(project_root: Path) -> str:
@@ -132,4 +134,5 @@ def resolve_config(
         allow_ordered=config_dict["allow_ordered"],
         smoke_file_path=Path(config_dict["smoke_file_path"]),
         cov_source=cov_source,
+        iterations=config_dict["iterations"],
     )

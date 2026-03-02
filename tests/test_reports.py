@@ -33,6 +33,7 @@ def test_build_repro_command() -> None:
         allow_ordered=False,
         smoke_file_path=Path(".smoke_suite.json"),
         cov_source="src",
+        iterations=1,
     )
     cmd = build_repro_command(config)
     assert "smoke-optimiser" in cmd
@@ -57,7 +58,8 @@ def test_build_repro_command_empty_lists() -> None:
         output_json=Path(".smoke_suite.json"),
         allow_ordered=False,
         smoke_file_path=Path(".smoke_suite.json"),
-        cov_source=None,
+        cov_source=None,  # type: ignore[arg-type]
+        iterations=1,
     )
     cmd = build_repro_command(config)
     assert "--include=''" in cmd
@@ -99,7 +101,8 @@ def test_repro_command_completeness_against_help() -> None:
         output_json=Path(".smoke_suite.json"),
         allow_ordered=False,
         smoke_file_path=Path(".smoke_suite.json"),
-        cov_source=None,
+        cov_source=".",
+        iterations=1,
     )
     cmd = build_repro_command(config)
 
@@ -155,7 +158,8 @@ def test_smoke_suite_roundtrip(tmp_path: Path) -> None:
         output_json=Path(".smoke_suite.json"),
         allow_ordered=False,
         smoke_file_path=Path(".smoke_suite.json"),
-        cov_source=None,
+        cov_source=".",
+        iterations=1,
     )
     output_file = tmp_path / ".smoke_suite.json"
     write_smoke_suite(result, config, meta, output_file)
@@ -208,7 +212,8 @@ def test_format_summary() -> None:
         output_json=Path(".smoke_suite.json"),
         allow_ordered=False,
         smoke_file_path=Path(".smoke_suite.json"),
-        cov_source=None,
+        cov_source=".",
+        iterations=1,
     )
     summary = format_summary(result, config, meta)
     assert "smoke-optimiser results" in summary

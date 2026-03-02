@@ -16,7 +16,8 @@ def test_check_prerequisites_success() -> None:
         output_json=Path(".json"),
         allow_ordered=True,
         smoke_file_path=Path(".json"),
-        cov_source=None,
+        cov_source=".",
+        iterations=1,
     )
     with patch("shutil.which", return_value="/usr/bin/pytest"):
         check_prerequisites(config)
@@ -35,7 +36,8 @@ def test_run_profiling_basic(mock_parse: MagicMock, mock_run: MagicMock, tmp_pat
         output_json=Path(".json"),
         allow_ordered=True,
         smoke_file_path=Path(".json"),
-        cov_source=None,
+        cov_source=".",
+        iterations=1,
     )
 
     mock_run.return_value = MagicMock(returncode=0, stdout="pytest-randomly")

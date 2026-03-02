@@ -26,6 +26,7 @@ def test_file_config_defaults() -> None:
     assert config.pytest_args == ""
     assert config.output_json == Path("./.smoke_suite.json")
     assert config.allow_ordered is False
+    assert config.iterations == 1
 
 
 def test_file_config_validation() -> None:
@@ -33,6 +34,8 @@ def test_file_config_validation() -> None:
         FileConfig(time_cap=-1.0)
     with pytest.raises(ValidationError):
         FileConfig(target_cov=101.0)
+    with pytest.raises(ValidationError):
+        FileConfig(iterations=0)
 
 
 def test_load_file_config_no_file(tmp_path: Path) -> None:
@@ -65,6 +68,7 @@ def test_resolve_config_defaults(tmp_path: Path) -> None:
     resolved = resolve_config(None, {}, tmp_path)
     assert resolved.mode == OperationMode.FULL
     assert resolved.time_cap == DEFAULT_TIME_CAP
+    assert resolved.iterations == 1
 
 
 def test_resolve_config_modes(tmp_path: Path) -> None:
