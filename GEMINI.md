@@ -2,6 +2,7 @@
 
 - All code must be type-hinted.
 - All code must pass the project's linting rules.
+  - DO NOT edit any linting rules from pyproject.toml. They are there for a reason. You must comply with them.
   - Use `uv run ruff check --fix` to check and fix the code.
   - Use `uv run ruff format` to format the code.
 - Any data loaded from a file or external source (e.g. YAML, TOML, JSON, HTTP) must be validated against a Pydantic model. Never trust outside data. This includes data we may have written ourselves to a file - it may have been edited in between writing and reading.
