@@ -1,3 +1,4 @@
+import warnings
 from pathlib import Path
 
 import pytest
@@ -58,5 +59,38 @@ def pytest_configure(config: pytest.Config) -> None:
     """Register the plugin and load the smoke suite."""
     if config.getoption("--smoke"):
         suite = _load_smoke_suite(config)
-        # Store for later stages (Commit 3 will use StashKey)
+        # Store for later stages
         config._smoke_suite = suite
+
+
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    """Filter collected tests to only include those in the smoke suite."""
+    if not config.getoption("--smoke"):
+        return
+
+    suite = getattr(config, "_smoke_suite", None)
+    if not suite:
+        return
+
+    smoke_test_ids = {t.test_id for t in suite.smoke_tests}
+    selected: list[pytest.Item] = []
+    deselected: list[pytest.Item] = []
+
+    for item in items:
+        if item.nodeid in smoke_test_ids:
+            selected.append(item)
+        else:
+            deselected.append(item)
+
+    if deselected:
+        config.hook.pytest_deselected(items=deselected)
+    items[:] = selected
+
+    # Warn about missing tests
+    found_ids = {item.nodeid for item in selected}
+    missing = smoke_test_ids - found_ids
+    for test_id in sorted(missing):
+        warnings.warn(
+            f"smoke-optimiser: smoke test not found in collection: {test_id}",
+            stacklevel=2,
+        )
