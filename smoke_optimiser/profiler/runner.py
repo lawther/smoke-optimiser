@@ -147,6 +147,7 @@ def run_profiling(config: ResolvedConfig, project_root: Path) -> ProfilingData:
             outcomes_json.unlink()
 
     # 2. Export coverage to JSON (from the last run)
+    # We capture_output=True to prevent coverage.py from printing the "Wrote JSON report" message
     subprocess.run(
         [
             sys.executable,
@@ -160,6 +161,7 @@ def run_profiling(config: ResolvedConfig, project_root: Path) -> ProfilingData:
         ],
         cwd=project_root,
         check=False,
+        capture_output=True,
     )
 
     if not coverage_json.exists():
