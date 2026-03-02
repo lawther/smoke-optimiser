@@ -1,6 +1,8 @@
 from smoke_optimiser.optimiser.filters import apply_filters
 from smoke_optimiser.profiler.models import ProfilingOutcome
 
+UNMATCHED_INCLUDES_COUNT = 2
+
 
 def _create_outcome(test_id: str, passed: bool = True, markers: list[str] | None = None) -> ProfilingOutcome:
     return ProfilingOutcome(
@@ -60,3 +62,13 @@ def test_apply_filters_empty() -> None:
     assert len(filtered.mandatory_included) == 0
     assert len(filtered.excluded) == 0
     assert len(filtered.failed) == 0
+
+
+def test_apply_filters_unmatched() -> None:
+    tests = {"test_a": _create_outcome("test_a")}
+    filtered = apply_filters(tests, ["test_b", "@pytest.mark.none"], ["test_c"])
+    assert "test_b" in filtered.unmatched_includes
+    assert "@pytest.mark.none" in filtered.unmatched_includes
+    assert "test_c" in filtered.unmatched_excludes
+    assert len(filtered.unmatched_includes) == UNMATCHED_INCLUDES_COUNT
+    assert len(filtered.unmatched_excludes) == 1

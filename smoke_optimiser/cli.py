@@ -187,6 +187,21 @@ def main(
 
         typer.echo("Optimising smoke suite...")
         filtered = apply_filters(profiling_data.tests, config.include_mandatory, config.exclude_mandatory)
+
+        # Warn about unmatched includes/excludes
+        for pattern in filtered.unmatched_includes:
+            typer.secho(
+                f"Warning: include pattern '{pattern}' matched no tests.",
+                fg=typer.colors.YELLOW,
+                err=True,
+            )
+        for pattern in filtered.unmatched_excludes:
+            typer.secho(
+                f"Warning: exclude pattern '{pattern}' matched no tests.",
+                fg=typer.colors.YELLOW,
+                err=True,
+            )
+
         result = optimise(filtered, profiling_data.total_branches, config.time_cap, config.target_cov)
 
         # Output results

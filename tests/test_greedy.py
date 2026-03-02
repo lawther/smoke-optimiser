@@ -31,7 +31,14 @@ def test_optimise_prd_example() -> None:
         "test_e": _create_outcome("test_e", 10.0, ["b1", "b2", "b3", "b4", "b5"]),
     }
     total_branches = frozenset(["b1", "b2", "b3", "b4", "b5", "b6"])
-    filtered = FilteredTests(candidates=tests, mandatory_included={}, excluded={}, failed={})
+    filtered = FilteredTests(
+        candidates=tests,
+        mandatory_included={},
+        excluded={},
+        failed={},
+        unmatched_includes=[],
+        unmatched_excludes=[],
+    )
 
     # total_branches {b1..b6}, time_cap 5s, target_cov 100%
     result = optimise(filtered, total_branches, 5.0, 100.0)
@@ -53,7 +60,14 @@ def test_optimise_time_cap() -> None:
         "test_b": _create_outcome("test_b", 2.0, ["b2"]),
     }
     total_branches = frozenset(["b1", "b2"])
-    filtered = FilteredTests(candidates=tests, mandatory_included={}, excluded={}, failed={})
+    filtered = FilteredTests(
+        candidates=tests,
+        mandatory_included={},
+        excluded={},
+        failed={},
+        unmatched_includes=[],
+        unmatched_excludes=[],
+    )
 
     # Time cap 3.0s means only one test can be picked
     result = optimise(filtered, total_branches, TIME_CAP_3S, 100.0)
@@ -69,7 +83,14 @@ def test_optimise_target_cov() -> None:
         "test_b": _create_outcome("test_b", 1.0, ["b2"]),
     }
     total_branches = frozenset(["b1", "b2"])
-    filtered = FilteredTests(candidates=tests, mandatory_included={}, excluded={}, failed={})
+    filtered = FilteredTests(
+        candidates=tests,
+        mandatory_included={},
+        excluded={},
+        failed={},
+        unmatched_includes=[],
+        unmatched_excludes=[],
+    )
 
     # Target 50% means only one test is needed
     result = optimise(filtered, total_branches, 10.0, TARGET_COV_50)
@@ -83,7 +104,14 @@ def test_optimise_tie_breaking() -> None:
         "test_2_higher_alpha": _create_outcome("test_2_higher_alpha", 1.0, ["b1"]),
     }
     total_branches = frozenset(["b1"])
-    filtered = FilteredTests(candidates=tests, mandatory_included={}, excluded={}, failed={})
+    filtered = FilteredTests(
+        candidates=tests,
+        mandatory_included={},
+        excluded={},
+        failed={},
+        unmatched_includes=[],
+        unmatched_excludes=[],
+    )
 
     result = optimise(filtered, total_branches, 10.0, 100.0)
     assert result.selected_tests[0].test_id == "test_1_lower_alpha"
@@ -96,7 +124,14 @@ def test_optimise_coverage_equivalents() -> None:
         "test_b": _create_outcome("test_b", 1.0, ["b1"]),
     }
     total_branches = frozenset(["b1"])
-    filtered = FilteredTests(candidates=tests, mandatory_included={}, excluded={}, failed={})
+    filtered = FilteredTests(
+        candidates=tests,
+        mandatory_included={},
+        excluded={},
+        failed={},
+        unmatched_includes=[],
+        unmatched_excludes=[],
+    )
 
     result = optimise(filtered, total_branches, 10.0, 100.0)
     assert len(result.coverage_equivalents) == 1
