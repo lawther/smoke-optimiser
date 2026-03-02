@@ -17,12 +17,18 @@ def build_repro_command(config: ResolvedConfig) -> str:
     parts.append(f"--time-cap={config.time_cap}")
     parts.append(f"--target-cov={config.target_cov}")
 
-    # For lists, if empty we omit to keep the command valid
-    for item in config.include_mandatory:
-        parts.append(f"--include={shlex.quote(item)}")
+    # For lists, we must show them even if empty
+    if not config.include_mandatory:
+        parts.append("--include=''")
+    else:
+        for item in config.include_mandatory:
+            parts.append(f"--include={shlex.quote(item)}")
 
-    for item in config.exclude_mandatory:
-        parts.append(f"--exclude={shlex.quote(item)}")
+    if not config.exclude_mandatory:
+        parts.append("--exclude=''")
+    else:
+        for item in config.exclude_mandatory:
+            parts.append(f"--exclude={shlex.quote(item)}")
 
     # For strings and paths, use --arg=val format
     parts.append(f"--pytest-args={shlex.quote(config.pytest_args)}")

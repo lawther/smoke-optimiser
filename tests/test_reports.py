@@ -42,6 +42,25 @@ def test_build_repro_command() -> None:
     assert "--src=src" in cmd
 
 
+def test_build_repro_command_empty_lists() -> None:
+    config = ResolvedConfig(
+        mode=OperationMode.FULL,
+        time_cap=15.0,
+        target_cov=100.0,
+        include_mandatory=[],
+        exclude_mandatory=[],
+        pytest_args="",
+        output_json=Path(".smoke_suite.json"),
+        allow_ordered=False,
+        smoke_file_path=Path(".smoke_suite.json"),
+        cov_source=None,
+    )
+    cmd = build_repro_command(config)
+    assert "--include=''" in cmd
+    assert "--exclude=''" in cmd
+    assert "--src=''" in cmd
+
+
 def test_smoke_suite_roundtrip(tmp_path: Path) -> None:
     meta = ProfilingMeta(
         timestamp=datetime(2026, 3, 2, 10, 30, 0, tzinfo=UTC),
