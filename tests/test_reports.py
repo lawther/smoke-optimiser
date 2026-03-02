@@ -1,6 +1,10 @@
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 
+from typer.testing import CliRunner
+
+from smoke_optimiser.cli import app
 from smoke_optimiser.config import OperationMode, ResolvedConfig
 from smoke_optimiser.environment import MachineEnvironment
 from smoke_optimiser.optimiser.models import SmokeResult
@@ -59,6 +63,53 @@ def test_build_repro_command_empty_lists() -> None:
     assert "--include=''" in cmd
     assert "--exclude=''" in cmd
     assert "--src=''" in cmd
+
+
+def test_repro_command_completeness_against_help() -> None:
+    """Introspect --help output and ensure all non-flag arguments are in repro.
+
+    Flags are booleans defaulting to False.
+    """
+    runner = CliRunner()
+    result = runner.invoke(app, ["--help"])
+    assert result.exit_code == 0
+
+    # 1. Find all options (lines starting with --)
+    # The regex finds "--name"
+    all_options = re.findall(r"--([a-z-]+)", result.stdout)
+
+    # 2. Exclude standard typer boilerplate and the exempt mode flags
+    exclusions = {
+        "install-completion",
+        "show-completion",
+        "help",
+        "profile-only",
+        "optimise-only",
+    }
+    required_options = [opt for opt in all_options if opt not in exclusions]
+
+    # Generate a repro command with default config
+    config = ResolvedConfig(
+        mode=OperationMode.FULL,
+        time_cap=15.0,
+        target_cov=100.0,
+        include_mandatory=[],
+        exclude_mandatory=[],
+        pytest_args="",
+        output_json=Path(".smoke_suite.json"),
+        allow_ordered=False,
+        smoke_file_path=Path(".smoke_suite.json"),
+        cov_source=None,
+    )
+    cmd = build_repro_command(config)
+
+    for opt in required_options:
+        # allow-ordered is special because it can show up as --no-allow-ordered
+        if opt == "allow-ordered":
+            assert "--no-allow-ordered" in cmd or "--allow-ordered" in cmd
+        else:
+            # Check if "--opt=" is in the command
+            assert f"--{opt}=" in cmd, f"Option --{opt} missing from canonical repro command"
 
 
 def test_smoke_suite_roundtrip(tmp_path: Path) -> None:
