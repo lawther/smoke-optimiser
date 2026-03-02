@@ -67,10 +67,22 @@ def main(
         Path | None,
         typer.Option("--smoke-file-path", help="Location of the smoke suite file."),
     ] = None,
+    src: Annotated[
+        str | None,
+        typer.Option("--src", help="Source directory/package for coverage instrumentation."),
+    ] = None,
 ) -> None:
     """smoke-optimiser: Identify a minimal, high-value smoke test suite."""
     if profile_only and optimise_only:
         typer.echo("Error: --profile-only and --optimise-only are mutually exclusive.", err=True)
+        raise typer.Exit(code=1)
+
+    # Conflict check: --src and --cov in --pytest-args
+    if src and pytest_args and "--cov" in pytest_args:
+        typer.echo(
+            "Error: Conflict detected. Cannot use --src and --cov in --pytest-args simultaneously.",
+            err=True,
+        )
         raise typer.Exit(code=1)
 
     # Collect CLI overrides
@@ -85,6 +97,7 @@ def main(
         "output_json": output_json,
         "allow_ordered": allow_ordered,
         "smoke_file_path": smoke_file_path,
+        "cov_source": src,
     }
 
     project_root = Path.cwd()

@@ -139,15 +139,18 @@ def run_profiling(config: ResolvedConfig, project_root: Path) -> ProfilingData:
         pytest_cmd.extend(args)
         has_cov_arg = any(arg.startswith("--cov") for arg in args)
 
+    # If --src was provided, it takes precedence over discovery
     if not has_cov_arg:
-        target = _discover_cov_target(project_root)
-        # ANSI yellow: \033[33m, Reset: \033[0m
-        print(
-            f"\033[33mWarning: --cov was not specified in pytest_args. "
-            f"Falling back to heuristic discovery: --cov={target}\033[0m",
-            file=sys.stderr,
-        )
-        pytest_cmd.append(f"--cov={target}")
+        if config.cov_source:
+            pytest_cmd.append(f"--cov={config.cov_source}")
+        else:
+            target = _discover_cov_target(project_root)
+            # ANSI yellow: \033[33m, Reset: \033[0m
+            print(
+                f"\033[33mWarning: --src was not specified. Falling back to heuristic discovery: --cov={target}\033[0m",
+                file=sys.stderr,
+            )
+            pytest_cmd.append(f"--cov={target}")
 
     # Add project root to PYTHONPATH so pytest can find _smoke_hook and src code
     env = os.environ.copy()

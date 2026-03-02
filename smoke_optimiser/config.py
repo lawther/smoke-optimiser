@@ -26,6 +26,7 @@ class FileConfig(BaseModel):
     output_json: Path = Field(default=Path("./.smoke_suite.json"))
     allow_ordered: bool = Field(default=False)
     smoke_file_path: Path = Field(default=Path("./.smoke_suite.json"))
+    cov_source: str | None = Field(default=None)
 
 
 @dataclass(frozen=True)
@@ -41,6 +42,7 @@ class ResolvedConfig:
     output_json: Path
     allow_ordered: bool
     smoke_file_path: Path
+    cov_source: str | None
 
 
 def load_file_config(project_root: Path) -> FileConfig | None:
@@ -99,4 +101,5 @@ def resolve_config(
         output_json=Path(config_dict["output_json"]),
         allow_ordered=config_dict["allow_ordered"],
         smoke_file_path=Path(config_dict["smoke_file_path"]),
+        cov_source=config_dict["cov_source"],
     )

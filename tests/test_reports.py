@@ -28,6 +28,7 @@ def test_build_repro_command() -> None:
         output_json=Path(".smoke_suite.json"),
         allow_ordered=False,
         smoke_file_path=Path(".smoke_suite.json"),
+        cov_source=None,
     )
     cmd = build_repro_command(config)
     assert "smoke-optimiser" in cmd
@@ -79,6 +80,7 @@ def test_smoke_suite_roundtrip(tmp_path: Path) -> None:
         output_json=Path(".smoke_suite.json"),
         allow_ordered=False,
         smoke_file_path=Path(".smoke_suite.json"),
+        cov_source=None,
     )
     output_file = tmp_path / ".smoke_suite.json"
     write_smoke_suite(result, config, meta, output_file)
@@ -130,6 +132,7 @@ def test_format_summary() -> None:
         output_json=Path(".smoke_suite.json"),
         allow_ordered=False,
         smoke_file_path=Path(".smoke_suite.json"),
+        cov_source=None,
     )
     summary = format_summary(result, config, meta)
     assert "smoke-optimiser results" in summary
