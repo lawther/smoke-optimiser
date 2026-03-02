@@ -32,7 +32,7 @@ This will make the `smoke-optimiser` command available in your environment and r
 ## Common Usages
 
 ### Custom Efficiency Targets
-By default, the tool tries to hit 100% coverage with a 15-second time cap. You can tighten these bounds:
+By default, the tool tries to get maximum coverage within a 15-second time cap. You can tighten these bounds:
 ```bash
 # Aim for 80% coverage, but stop if it takes longer than 5 seconds
 uv run smoke-optimiser --target-cov=80 --time-cap=5
