@@ -23,6 +23,7 @@ def _matches_pattern(test_id: str, markers: frozenset[str], pattern: str) -> boo
     - @pytest.mark.name
     - Exact test ID (nodeid)
     - File or directory prefix (e.g. 'tests/test_file.py' matches 'tests/test_file.py::test_it')
+    - Test name match (e.g. 'test_it' matches 'tests/test_file.py::test_it')
     - Glob patterns (e.g. 'tests/unit/*')
     """
     if not pattern:
@@ -41,7 +42,11 @@ def _matches_pattern(test_id: str, markers: frozenset[str], pattern: str) -> boo
     if test_id.startswith(f"{pattern}::"):
         return True
 
-    # 4. Glob match
+    # 4. Test name match (suffix after ::)
+    if f"::{pattern}" in test_id:
+        return True
+
+    # 5. Glob match
     return fnmatch.fnmatch(test_id, pattern)
 
 

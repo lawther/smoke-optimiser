@@ -1,6 +1,7 @@
 from smoke_optimiser.optimiser.filters import apply_filters
 from smoke_optimiser.profiler.models import ProfilingOutcome
 
+EXPECTED_MATCH_COUNT = 2
 UNMATCHED_INCLUDES_COUNT = 2
 
 
@@ -86,4 +87,19 @@ def test_apply_filters_file_path_match() -> None:
     assert "tests/test_greedy.py::test_1" in filtered.mandatory_included
     assert "tests/test_greedy.py::test_2" in filtered.mandatory_included
     assert "tests/test_other.py::test_1" in filtered.candidates
-    assert len(filtered.mandatory_included) == UNMATCHED_INCLUDES_COUNT
+    assert len(filtered.mandatory_included) == EXPECTED_MATCH_COUNT
+
+
+def test_apply_filters_test_name_match() -> None:
+    """Verifies that naming just the test function matches it regardless of file path."""
+    tests = {
+        "tests/test_a.py::test_target": _create_outcome("tests/test_a.py::test_target"),
+        "tests/test_b.py::test_target": _create_outcome("tests/test_b.py::test_target"),
+        "tests/test_a.py::test_other": _create_outcome("tests/test_a.py::test_other"),
+    }
+    # Match by test name suffix
+    filtered = apply_filters(tests, ["test_target"], [])
+    assert "tests/test_a.py::test_target" in filtered.mandatory_included
+    assert "tests/test_b.py::test_target" in filtered.mandatory_included
+    assert "tests/test_a.py::test_other" in filtered.candidates
+    assert len(filtered.mandatory_included) == EXPECTED_MATCH_COUNT
