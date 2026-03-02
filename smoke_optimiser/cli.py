@@ -102,7 +102,20 @@ def main(
 
     project_root = Path.cwd()
     file_config = load_file_config(project_root)
-    config = resolve_config(file_config, cli_overrides)
+    config = resolve_config(file_config, cli_overrides, project_root)
+
+    # Inform user about heuristic fallback
+    # If it wasn't in CLI and isn't in pytest_args, and we are profiling
+    has_cov_in_args = pytest_args and "--cov" in pytest_args
+    if config.mode != OperationMode.OPTIMISE_ONLY and src is None and not has_cov_in_args:
+        # Check if it was in pyproject.toml
+        from_file = file_config and file_config.cov_source
+        if not from_file:
+            typer.secho(
+                f"Warning: --src was not specified. Falling back to heuristic discovery: --src={config.cov_source}",
+                fg=typer.colors.YELLOW,
+                err=True,
+            )
 
     profiling_data = None
     intermediate_file = project_root / ".smoke_profiling_data.json"

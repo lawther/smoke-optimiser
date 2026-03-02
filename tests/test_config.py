@@ -61,26 +61,28 @@ include_mandatory = ["@pytest.mark.smoke"]
     assert config.include_mandatory == ["@pytest.mark.smoke"]
 
 
-def test_resolve_config_defaults() -> None:
-    resolved = resolve_config(None, {})
+def test_resolve_config_defaults(tmp_path: Path) -> None:
+    resolved = resolve_config(None, {}, tmp_path)
     assert resolved.mode == OperationMode.FULL
     assert resolved.time_cap == DEFAULT_TIME_CAP
 
 
-def test_resolve_config_modes() -> None:
-    assert resolve_config(None, {"profile_only": True}).mode == OperationMode.PROFILE_ONLY
-    assert resolve_config(None, {"optimise_only": True}).mode == OperationMode.OPTIMISE_ONLY
+def test_resolve_config_modes(tmp_path: Path) -> None:
+    assert resolve_config(None, {"profile_only": True}, tmp_path).mode == OperationMode.PROFILE_ONLY
+    assert resolve_config(None, {"optimise_only": True}, tmp_path).mode == OperationMode.OPTIMISE_ONLY
     # profile_only wins if both are set
-    assert resolve_config(None, {"profile_only": True, "optimise_only": True}).mode == OperationMode.PROFILE_ONLY
+    assert (
+        resolve_config(None, {"profile_only": True, "optimise_only": True}, tmp_path).mode == OperationMode.PROFILE_ONLY
+    )
 
 
-def test_resolve_config_merge() -> None:
+def test_resolve_config_merge(tmp_path: Path) -> None:
     file_config = FileConfig(time_cap=CUSTOM_TIME_CAP, target_cov=CUSTOM_TARGET_COV)
     # CLI overrides file
-    resolved = resolve_config(file_config, {"time_cap": CLI_TIME_CAP})
+    resolved = resolve_config(file_config, {"time_cap": CLI_TIME_CAP}, tmp_path)
     assert resolved.time_cap == CLI_TIME_CAP
     assert resolved.target_cov == CUSTOM_TARGET_COV
 
     # CLI None does not override file
-    resolved = resolve_config(file_config, {"time_cap": None})
+    resolved = resolve_config(file_config, {"time_cap": None}, tmp_path)
     assert resolved.time_cap == CUSTOM_TIME_CAP

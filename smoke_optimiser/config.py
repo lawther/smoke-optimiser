@@ -42,7 +42,31 @@ class ResolvedConfig:
     output_json: Path
     allow_ordered: bool
     smoke_file_path: Path
-    cov_source: str | None
+    cov_source: str
+
+
+def _discover_cov_target(project_root: Path) -> str:
+    """Best-effort discovery of the source directory for coverage."""
+    # 1. src/ layout is a very strong signal
+    if (project_root / "src").is_dir():
+        return "src"
+
+    # 2. Package matching project name in pyproject.toml
+    pyproject_path = project_root / "pyproject.toml"
+    if pyproject_path.exists():
+        try:
+            with open(pyproject_path, "rb") as f:
+                data = tomllib.load(f)
+                name = data.get("project", {}).get("name")
+                if name:
+                    normalized = name.replace("-", "_")
+                    # If there's a folder matching the project name, instrument it
+                    if (project_root / normalized).is_dir():
+                        return normalized
+        except Exception:
+            pass
+
+    return "."
 
 
 def load_file_config(project_root: Path) -> FileConfig | None:
@@ -67,6 +91,7 @@ def load_file_config(project_root: Path) -> FileConfig | None:
 def resolve_config(
     file_config: FileConfig | None,
     cli_overrides: dict[str, Any],
+    project_root: Path,
 ) -> ResolvedConfig:
     """Merge default config, file config, and CLI overrides into a final ResolvedConfig."""
     # Start with defaults from FileConfig
@@ -91,6 +116,11 @@ def resolve_config(
         if key in config_dict and value is not None:
             config_dict[key] = value
 
+    # If cov_source is still None (not in file and not in CLI), discover it
+    cov_source = config_dict["cov_source"]
+    if cov_source is None:
+        cov_source = _discover_cov_target(project_root)
+
     return ResolvedConfig(
         mode=mode,
         time_cap=config_dict["time_cap"],
@@ -101,5 +131,5 @@ def resolve_config(
         output_json=Path(config_dict["output_json"]),
         allow_ordered=config_dict["allow_ordered"],
         smoke_file_path=Path(config_dict["smoke_file_path"]),
-        cov_source=config_dict["cov_source"],
+        cov_source=cov_source,
     )
