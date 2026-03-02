@@ -72,3 +72,18 @@ def test_apply_filters_unmatched() -> None:
     assert "test_c" in filtered.unmatched_excludes
     assert len(filtered.unmatched_includes) == UNMATCHED_INCLUDES_COUNT
     assert len(filtered.unmatched_excludes) == 1
+
+
+def test_apply_filters_file_path_match() -> None:
+    """Verifies that naming a file matches all tests inside it."""
+    tests = {
+        "tests/test_greedy.py::test_1": _create_outcome("tests/test_greedy.py::test_1"),
+        "tests/test_greedy.py::test_2": _create_outcome("tests/test_greedy.py::test_2"),
+        "tests/test_other.py::test_1": _create_outcome("tests/test_other.py::test_1"),
+    }
+    # Match by file path prefix
+    filtered = apply_filters(tests, ["tests/test_greedy.py"], [])
+    assert "tests/test_greedy.py::test_1" in filtered.mandatory_included
+    assert "tests/test_greedy.py::test_2" in filtered.mandatory_included
+    assert "tests/test_other.py::test_1" in filtered.candidates
+    assert len(filtered.mandatory_included) == UNMATCHED_INCLUDES_COUNT

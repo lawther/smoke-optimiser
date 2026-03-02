@@ -17,12 +17,31 @@ class FilteredTests:
 
 
 def _matches_pattern(test_id: str, markers: frozenset[str], pattern: str) -> bool:
-    """Check if a test matches a glob pattern or marker pattern."""
+    """Check if a test matches a glob pattern or marker pattern.
+
+    Supports:
+    - @pytest.mark.name
+    - Exact test ID (nodeid)
+    - File or directory prefix (e.g. 'tests/test_file.py' matches 'tests/test_file.py::test_it')
+    - Glob patterns (e.g. 'tests/unit/*')
+    """
     if not pattern:
         return False
+
+    # 1. Marker match
     if pattern.startswith("@pytest.mark."):
         marker_name = pattern[len("@pytest.mark.") :]
         return marker_name in markers
+
+    # 2. Exact match
+    if test_id == pattern:
+        return True
+
+    # 3. File/Directory prefix match
+    if test_id.startswith(f"{pattern}::"):
+        return True
+
+    # 4. Glob match
     return fnmatch.fnmatch(test_id, pattern)
 
 
