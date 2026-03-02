@@ -41,7 +41,6 @@ def pytest_unconfigure(config):
 COVERAGERC_CONTENT = """
 [run]
 branch = True
-dynamic_context = test_function
 
 [json]
 show_contexts = True

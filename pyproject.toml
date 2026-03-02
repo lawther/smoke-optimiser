@@ -96,6 +96,8 @@ timeout = 10
 filterwarnings = [
     "error::RuntimeWarning",
     "error::pytest.PytestUnraisableExceptionWarning",
+    "error::pytest_cov.engine.CentralCovContextWarning",
+    "error::coverage.exceptions.CoverageWarning",
 ]
 
 [dependency-groups]
