@@ -1,9 +1,8 @@
-import sys
+from smoke_optimiser.cli import app
 
 
 def main() -> None:
-    print("smoke-optimiser: not yet implemented", file=sys.stderr)
-    sys.exit(1)
+    app()
 
 
 if __name__ == "__main__":
