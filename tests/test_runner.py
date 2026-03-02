@@ -15,7 +15,6 @@ def test_check_prerequisites_success() -> None:
         pytest_args="",
         output_json=Path(".json"),
         allow_ordered=True,
-        smoke_file_path=Path(".json"),
         cov_source=".",
         iterations=1,
     )
@@ -35,7 +34,6 @@ def test_run_profiling_basic(mock_parse: MagicMock, mock_run: MagicMock, tmp_pat
         pytest_args="",
         output_json=Path(".json"),
         allow_ordered=True,
-        smoke_file_path=Path(".json"),
         cov_source=".",
         iterations=1,
     )

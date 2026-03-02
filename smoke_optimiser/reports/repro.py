@@ -39,9 +39,7 @@ def build_repro_command(config: ResolvedConfig) -> str:
     else:
         parts.append("--no-allow-ordered")
 
-    parts.append(f"--smoke-file-path={shlex.quote(str(config.smoke_file_path))}")
-
-    src_val = config.cov_source if config.cov_source is not None else ""
+    src_val = config.cov_source
     parts.append(f"--src={shlex.quote(src_val)}")
 
     parts.append(f"--iterations={config.iterations}")

@@ -76,10 +76,6 @@ def main(
             help="Suppress error when pytest-randomly is not installed.",
         ),
     ] = False,
-    smoke_file_path: Annotated[
-        Path | None,
-        typer.Option("--smoke-file-path", help="Location of the smoke suite file."),
-    ] = None,
     src: Annotated[
         str | None,
         typer.Option("--src", help="Source directory/package for coverage instrumentation."),
@@ -117,7 +113,6 @@ def main(
         "pytest_args": pytest_args,
         "output_json": output_json,
         "allow_ordered": allow_ordered,
-        "smoke_file_path": smoke_file_path,
         "cov_source": src,
         "iterations": iterations,
     }

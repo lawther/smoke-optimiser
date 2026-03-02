@@ -42,7 +42,6 @@ class ResolvedConfig:
     pytest_args: str
     output_json: Path
     allow_ordered: bool
-    smoke_file_path: Path
     cov_source: str
     iterations: int
 
@@ -132,7 +131,6 @@ def resolve_config(
         pytest_args=config_dict["pytest_args"],
         output_json=Path(config_dict["output_json"]),
         allow_ordered=config_dict["allow_ordered"],
-        smoke_file_path=Path(config_dict["smoke_file_path"]),
         cov_source=cov_source,
         iterations=config_dict["iterations"],
     )

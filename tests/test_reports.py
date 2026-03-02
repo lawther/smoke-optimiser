@@ -31,7 +31,6 @@ def test_build_repro_command() -> None:
         pytest_args="--timeout=30",
         output_json=Path(".smoke_suite.json"),
         allow_ordered=False,
-        smoke_file_path=Path(".smoke_suite.json"),
         cov_source="src",
         iterations=1,
     )
@@ -57,14 +56,13 @@ def test_build_repro_command_empty_lists() -> None:
         pytest_args="",
         output_json=Path(".smoke_suite.json"),
         allow_ordered=False,
-        smoke_file_path=Path(".smoke_suite.json"),
-        cov_source=None,  # type: ignore[arg-type]
+        cov_source="src",
         iterations=1,
     )
     cmd = build_repro_command(config)
     assert "--include=''" in cmd
     assert "--exclude=''" in cmd
-    assert "--src=''" in cmd
+    assert "--src=src" in cmd
 
 
 def test_repro_command_completeness_against_help() -> None:
@@ -81,12 +79,14 @@ def test_repro_command_completeness_against_help() -> None:
     all_options = re.findall(r"--([a-z-]+)", result.stdout)
 
     # 2. Exclude standard typer boilerplate and the exempt mode flags
+    # We ALSO exclude smoke-file-path because it's a plugin concern
     exclusions = {
         "install-completion",
         "show-completion",
         "help",
         "profile-only",
         "optimise-only",
+        "smoke-file-path",
     }
     required_options = [opt for opt in all_options if opt not in exclusions]
 
@@ -100,7 +100,6 @@ def test_repro_command_completeness_against_help() -> None:
         pytest_args="",
         output_json=Path(".smoke_suite.json"),
         allow_ordered=False,
-        smoke_file_path=Path(".smoke_suite.json"),
         cov_source=".",
         iterations=1,
     )
@@ -157,7 +156,6 @@ def test_smoke_suite_roundtrip(tmp_path: Path) -> None:
         pytest_args="",
         output_json=Path(".smoke_suite.json"),
         allow_ordered=False,
-        smoke_file_path=Path(".smoke_suite.json"),
         cov_source=".",
         iterations=1,
     )
@@ -211,7 +209,6 @@ def test_format_summary() -> None:
         pytest_args="",
         output_json=Path(".smoke_suite.json"),
         allow_ordered=False,
-        smoke_file_path=Path(".smoke_suite.json"),
         cov_source=".",
         iterations=1,
     )
