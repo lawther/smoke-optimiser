@@ -19,6 +19,19 @@ from smoke_optimiser.reports.summary import format_summary
 app = typer.Typer(pretty_exceptions_show_locals=False)
 
 
+def _split_comma_list(items: list[str] | None) -> list[str]:
+    """Split comma-separated strings in a list into individual items."""
+    if items is None:
+        return []
+    result = []
+    for item in items:
+        if "," in item:
+            result.extend([x.strip() for x in item.split(",") if x.strip()])
+        elif item.strip():
+            result.append(item.strip())
+    return result
+
+
 @app.command()
 def main(
     profile_only: Annotated[
@@ -89,14 +102,18 @@ def main(
         )
         raise typer.Exit(code=1)
 
+    # Normalize comma-separated includes/excludes
+    final_includes = _split_comma_list(include)
+    final_excludes = _split_comma_list(exclude)
+
     # Collect CLI overrides
     cli_overrides = {
         "profile_only": profile_only,
         "optimise_only": optimise_only,
         "time_cap": time_cap,
         "target_cov": target_cov,
-        "include_mandatory": include,
-        "exclude_mandatory": exclude,
+        "include_mandatory": final_includes if include is not None else None,
+        "exclude_mandatory": final_excludes if exclude is not None else None,
         "pytest_args": pytest_args,
         "output_json": output_json,
         "allow_ordered": allow_ordered,
