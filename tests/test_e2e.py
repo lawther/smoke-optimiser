@@ -78,9 +78,9 @@ def test_add_negative():
 
     assert result.returncode == 0, f"smoke-optimiser failed: {result.stderr}\nSTDOUT: {result.stdout}"
     assert "smoke-optimiser results" in result.stdout
-    # Verify the yellow warning appeared in stderr
-    assert "\033[33mWarning: --src was not specified" in result.stderr
-    assert "--cov=src" in result.stderr
+    # Verify the warning appeared in stderr (ANSI codes might be stripped by typer in non-tty)
+    assert "Warning: --src was not specified" in result.stderr
+    assert "--src=src" in result.stderr
 
     smoke_suite_file = project_dir / ".smoke_suite.json"
     assert smoke_suite_file.exists()

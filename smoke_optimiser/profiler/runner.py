@@ -7,6 +7,8 @@ import tomllib
 from datetime import UTC, datetime
 from pathlib import Path
 
+import typer
+
 from smoke_optimiser.config import ResolvedConfig
 from smoke_optimiser.profiler.models import ProfilingData, ProfilingMeta
 from smoke_optimiser.profiler.parser import parse_coverage_json
@@ -60,11 +62,12 @@ def check_prerequisites(config: ResolvedConfig) -> None:
             check=False,
         )
         if "pytest-randomly" not in result.stdout:
-            print(
+            typer.secho(
                 "Warning: pytest-randomly is not installed. Ordering-dependent tests produce unreliable smoke suites.",
-                file=sys.stderr,
+                fg=typer.colors.YELLOW,
+                err=True,
             )
-            print("Use --allow-ordered to suppress this check.", file=sys.stderr)
+            typer.echo("Use --allow-ordered to suppress this check.", err=True)
             sys.exit(1)
 
 
@@ -145,10 +148,10 @@ def run_profiling(config: ResolvedConfig, project_root: Path) -> ProfilingData:
             pytest_cmd.append(f"--cov={config.cov_source}")
         else:
             target = _discover_cov_target(project_root)
-            # ANSI yellow: \033[33m, Reset: \033[0m
-            print(
-                f"\033[33mWarning: --src was not specified. Falling back to heuristic discovery: --cov={target}\033[0m",
-                file=sys.stderr,
+            typer.secho(
+                f"Warning: --src was not specified. Falling back to heuristic discovery: --src={target}",
+                fg=typer.colors.YELLOW,
+                err=True,
             )
             pytest_cmd.append(f"--cov={target}")
 
@@ -176,7 +179,7 @@ def run_profiling(config: ResolvedConfig, project_root: Path) -> ProfilingData:
         )
 
         if not coverage_json.exists():
-            print("Error: Coverage data was not generated.", file=sys.stderr)
+            typer.secho("Error: Coverage data was not generated.", fg=typer.colors.RED, err=True)
             sys.exit(1)
 
         # 3. Load outcomes
