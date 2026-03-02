@@ -18,6 +18,14 @@ def test_end_to_end_flow(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Non
     project_dir = tmp_path / "my_project"
     project_dir.mkdir()
 
+    # Create pyproject.toml so heuristic can find package name
+    (project_dir / "pyproject.toml").write_text(
+        """
+[project]
+name = "my-project"
+"""
+    )
+
     src_dir = project_dir / "src"
     src_dir.mkdir()
     (src_dir / "__init__.py").touch()
@@ -53,15 +61,13 @@ def test_add_negative():
     env["PYTHONPATH"] = str(Path.cwd()) + os.pathsep + str(project_dir)
 
     # We use --allow-ordered because we don't assume pytest-randomly is installed
-    # Explicitly use --cov=src to instrument the dummy project's src
+    # We NO LONGER pass --cov=src explicitly, testing the heuristic (src/ exists)
     result = subprocess.run(
         [
             sys.executable,
             "-m",
             "smoke_optimiser",
             "--allow-ordered",
-            "--pytest-args",
-            "--cov=src",
         ],
         cwd=project_dir,
         capture_output=True,
@@ -72,6 +78,9 @@ def test_add_negative():
 
     assert result.returncode == 0, f"smoke-optimiser failed: {result.stderr}\nSTDOUT: {result.stdout}"
     assert "smoke-optimiser results" in result.stdout
+    # Verify the yellow warning appeared in stderr
+    assert "\033[33mWarning: --cov was not specified" in result.stderr
+    assert "--cov=src" in result.stderr
 
     smoke_suite_file = project_dir / ".smoke_suite.json"
     assert smoke_suite_file.exists()
@@ -90,5 +99,5 @@ def test_add_negative():
         check=False,
     )
 
-    assert result.returncode == 0, f"pytest --smoke failed: {result.stderr}\nSTDOUT: {result.stdout}"
+    assert result.returncode == 0, f"pytest --smoke failed: {result.stderr}"
     assert "passed" in result.stdout

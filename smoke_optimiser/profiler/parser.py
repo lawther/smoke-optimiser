@@ -67,11 +67,10 @@ def parse_coverage_json(
                                 break
 
                         # 3. Test name match (for dynamic_context = test_function which uses dot notation)
-                        # e.g. tests.test_app.test_add_negative vs tests/test_app.py::test_add_negative
                         if not test_id:
                             clean_name = clean_id.split(".")[-1]
                             for candidate in test_durations:
-                                candidate_name = candidate.split("::")[-1].split("[")[0]  # handle parametrization
+                                candidate_name = candidate.split("::")[-1].split("[")[0]
                                 if clean_name == candidate_name:
                                     test_id = candidate
                                     break

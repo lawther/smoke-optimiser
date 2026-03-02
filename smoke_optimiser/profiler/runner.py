@@ -3,6 +3,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tomllib
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -35,7 +36,6 @@ def pytest_unconfigure(config):
             json.dump(config._smoke_outcomes, f)
 """
 
-# Explicitly configure coverage to use branch and test contexts
 COVERAGERC_CONTENT = """
 [run]
 branch = True
@@ -85,6 +85,30 @@ def _get_git_commit(project_root: Path) -> str | None:
     return None
 
 
+def _discover_cov_target(project_root: Path) -> str:
+    """Best-effort discovery of the source directory for coverage."""
+    # 1. src/ layout is a very strong signal
+    if (project_root / "src").is_dir():
+        return "src"
+
+    # 2. Package matching project name in pyproject.toml
+    pyproject_path = project_root / "pyproject.toml"
+    if pyproject_path.exists():
+        try:
+            with open(pyproject_path, "rb") as f:
+                data = tomllib.load(f)
+                name = data.get("project", {}).get("name")
+                if name:
+                    normalized = name.replace("-", "_")
+                    # If there's a folder matching the project name, instrument it
+                    if (project_root / normalized).is_dir():
+                        return normalized
+        except Exception:
+            pass
+
+    return "."
+
+
 def run_profiling(config: ResolvedConfig, project_root: Path) -> ProfilingData:
     """Run the test suite under coverage instrumentation and collect results."""
     check_prerequisites(config)
@@ -109,17 +133,23 @@ def run_profiling(config: ResolvedConfig, project_root: Path) -> ProfilingData:
         "--cov-context=test",
     ]
 
-    has_cov_target = False
+    has_cov_arg = False
     if config.pytest_args:
         args = config.pytest_args.split()
         pytest_cmd.extend(args)
-        if any(a.startswith("--cov=") for a in args):
-            has_cov_target = True
+        has_cov_arg = any(arg.startswith("--cov") for arg in args)
 
-    if not has_cov_target:
-        pytest_cmd.append("--cov=.")
+    if not has_cov_arg:
+        target = _discover_cov_target(project_root)
+        # ANSI yellow: \033[33m, Reset: \033[0m
+        print(
+            f"\033[33mWarning: --cov was not specified in pytest_args. "
+            f"Falling back to heuristic discovery: --cov={target}\033[0m",
+            file=sys.stderr,
+        )
+        pytest_cmd.append(f"--cov={target}")
 
-    # Add project root to PYTHONPATH so pytest can find _smoke_hook
+    # Add project root to PYTHONPATH so pytest can find _smoke_hook and src code
     env = os.environ.copy()
     env["PYTHONPATH"] = str(project_root) + os.pathsep + env.get("PYTHONPATH", "")
 
