@@ -1,0 +1,104 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "smoke-optimiser"
+version = "0.1.0"
+requires-python = ">=3.12"
+description = "A Python CLI tool and pytest plugin to identify a minimal smoke test suite."
+license = { text = "MIT" }
+authors = [
+    { name = "Mikel", email = "mikel@example.com" }
+]
+dependencies = [
+    "typer>=0.9",
+    "pydantic>=2.0",
+    "ijson>=3.0",
+    "coverage>=7.0",
+    "pytest>=7.0",
+    "pytest-cov>=4.0"
+]
+
+[project.optional-dependencies]
+machine = ["psutil>=5.0"]
+dev = ["ruff>=0.4", "pytest"]
+
+[project.scripts]
+smoke-optimiser = "smoke_optimiser.__main__:main"
+
+[project.entry-points."pytest11"]
+smoke_optimiser = "smoke_optimiser.plugin"
+
+[tool.ruff]
+line-length = 120
+# these are explanation of the rules that are selected:
+# B: Basic checks
+# C4: Code complexity checks
+# D: Docstring checks
+# E: Error checks
+# F: Formatting checks
+# I: Import checks
+# ICN: Import convention checks
+# PGH: Python grammar checks
+# PL: Pylint checks
+# RUF: Ruff checks
+# UP: Unused code checks
+# ANN: Type annotation checks
+# ASYNC: Async code checks
+# SIM: Simple checks
+# LOG: Logging checks
+lint.select = [
+  "B",
+  "C4",
+  "D",
+  "E",
+  "F",
+  "I",
+  "ICN",
+  "PGH",
+  "PL",
+  "RUF",
+  "UP",
+  "ANN",
+  "ASYNC",
+  "SIM",
+  "LOG",
+]
+lint.ignore = [
+  # pydocstyle
+  # D1: Missing docstring in public module
+  "D100",
+  # D2: Missing docstring in public package
+  "D104",
+  # D3: Missing docstring in public function
+  "D103",
+  # D4: Missing docstring in public package
+  "D107",
+  # D5: Missing docstring in public method
+  "D102",
+  # D6: Missing docstring in public class
+  "D101",
+  # D7: Missing docstring in __init__
+  "D107",
+  # pylint
+  # PLR09: Too many <...>
+  "PLR0912",
+  "PLR0913",
+  "PLR0915",
+]
+lint.pydocstyle.convention = "google"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+timeout = 10
+filterwarnings = [
+    "error::RuntimeWarning",
+    "error::pytest.PytestUnraisableExceptionWarning",
+]
+
+[dependency-groups]
+dev = [
+    "pytest-timeout>=2.4.0",
+]
