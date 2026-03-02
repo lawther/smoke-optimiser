@@ -8,6 +8,9 @@ from smoke_optimiser.reports.smoke_suite import SmokeSuiteFile, read_smoke_suite
 
 SUPPORTED_VERSIONS: frozenset[int] = frozenset({1})
 
+# Cache for the loaded smoke suite
+_smoke_suite_key = pytest.StashKey[SmokeSuiteFile]()
+
 
 def pytest_addoption(parser: pytest.Parser) -> None:
     """Add CLI options for the smoke suite plugin."""
@@ -43,7 +46,10 @@ def _load_smoke_suite(config: pytest.Config) -> SmokeSuiteFile | None:
     except (ValidationError, ValueError) as e:
         pytest.exit(f"smoke-optimiser: invalid smoke suite file: {path}: {e}", returncode=1)
     except Exception as e:
-        pytest.exit(f"smoke-optimiser: error reading smoke suite file: {path}: {e}", returncode=1)
+        pytest.exit(
+            f"smoke-optimiser: error reading smoke suite file: {path}: {e}",
+            returncode=1,
+        )
 
     if suite.version not in SUPPORTED_VERSIONS:
         pytest.exit(
@@ -59,8 +65,8 @@ def pytest_configure(config: pytest.Config) -> None:
     """Register the plugin and load the smoke suite."""
     if config.getoption("--smoke"):
         suite = _load_smoke_suite(config)
-        # Store for later stages
-        config._smoke_suite = suite
+        if suite:
+            config.stash[_smoke_suite_key] = suite
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
@@ -68,7 +74,7 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
     if not config.getoption("--smoke"):
         return
 
-    suite = getattr(config, "_smoke_suite", None)
+    suite = config.stash.get(_smoke_suite_key, None)
     if not suite:
         return
 
@@ -94,3 +100,22 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
             f"smoke-optimiser: smoke test not found in collection: {test_id}",
             stacklevel=2,
         )
+
+
+def pytest_report_header(config: pytest.Config) -> str | None:
+    """Add smoke suite information to the report header."""
+    if not config.getoption("--smoke"):
+        return None
+
+    suite = config.stash.get(_smoke_suite_key, None)
+    if not suite:
+        return None
+
+    path = config.getoption("--smoke-file-path")
+    count = len(suite.smoke_tests)
+    cov = suite.summary.smoke_coverage_pct
+    machine = suite.machine.get("hostname", "unknown machine")
+
+    return (
+        f"smoke-optimiser: running smoke suite from {path} ({count} tests, {cov:.1f}% coverage, profiled on {machine})"
+    )
