@@ -28,14 +28,18 @@ def test_build_repro_command() -> None:
         output_json=Path(".smoke_suite.json"),
         allow_ordered=False,
         smoke_file_path=Path(".smoke_suite.json"),
-        cov_source=None,
+        cov_source="src",
     )
     cmd = build_repro_command(config)
     assert "smoke-optimiser" in cmd
-    assert "--time-cap 15.0" in cmd
-    assert "--include @pytest.mark.smoke" in cmd
-    assert "--exclude @pytest.mark.slow" in cmd
-    assert "--pytest-args --timeout=30" in cmd
+    assert "--time-cap=15.0" in cmd
+    assert "--target-cov=100.0" in cmd
+    assert "--include=@pytest.mark.smoke" in cmd
+    assert "--exclude=@pytest.mark.slow" in cmd
+    assert "--pytest-args=--timeout=30" in cmd
+    assert "--output-json=.smoke_suite.json" in cmd
+    assert "--no-allow-ordered" in cmd
+    assert "--src=src" in cmd
 
 
 def test_smoke_suite_roundtrip(tmp_path: Path) -> None:

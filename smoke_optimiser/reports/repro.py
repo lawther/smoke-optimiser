@@ -1,34 +1,41 @@
 import shlex
 
-from smoke_optimiser.config import ResolvedConfig
+from smoke_optimiser.config import OperationMode, ResolvedConfig
 
 
 def build_repro_command(config: ResolvedConfig) -> str:
     """Build a canonical CLI command that reproduces the current configuration."""
     parts = ["smoke-optimiser"]
 
-    if config.mode.value == "profile-only":
+    # Exception: profile/optimise only flags are only present if given
+    if config.mode == OperationMode.PROFILE_ONLY:
         parts.append("--profile-only")
-    elif config.mode.value == "optimise-only":
+    elif config.mode == OperationMode.OPTIMISE_ONLY:
         parts.append("--optimise-only")
 
-    parts.extend(["--time-cap", str(config.time_cap)])
-    parts.extend(["--target-cov", str(config.target_cov)])
+    # Every other arg MUST be present
+    parts.append(f"--time-cap={config.time_cap}")
+    parts.append(f"--target-cov={config.target_cov}")
 
+    # For lists, if empty we omit to keep the command valid
     for item in config.include_mandatory:
-        parts.extend(["--include", item])
+        parts.append(f"--include={shlex.quote(item)}")
 
     for item in config.exclude_mandatory:
-        parts.extend(["--exclude", item])
+        parts.append(f"--exclude={shlex.quote(item)}")
 
-    if config.pytest_args:
-        parts.extend(["--pytest-args", config.pytest_args])
-
-    parts.extend(["--output-json", str(config.output_json)])
+    # For strings and paths, use --arg=val format
+    parts.append(f"--pytest-args={shlex.quote(config.pytest_args)}")
+    parts.append(f"--output-json={shlex.quote(str(config.output_json))}")
 
     if config.allow_ordered:
         parts.append("--allow-ordered")
+    else:
+        parts.append("--no-allow-ordered")
 
-    parts.extend(["--smoke-file-path", str(config.smoke_file_path)])
+    parts.append(f"--smoke-file-path={shlex.quote(str(config.smoke_file_path))}")
 
-    return " ".join(shlex.quote(p) for p in parts)
+    src_val = config.cov_source if config.cov_source is not None else ""
+    parts.append(f"--src={shlex.quote(src_val)}")
+
+    return " ".join(parts)
