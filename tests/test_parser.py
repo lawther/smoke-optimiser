@@ -7,6 +7,7 @@ EXPECTED_TEST_COUNT = 2
 
 
 def test_parse_coverage_json(tmp_path: Path) -> None:
+    # Use the real format: contexts map string line numbers to lists of test context names
     coverage_data = {
         "meta": {"version": "7.0"},
         "files": {
@@ -14,8 +15,9 @@ def test_parse_coverage_json(tmp_path: Path) -> None:
                 "executed_branches": [[1, 2], [1, 3]],
                 "missing_branches": [[5, 6]],
                 "contexts": {
-                    "tests/test_app.py::test_case_1": {"executed_branches": [[1, 2]]},
-                    "tests/test_app.py::test_case_2": {"executed_branches": [[1, 3]]},
+                    "1": ["tests.test_app.test_case_1", "tests.test_app.test_case_2"],
+                    "2": ["tests.test_app.test_case_1"],
+                    "3": ["tests.test_app.test_case_2"],
                 },
             }
         },
@@ -40,5 +42,10 @@ def test_parse_coverage_json(tmp_path: Path) -> None:
 
     assert profiling_data.meta.coverage_version == "7.0"
     assert len(profiling_data.tests) == EXPECTED_TEST_COUNT
+
+    # test_case_1 executed line 1 and 2, so it covers branch 1->2
     assert profiling_data.tests["tests/test_app.py::test_case_1"].branches_covered == frozenset(["app.py:1->2"])
+    # test_case_2 executed line 1 and 3, so it covers branch 1->3
+    assert profiling_data.tests["tests/test_app.py::test_case_2"].branches_covered == frozenset(["app.py:1->3"])
+
     assert profiling_data.total_branches == frozenset(["app.py:1->2", "app.py:1->3", "app.py:5->6"])

@@ -39,6 +39,9 @@ def test_run_profiling_basic(mock_parse: MagicMock, mock_run: MagicMock, tmp_pat
     mock_run.return_value = MagicMock(returncode=0, stdout="pytest-randomly")
     mock_parse.return_value = MagicMock()
 
+    # Create dummy coverage file so check doesn't fail
+    (tmp_path / ".smoke_optimiser_coverage.json").touch()
+
     with patch("shutil.which", return_value="/usr/bin/pytest"):
         run_profiling(config, tmp_path)
 
@@ -47,6 +50,6 @@ def test_run_profiling_basic(mock_parse: MagicMock, mock_run: MagicMock, tmp_pat
     cmd = args[0]
     assert "-m" in cmd
     assert "pytest" in cmd
-    assert "--cov" in cmd
+    assert "--cov=." in cmd
     assert "-p" in cmd
-    assert ".smoke_hook" in cmd
+    assert "_smoke_hook" in cmd

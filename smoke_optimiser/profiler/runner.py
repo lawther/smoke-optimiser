@@ -1,4 +1,5 @@
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -9,7 +10,7 @@ from smoke_optimiser.config import ResolvedConfig
 from smoke_optimiser.profiler.models import ProfilingData, ProfilingMeta
 from smoke_optimiser.profiler.parser import parse_coverage_json
 
-# Small inline pytest plugin to capture exact node IDs and outcomes
+# Minimal inline pytest plugin to capture exact node IDs, durations, outcomes, and markers
 PYTEST_HOOK_CODE = """
 import json
 import pytest
@@ -32,6 +33,16 @@ def pytest_unconfigure(config):
     if hasattr(config, '_smoke_outcomes'):
         with open('.smoke_outcomes.json', 'w') as f:
             json.dump(config._smoke_outcomes, f)
+"""
+
+# Explicitly configure coverage to use branch and test contexts
+COVERAGERC_CONTENT = """
+[run]
+branch = True
+dynamic_context = test_function
+
+[json]
+show_contexts = True
 """
 
 
@@ -80,9 +91,11 @@ def run_profiling(config: ResolvedConfig, project_root: Path) -> ProfilingData:
 
     coverage_json = project_root / ".smoke_optimiser_coverage.json"
     outcomes_json = project_root / ".smoke_outcomes.json"
-    hook_file = project_root / ".smoke_hook.py"
+    hook_file = project_root / "_smoke_hook.py"
+    coveragerc = project_root / ".smoke_coveragerc"
 
     hook_file.write_text(PYTEST_HOOK_CODE)
+    coveragerc.write_text(COVERAGERC_CONTENT)
 
     # 1. Run pytest with coverage and our hook
     pytest_cmd = [
@@ -90,16 +103,28 @@ def run_profiling(config: ResolvedConfig, project_root: Path) -> ProfilingData:
         "-m",
         "pytest",
         "-p",
-        ".smoke_hook",
-        "--cov",
+        "_smoke_hook",
+        f"--cov-config={coveragerc}",
         "--cov-branch",
         "--cov-context=test",
     ]
+
+    has_cov_target = False
     if config.pytest_args:
-        pytest_cmd.extend(config.pytest_args.split())
+        args = config.pytest_args.split()
+        pytest_cmd.extend(args)
+        if any(a.startswith("--cov=") for a in args):
+            has_cov_target = True
+
+    if not has_cov_target:
+        pytest_cmd.append("--cov=.")
+
+    # Add project root to PYTHONPATH so pytest can find _smoke_hook
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(project_root) + os.pathsep + env.get("PYTHONPATH", "")
 
     try:
-        subprocess.run(pytest_cmd, cwd=project_root, check=False)
+        subprocess.run(pytest_cmd, cwd=project_root, check=False, env=env)
 
         # 2. Export coverage to JSON
         subprocess.run(
@@ -108,6 +133,7 @@ def run_profiling(config: ResolvedConfig, project_root: Path) -> ProfilingData:
                 "-m",
                 "coverage",
                 "json",
+                f"--rcfile={coveragerc}",
                 "--show-contexts",
                 "-o",
                 str(coverage_json),
@@ -115,6 +141,10 @@ def run_profiling(config: ResolvedConfig, project_root: Path) -> ProfilingData:
             cwd=project_root,
             check=False,
         )
+
+        if not coverage_json.exists():
+            print("Error: Coverage data was not generated.", file=sys.stderr)
+            sys.exit(1)
 
         # 3. Load outcomes
         test_durations = {}
@@ -148,7 +178,7 @@ def run_profiling(config: ResolvedConfig, project_root: Path) -> ProfilingData:
         )
     finally:
         # Cleanup temporary files
-        for f in [coverage_json, outcomes_json, hook_file]:
+        for f in [coverage_json, outcomes_json, hook_file, coveragerc]:
             if f.exists():
                 f.unlink()
         # coverage.py also creates a .coverage file

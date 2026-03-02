@@ -66,7 +66,8 @@ def optimise(
 
             marginal_set = test.branches_covered & uncovered
             marginal = len(marginal_set)
-            efficiency = marginal / test.duration_s if test.duration_s > 0 else 0.0
+            # If duration is 0, it's infinitely efficient if it has marginal coverage
+            efficiency = marginal / test.duration_s if test.duration_s > 0 else (float("inf") if marginal > 0 else 0.0)
 
             # Tie-breaking: higher efficiency -> higher marginal -> shorter duration -> alpha test_id
             is_better = efficiency > best_efficiency or (
