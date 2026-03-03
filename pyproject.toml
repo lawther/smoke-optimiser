@@ -6,23 +6,31 @@ build-backend = "hatchling.build"
 name = "smoke-optimiser"
 version = "0.1.0"
 requires-python = ">=3.12"
-description = "A Python CLI tool and pytest plugin to identify a minimal smoke test suite."
+description = "A Python CLI tool and pytest plugin to identify and run a minimal smoke test suite."
+readme = "README.md"
 license = { text = "MIT" }
 authors = [
-    { name = "Mikel", email = "mikel@example.com" }
+    { name = "Mike Lawther", email = "mike.lawther@gmail.com" }
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
 ]
 dependencies = [
-    "typer>=0.9",
-    "pydantic>=2.0",
-    "ijson>=3.0",
-    "coverage>=7.0",
-    "pytest>=7.0",
-    "pytest-cov>=4.0"
+    "typer~=0.9",
+    "pydantic~=2.0",
+    "coverage~=7.0",
+    "pytest~=9.0",
+    "pytest-cov~=7.0",
+    "ijson~=3.5",
 ]
 
 [project.optional-dependencies]
-machine = ["psutil>=5.0"]
-dev = ["ruff>=0.4", "pytest"]
+machine = ["psutil~=7.0"]
+dev = ["ruff~=0.15", "pytest"]
 
 [project.scripts]
 smoke-optimiser = "smoke_optimiser.__main__:main"
@@ -102,6 +110,6 @@ filterwarnings = [
 
 [dependency-groups]
 dev = [
-    "pytest-randomly>=4.0.1",
-    "pytest-timeout>=2.4.0",
+    "pytest-randomly~=4.0",
+    "pytest-timeout~=2.4",
 ]

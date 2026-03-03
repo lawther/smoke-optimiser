@@ -490,22 +490,22 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "coverage", specifier = ">=7.0" },
-    { name = "ijson", specifier = ">=3.0" },
-    { name = "psutil", marker = "extra == 'machine'", specifier = ">=5.0" },
-    { name = "pydantic", specifier = ">=2.0" },
-    { name = "pytest", specifier = ">=7.0" },
+    { name = "coverage", specifier = "~=7.0" },
+    { name = "ijson", specifier = "~=3.5" },
+    { name = "psutil", marker = "extra == 'machine'", specifier = "~=7.0" },
+    { name = "pydantic", specifier = "~=2.0" },
+    { name = "pytest", specifier = "~=9.0" },
     { name = "pytest", marker = "extra == 'dev'" },
-    { name = "pytest-cov", specifier = ">=4.0" },
-    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.4" },
-    { name = "typer", specifier = ">=0.9" },
+    { name = "pytest-cov", specifier = "~=7.0" },
+    { name = "ruff", marker = "extra == 'dev'", specifier = "~=0.15" },
+    { name = "typer", specifier = "~=0.9" },
 ]
 provides-extras = ["machine", "dev"]
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "pytest-randomly", specifier = ">=4.0.1" },
-    { name = "pytest-timeout", specifier = ">=2.4.0" },
+    { name = "pytest-randomly", specifier = "~=4.0" },
+    { name = "pytest-timeout", specifier = "~=2.4" },
 ]
 
 [[package]]
