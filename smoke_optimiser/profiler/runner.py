@@ -1,5 +1,6 @@
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -126,7 +127,7 @@ def run_profiling(config: ResolvedConfig, project_root: Path) -> ProfilingData:
 
         has_cov_arg = False
         if config.pytest_args:
-            args = config.pytest_args.split()
+            args = shlex.split(config.pytest_args)
             pytest_cmd.extend(args)
             has_cov_arg = any(arg.startswith("--cov") for arg in args)
 
