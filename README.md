@@ -6,11 +6,16 @@ It helps you find the "bang for buck" sweet spot: for example, achieving 80% of 
 
 ## Installation
 
-Since this project is currently in development, you can install it into your own projects as an editable development dependency:
+Add `smoke-optimiser` as a development dependency in your project:
 
 ```bash
-# Navigate to YOUR project and run:
-uv add --dev --editable /path/to/smoke-optimiser
+uv add --dev smoke-optimiser
+```
+
+Or with pip:
+
+```bash
+pip install --dev smoke-optimiser
 ```
 
 This will make the `smoke-optimiser` command available in your environment and register the pytest plugin automatically.

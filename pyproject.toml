@@ -8,10 +8,11 @@ version = "0.1.0"
 requires-python = ">=3.12"
 description = "A Python CLI tool and pytest plugin to identify and run a minimal smoke test suite."
 readme = "README.md"
-license = { text = "MIT" }
+license = { file = "LICENSE" }
 authors = [
     { name = "Mike Lawther", email = "mike.lawther@gmail.com" }
 ]
+keywords = ["pytest", "testing", "smoke-test", "coverage", "optimisation"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
@@ -27,6 +28,11 @@ dependencies = [
     "pytest-cov~=7.0",
     "ijson~=3.5",
 ]
+
+[project.urls]
+"Homepage" = "https://github.com/lawther/smoke-optimiser"
+"Repository" = "https://github.com/lawther/smoke-optimiser"
+"Bug Tracker" = "https://github.com/lawther/smoke-optimiser/issues"
 
 [project.optional-dependencies]
 machine = ["psutil~=7.0"]
@@ -106,6 +112,16 @@ filterwarnings = [
     "error::pytest.PytestUnraisableExceptionWarning",
     "error::pytest_cov.engine.CentralCovContextWarning",
     "error::coverage.exceptions.CoverageWarning",
+]
+
+[tool.hatch.build.targets.sdist]
+exclude = [
+    "/.claude",
+    "/CLAUDE.md",
+    "/GEMINI.md",
+    "/PRD-smoke-optimiser.md",
+    "/uv.lock",
+    "/tests",
 ]
 
 [dependency-groups]
