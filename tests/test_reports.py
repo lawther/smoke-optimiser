@@ -164,7 +164,7 @@ def test_smoke_suite_roundtrip(tmp_path: Path) -> None:
 
     loaded = read_smoke_suite(output_file)
     assert loaded.summary.total_branches == TOTAL_BRANCHES
-    assert loaded.machine["os"] == "Linux"
+    assert loaded.machine.os == "Linux"
 
 
 def test_format_summary() -> None:

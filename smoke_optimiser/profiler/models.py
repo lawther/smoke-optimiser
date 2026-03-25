@@ -48,6 +48,21 @@ class ProfilingOutcomeModel(BaseModel):
     markers: list[str]
 
 
+class MachineModel(BaseModel):
+    """Pydantic model for MachineEnvironment validation."""
+
+    os: str | None = None
+    os_version: str | None = None
+    platform: str | None = None
+    architecture: str | None = None
+    cpu_model: str | None = None
+    cpu_cores_physical: int | None = None
+    cpu_cores_logical: int | None = None
+    ram_total_mb: int | None = None
+    ram_available_mb: int | None = None
+    hostname: str | None = None
+
+
 class ProfilingMetaModel(BaseModel):
     """Pydantic model for ProfilingMeta validation."""
 
@@ -56,7 +71,7 @@ class ProfilingMetaModel(BaseModel):
     python_version: str
     coverage_version: str
     command: str
-    machine: dict[str, str | int | None]
+    machine: MachineModel
 
 
 class ProfilingDataFile(BaseModel):
@@ -68,18 +83,7 @@ class ProfilingDataFile(BaseModel):
 
     def to_profiling_data(self) -> ProfilingData:
         """Convert Pydantic model to internal frozen dataclasses."""
-        machine_env = MachineEnvironment(
-            os=self.meta.machine.get("os"),  # type: ignore[arg-type]
-            os_version=self.meta.machine.get("os_version"),  # type: ignore[arg-type]
-            platform=self.meta.machine.get("platform"),  # type: ignore[arg-type]
-            architecture=self.meta.machine.get("architecture"),  # type: ignore[arg-type]
-            cpu_model=self.meta.machine.get("cpu_model"),  # type: ignore[arg-type]
-            cpu_cores_physical=self.meta.machine.get("cpu_cores_physical"),  # type: ignore[arg-type]
-            cpu_cores_logical=self.meta.machine.get("cpu_cores_logical"),  # type: ignore[arg-type]
-            ram_total_mb=self.meta.machine.get("ram_total_mb"),  # type: ignore[arg-type]
-            ram_available_mb=self.meta.machine.get("ram_available_mb"),  # type: ignore[arg-type]
-            hostname=self.meta.machine.get("hostname"),  # type: ignore[arg-type]
-        )
+        machine_env = MachineEnvironment(**self.meta.machine.model_dump())
 
         meta = ProfilingMeta(
             timestamp=self.meta.timestamp,

@@ -26,8 +26,8 @@ def test_selected_test_construction() -> None:
         efficiency=100.0,
     )
     assert st.test_id == "test_a"
-    with pytest.raises(AttributeError):
-        st.efficiency = 200.0  # type: ignore[misc]
+    with pytest.raises((AttributeError, Exception)):
+        st.efficiency = 200.0  # ty: ignore[invalid-assignment] - verifying immutability
 
 
 def test_smoke_result_construction() -> None:

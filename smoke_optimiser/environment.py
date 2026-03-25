@@ -6,7 +6,7 @@ from dataclasses import dataclass
 try:
     import psutil
 except ImportError:
-    psutil = None  # type: ignore[assignment]
+    psutil = None  # ty: ignore[invalid-assignment] - psutil is an optional dependency
 
 
 @dataclass(frozen=True)
@@ -38,10 +38,14 @@ def _get_cpu_model() -> str | None:
         try:
             with open("/proc/cpuinfo") as f:
                 for line in f:
-                    if "model name" in line:
+                    if line.startswith("model name"):
                         return line.split(":")[1].strip()
         except (OSError, IndexError):
             pass
+    elif platform.system() == "Windows":
+        # On Windows, use platform
+        return platform.processor()
+
     return None
 
 

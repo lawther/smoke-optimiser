@@ -20,5 +20,5 @@ def test_capture_environment_immutability() -> None:
     assert dataclasses.is_dataclass(env)
 
     # A better way is trying to set an attribute
-    with pytest.raises(AttributeError):
-        env.os = "OtherOS"  # type: ignore[misc]
+    with pytest.raises((AttributeError, dataclasses.FrozenInstanceError)):
+        env.os = "OtherOS"  # ty: ignore[invalid-assignment] - verifying immutability

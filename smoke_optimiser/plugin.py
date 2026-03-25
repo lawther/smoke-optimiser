@@ -114,7 +114,7 @@ def pytest_report_header(config: pytest.Config) -> str | None:
     path = config.getoption("--smoke-file-path")
     count = len(suite.smoke_tests)
     cov = suite.summary.smoke_coverage_pct
-    machine = suite.machine.get("hostname", "unknown machine")
+    machine = suite.machine.hostname or "unknown machine"
 
     return (
         f"smoke-optimiser: running smoke suite from {path} ({count} tests, {cov:.1f}% coverage, profiled on {machine})"

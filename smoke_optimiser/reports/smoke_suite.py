@@ -6,7 +6,7 @@ from pydantic import BaseModel
 
 from smoke_optimiser.config import ResolvedConfig
 from smoke_optimiser.optimiser.models import SmokeResult
-from smoke_optimiser.profiler.models import ProfilingMeta
+from smoke_optimiser.profiler.models import MachineModel, ProfilingMeta
 from smoke_optimiser.reports.repro import build_repro_command
 
 
@@ -37,6 +37,15 @@ class SummaryModel(BaseModel):
     smoke_suite_runtime_s: float
 
 
+class SmokeConfigModel(BaseModel):
+    """Configuration saved in the smoke suite file."""
+
+    time_cap: float = 0.0
+    target_cov: float = 0.0
+    include_mandatory: list[str] = []
+    exclude_mandatory: list[str] = []
+
+
 class SmokeSuiteFile(BaseModel):
     """Schema for .smoke_suite.json."""
 
@@ -44,8 +53,8 @@ class SmokeSuiteFile(BaseModel):
     generated_at: datetime
     generator_version: str = "0.1.0"
     repro_command: str
-    machine: dict[str, str | int | None]
-    config: dict[str, str | float | list[str] | bool]
+    machine: MachineModel
+    config: SmokeConfigModel
     summary: SummaryModel
     smoke_tests: list[SelectedTestModel]
     coverage_equivalents: list[CoverageEquivalentGroupModel]
@@ -58,27 +67,28 @@ def write_smoke_suite(
     output_path: Path,
 ) -> None:
     """Write the smoke suite definition to a JSON file."""
-    # Convert machine environment to dict
-    machine_dict = {
-        "os": meta.machine.os,
-        "os_version": meta.machine.os_version,
-        "platform": meta.machine.platform,
-        "architecture": meta.machine.architecture,
-        "cpu_model": meta.machine.cpu_model,
-        "cpu_cores_physical": meta.machine.cpu_cores_physical,
-        "cpu_cores_logical": meta.machine.cpu_cores_logical,
-        "ram_total_mb": meta.machine.ram_total_mb,
-        "ram_available_mb": meta.machine.ram_available_mb,
-        "hostname": meta.machine.hostname,
-    }
+    # Convert machine environment to model
+    machine = meta.machine
+    machine_model = MachineModel(
+        os=machine.os,
+        os_version=machine.os_version,
+        platform=machine.platform,
+        architecture=machine.architecture,
+        cpu_model=machine.cpu_model,
+        cpu_cores_physical=machine.cpu_cores_physical,
+        cpu_cores_logical=machine.cpu_cores_logical,
+        ram_total_mb=machine.ram_total_mb,
+        ram_available_mb=machine.ram_available_mb,
+        hostname=machine.hostname,
+    )
 
-    # Convert config to dict
-    config_dict = {
-        "time_cap": config.time_cap,
-        "target_cov": config.target_cov,
-        "include_mandatory": config.include_mandatory,
-        "exclude_mandatory": config.exclude_mandatory,
-    }
+    # Convert config to model
+    config_model = SmokeConfigModel(
+        time_cap=config.time_cap,
+        target_cov=config.target_cov,
+        include_mandatory=config.include_mandatory,
+        exclude_mandatory=config.exclude_mandatory,
+    )
 
     summary = SummaryModel(
         total_tests_profiled=result.total_tests_profiled,
@@ -116,8 +126,8 @@ def write_smoke_suite(
     suite = SmokeSuiteFile(
         generated_at=meta.timestamp,
         repro_command=build_repro_command(config),
-        machine=machine_dict,
-        config=config_dict,
+        machine=machine_model,
+        config=config_model,
         summary=summary,
         smoke_tests=smoke_tests,
         coverage_equivalents=equivalents,

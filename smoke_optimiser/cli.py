@@ -8,6 +8,7 @@ from smoke_optimiser.config import OperationMode, load_file_config, resolve_conf
 from smoke_optimiser.optimiser.filters import apply_filters
 from smoke_optimiser.optimiser.greedy import optimise
 from smoke_optimiser.profiler.models import (
+    MachineModel,
     ProfilingDataFile,
     ProfilingMetaModel,
     ProfilingOutcomeModel,
@@ -144,24 +145,26 @@ def main(
 
         if config.mode == OperationMode.PROFILE_ONLY:
             # Save intermediate data
+            machine = profiling_data.meta.machine
+            machine_model = MachineModel(
+                os=machine.os,
+                os_version=machine.os_version,
+                platform=machine.platform,
+                architecture=machine.architecture,
+                cpu_model=machine.cpu_model,
+                cpu_cores_physical=machine.cpu_cores_physical,
+                cpu_cores_logical=machine.cpu_cores_logical,
+                ram_total_mb=machine.ram_total_mb,
+                ram_available_mb=machine.ram_available_mb,
+                hostname=machine.hostname,
+            )
             meta_model = ProfilingMetaModel(
                 timestamp=profiling_data.meta.timestamp,
                 commit=profiling_data.meta.commit,
                 python_version=profiling_data.meta.python_version,
                 coverage_version=profiling_data.meta.coverage_version,
                 command=profiling_data.meta.command,
-                machine={
-                    "os": profiling_data.meta.machine.os,
-                    "os_version": profiling_data.meta.machine.os_version,
-                    "platform": profiling_data.meta.machine.platform,
-                    "architecture": profiling_data.meta.machine.architecture,
-                    "cpu_model": profiling_data.meta.machine.cpu_model,
-                    "cpu_cores_physical": profiling_data.meta.machine.cpu_cores_physical,
-                    "cpu_cores_logical": profiling_data.meta.machine.cpu_cores_logical,
-                    "ram_total_mb": profiling_data.meta.machine.ram_total_mb,
-                    "ram_available_mb": profiling_data.meta.machine.ram_available_mb,
-                    "hostname": profiling_data.meta.machine.hostname,
-                },
+                machine=machine_model,
             )
             test_models = {
                 tid: ProfilingOutcomeModel(

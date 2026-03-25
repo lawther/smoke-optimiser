@@ -1,10 +1,16 @@
 # Python Code Style
 
 - All code must be type-hinted.
-- All code must pass the project's linting rules.
+- All code must pass the project's linting and type checking rules.
   - DO NOT edit any linting rules from pyproject.toml. They are there for a reason. You must comply with them.
   - Use `uv run ruff check --fix` to check and fix the code.
   - Use `uv run ruff format` to format the code.
+  - Use `uv run ty check` to type check the code.
+  - The ONLY exception is in test code if that code must violate a rule to produce a good test. In this case, you MUST document WHY you are breaking a rule. Example:
+      ``` python
+      with pytest.raises((AttributeError, Exception)):
+          st.efficiency = 200.0    # ty: ignore[invalid-assignment] - verifying immutability   
+      ```
 - Any data loaded from a file or external source (e.g. YAML, TOML, JSON, HTTP) must be validated against a Pydantic model. Never trust outside data. This includes data we may have written ourselves to a file - it may have been edited in between writing and reading.
 - Data that is wholly internal to the application should be represented using standard Python classes or dataclasses. Pydantic validation is not necessary.
 - Use Enums whereever possible. Do not create/pass around 'magic' strings or integers when there is a fixed set of values.
