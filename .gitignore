@@ -6,3 +6,9 @@ dist/
 *.pyc
 .pytest_cache/
 .smoke_suite.json
+.smoke_profiling_data.json
+.smoke_outcomes.json
+.smoke_optimiser_coverage.json
+_smoke_hook.py
+.smoke_coveragerc
+.gstack/
