@@ -2,3 +2,8 @@
 **Vulnerability:** Found `os.popen(command)` being used for system commands and string `.split()` for parsing command arguments instead of `shlex.split()`.
 **Learning:** `os.popen` passes the command to a shell, which can expose the application to shell command injection if any part of the command is constructed with unvalidated input. Using `.split()` on command line arguments ignores quotes and escapes, which can cause argument confusion and potentially execute unintended flags or parameters.
 **Prevention:** Always use `subprocess.run(..., shell=False)` for system commands, passing arguments as a list to avoid the shell altogether. For parsing user-provided command strings into argument lists, always use `shlex.split()` to correctly handle shell-like syntax safely.
+
+## 2024-06-05 - Insecure PYTHONPATH Empty String Injection
+**Vulnerability:** The test runner was constructing `PYTHONPATH` using `str(project_root) + os.pathsep + env.get("PYTHONPATH", "")`. If `PYTHONPATH` is not set, this results in a trailing path separator (e.g. `/my/project:`).
+**Learning:** In Python, an empty string in `PYTHONPATH` (which is implied by a trailing colon or consecutive colons) instructs Python to search for modules in the current working directory. This exposes the application to arbitrary code execution if an attacker places a malicious module (e.g., `os.py` or `json.py`) in the working directory from which the application is run.
+**Prevention:** When dynamically constructing paths, especially `PYTHONPATH` or `PATH`, conditionally append the separator and existing environment variable only if the existing variable is non-empty. Do not use generic string concatenation with a default empty string.
