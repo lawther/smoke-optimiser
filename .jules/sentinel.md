@@ -1,0 +1,4 @@
+## 2024-05-31 - Insecure System Command Execution and Argument Parsing
+**Vulnerability:** Found `os.popen(command)` being used for system commands and string `.split()` for parsing command arguments instead of `shlex.split()`.
+**Learning:** `os.popen` passes the command to a shell, which can expose the application to shell command injection if any part of the command is constructed with unvalidated input. Using `.split()` on command line arguments ignores quotes and escapes, which can cause argument confusion and potentially execute unintended flags or parameters.
+**Prevention:** Always use `subprocess.run(..., shell=False)` for system commands, passing arguments as a list to avoid the shell altogether. For parsing user-provided command strings into argument lists, always use `shlex.split()` to correctly handle shell-like syntax safely.
