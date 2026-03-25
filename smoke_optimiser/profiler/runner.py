@@ -108,7 +108,11 @@ def run_profiling(config: ResolvedConfig, project_root: Path) -> ProfilingData:
     final_markers: dict[str, frozenset[str]] = {}
 
     env = os.environ.copy()
-    env["PYTHONPATH"] = str(project_root) + os.pathsep + env.get("PYTHONPATH", "")
+    current_pythonpath = env.get("PYTHONPATH", "")
+    if current_pythonpath:
+        env["PYTHONPATH"] = str(project_root) + os.pathsep + current_pythonpath
+    else:
+        env["PYTHONPATH"] = str(project_root)
 
     for i in range(config.iterations):
         if config.iterations > 1:
