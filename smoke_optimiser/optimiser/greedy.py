@@ -46,28 +46,47 @@ def optimise(
         elapsed_time += outcome.duration_s
 
     # 2. Greedy selection
-    candidates = list(filtered.candidates.values())
+
+    # Pre-calculate candidate branches and keep them in a mutable list.
+    # We dynamically remove branches that are already covered to avoid computing
+    # `test.branches_covered & uncovered` on every iteration.
+    candidates = []
+    for test in filtered.candidates.values():
+        # Only track branches that are part of the target population and not already covered
+        valid_branches = test.branches_covered & total_branches - covered_set
+        if valid_branches:
+            candidates.append([test.test_id, set(valid_branches), test.duration_s, test.branches_covered])
+
     target_count = (target_cov / 100.0) * len(total_branches)
 
     while len(covered_set) < target_count:
-        uncovered = total_branches - covered_set
-        if not uncovered:
+        if len(total_branches) == len(covered_set):
             break
 
-        best_test = None
+        best_idx = -1
         best_efficiency = -1.0
         best_marginal = -1
         best_duration = float("inf")
+        best_test_id = ""
 
-        for test in candidates:
-            # Check if adding this test would exceed the time cap
-            if elapsed_time + test.duration_s > time_cap:
+        for idx, candidate in enumerate(candidates):
+            if candidate is None:
                 continue
 
-            marginal_set = test.branches_covered & uncovered
-            marginal = len(marginal_set)
+            test_id, branches, duration, orig_branches = candidate
+
+            # Check if adding this test would exceed the time cap
+            if elapsed_time + duration > time_cap:
+                continue
+
+            marginal = len(branches)
+            if marginal == 0:
+                # Test provides no more marginal coverage; drop it from future checks
+                candidates[idx] = None
+                continue
+
             # If duration is 0, it's infinitely efficient if it has marginal coverage
-            efficiency = marginal / test.duration_s if test.duration_s > 0 else (float("inf") if marginal > 0 else 0.0)
+            efficiency = marginal / duration if duration > 0 else (float("inf") if marginal > 0 else 0.0)
 
             # Tie-breaking: higher efficiency -> higher marginal -> shorter duration -> alpha test_id
             is_better = efficiency > best_efficiency or (
@@ -77,37 +96,50 @@ def optimise(
                     or (
                         marginal == best_marginal
                         and (
-                            test.duration_s < best_duration
-                            or (
-                                test.duration_s == best_duration
-                                and (best_test is None or test.test_id < best_test.test_id)
-                            )
+                            duration < best_duration
+                            or (duration == best_duration and (best_idx == -1 or test_id < best_test_id))
                         )
                     )
                 )
             )
 
             if is_better:
-                best_test = test
+                best_idx = idx
                 best_efficiency = efficiency
                 best_marginal = marginal
-                best_duration = test.duration_s
+                best_duration = duration
+                best_test_id = test_id
 
-        if best_test is None or best_marginal == 0:
+        if best_idx == -1 or best_marginal == 0:
             break
+
+        winner = candidates[best_idx]
+        test_id, branches, duration, orig_branches = winner
 
         selected_tests.append(
             SelectedTest(
-                test_id=best_test.test_id,
-                duration_s=best_test.duration_s,
-                branches_covered=len(best_test.branches_covered),
+                test_id=test_id,
+                duration_s=duration,
+                branches_covered=len(orig_branches),
                 marginal_branches=best_marginal,
                 efficiency=best_efficiency,
             )
         )
-        covered_set.update(best_test.branches_covered)
-        elapsed_time += best_test.duration_s
-        candidates.remove(best_test)
+
+        # Keep track of what was just added to dynamically subtract from candidates
+        new_covered = branches.copy()
+
+        # Ensure we add ALL originally covered branches to the global tracking set
+        covered_set.update(orig_branches)
+        elapsed_time += duration
+
+        # Remove the selected test
+        candidates[best_idx] = None
+
+        # Update remaining candidates efficiently in-place
+        for candidate in candidates:
+            if candidate is not None:
+                candidate[1] -= new_covered
 
     # 3. Stats and equivalents
     all_passed = {

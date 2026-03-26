@@ -1,5 +1,6 @@
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -107,7 +108,11 @@ def run_profiling(config: ResolvedConfig, project_root: Path) -> ProfilingData:
     final_markers: dict[str, frozenset[str]] = {}
 
     env = os.environ.copy()
-    env["PYTHONPATH"] = str(project_root) + os.pathsep + env.get("PYTHONPATH", "")
+    current_pythonpath = env.get("PYTHONPATH", "")
+    if current_pythonpath:
+        env["PYTHONPATH"] = str(project_root) + os.pathsep + current_pythonpath
+    else:
+        env["PYTHONPATH"] = str(project_root)
 
     for i in range(config.iterations):
         if config.iterations > 1:
@@ -126,7 +131,7 @@ def run_profiling(config: ResolvedConfig, project_root: Path) -> ProfilingData:
 
         has_cov_arg = False
         if config.pytest_args:
-            args = config.pytest_args.split()
+            args = shlex.split(config.pytest_args)
             pytest_cmd.extend(args)
             has_cov_arg = any(arg.startswith("--cov") for arg in args)
 

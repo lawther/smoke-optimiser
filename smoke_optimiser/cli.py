@@ -88,13 +88,14 @@ def main(
 ) -> None:
     """smoke-optimiser: Identify a minimal, high-value smoke test suite."""
     if profile_only and optimise_only:
-        typer.echo("Error: --profile-only and --optimise-only are mutually exclusive.", err=True)
+        typer.secho("Error: --profile-only and --optimise-only are mutually exclusive.", fg=typer.colors.RED, err=True)
         raise typer.Exit(code=1)
 
     # Conflict check: --src and --cov in --pytest-args
     if src and pytest_args and "--cov" in pytest_args:
-        typer.echo(
+        typer.secho(
             "Error: Conflict detected. Cannot use --src and --cov in --pytest-args simultaneously.",
+            fg=typer.colors.RED,
             err=True,
         )
         raise typer.Exit(code=1)
@@ -190,8 +191,9 @@ def main(
         if profiling_data is None:
             # Try to load from intermediate file if it exists
             if not intermediate_file.exists():
-                typer.echo(
+                typer.secho(
                     "Error: No profiling data found. Run without --optimise-only first.",
+                    fg=typer.colors.RED,
                     err=True,
                 )
                 raise typer.Exit(code=1)

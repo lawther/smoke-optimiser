@@ -1,6 +1,7 @@
 import os
 import platform
 import socket
+import subprocess
 from dataclasses import dataclass
 
 try:
@@ -30,7 +31,9 @@ def _get_cpu_model() -> str | None:
     if platform.system() == "Darwin":
         # On macOS, we can use sysctl
         try:
-            return os.popen("sysctl -n machdep.cpu.brand_string").read().strip()
+            return subprocess.run(
+                ["sysctl", "-n", "machdep.cpu.brand_string"], capture_output=True, text=True, check=False
+            ).stdout.strip()
         except (OSError, ValueError):
             return None
     elif platform.system() == "Linux":
