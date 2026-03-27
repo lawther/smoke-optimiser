@@ -182,6 +182,7 @@ def main(
                 tests=test_models,
                 total_branches=list(profiling_data.total_branches),
             )
+            intermediate_file.unlink(missing_ok=True)
             with open(intermediate_file, "w") as f:
                 json.dump(file_data.model_dump(mode="json"), f)
             typer.echo(f"Profiling data saved to {intermediate_file}")

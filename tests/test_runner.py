@@ -1,3 +1,4 @@
+import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -41,10 +42,19 @@ def test_run_profiling_basic(mock_parse: MagicMock, mock_run: MagicMock, tmp_pat
     mock_run.return_value = MagicMock(returncode=0, stdout="pytest-randomly")
     mock_parse.return_value = MagicMock()
 
-    # Create dummy coverage file so check doesn't fail
-    (tmp_path / ".smoke_optimiser_coverage.json").touch()
-
     with patch("shutil.which", return_value="/usr/bin/pytest"):
+
+        def side_effect(*args: object, **kwargs: object) -> MagicMock:
+            if (
+                isinstance(args[0], list)
+                and args[0][0] == sys.executable
+                and "coverage" in args[0]
+                and "json" in args[0]
+            ):
+                (tmp_path / ".smoke_optimiser_coverage.json").touch()
+            return MagicMock(returncode=0, stdout="pytest-randomly")
+
+        mock_run.side_effect = side_effect
         run_profiling(config, tmp_path)
 
     # Verify pytest command

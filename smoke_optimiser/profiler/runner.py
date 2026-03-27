@@ -36,6 +36,11 @@ def pytest_runtest_makereport(item, call):
 def pytest_unconfigure(config):
     if hasattr(config, '_smoke_outcomes'):
         # Unique name per worker if needed, but here we just need one
+        try:
+            import os
+            os.unlink('.smoke_outcomes.json')
+        except OSError:
+            pass
         with open('.smoke_outcomes.json', 'w') as f:
             json.dump(config._smoke_outcomes, f)
 """
@@ -97,6 +102,10 @@ def run_profiling(config: ResolvedConfig, project_root: Path) -> ProfilingData:
     outcomes_json = project_root / ".smoke_outcomes.json"
     hook_file = project_root / "_smoke_hook.py"
     coveragerc = project_root / ".smoke_coveragerc"
+
+    # Remove any existing files/symlinks to prevent arbitrary file overwrite attacks
+    for f in [coverage_json, outcomes_json, hook_file, coveragerc, project_root / ".coverage"]:
+        f.unlink(missing_ok=True)
 
     hook_file.write_text(PYTEST_HOOK_CODE)
     coveragerc.write_text(COVERAGERC_CONTENT)
