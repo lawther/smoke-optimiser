@@ -147,19 +147,28 @@ def optimise(
         **filtered.mandatory_included,
         **filtered.excluded,
     }
-    hash_to_tests = defaultdict(list)
+
+    # Pre-group tests by the exact set of branches they cover.
+    # frozensets are hashable, so we can use them as dict keys directly
+    # instead of performing expensive string sorting and SHA-256 hashing
+    # on every single test.
+    set_to_tests = defaultdict(list)
+    for test_id, outcome in all_passed.items():
+        set_to_tests[outcome.branches_covered].append(test_id)
 
     # Calculate full suite coverage
     full_suite_coverage_set: set[str] = set()
-    for test_id, outcome in all_passed.items():
-        h = _get_branch_set_hash(outcome.branches_covered)
-        hash_to_tests[h].append(test_id)
-        full_suite_coverage_set.update(outcome.branches_covered)
 
     equivalents = []
     group_id = 1
-    for h, test_ids in hash_to_tests.items():
+    for branches, test_ids in set_to_tests.items():
+        # Update full suite coverage only once per unique set of branches
+        full_suite_coverage_set.update(branches)
+
+        # Only compute the expensive branch set hash if we actually have
+        # an equivalent group (i.e. > 1 test covering the exact same branches)
         if len(test_ids) > 1:
+            h = _get_branch_set_hash(branches)
             equivalents.append(
                 CoverageEquivalentGroup(
                     group_id=group_id,
