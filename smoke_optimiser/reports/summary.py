@@ -26,10 +26,7 @@ def format_summary(result: SmokeResult, config: ResolvedConfig, meta: ProfilingM
         if result.tests_failed > 0
         else f"{result.tests_failed} failed"
     )
-    profiled_line = (
-        f"  Profiled:     {passed_str}, {failed_str} "
-        f"({result.total_tests_profiled} total)"
-    )
+    profiled_line = f"  Profiled:     {passed_str}, {failed_str} ({result.total_tests_profiled} total)"
 
     full_suite_cov_pct = (
         (result.full_suite_branches_covered / result.total_branches * 100.0) if result.total_branches > 0 else 0.0
