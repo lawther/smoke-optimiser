@@ -12,3 +12,4 @@ dist/
 _smoke_hook.py
 .smoke_coveragerc
 .gstack/
+.jules/
