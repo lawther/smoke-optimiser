@@ -17,6 +17,7 @@ from smoke_optimiser.profiler.parser import parse_coverage_json
 # Minimal inline pytest plugin to capture exact node IDs, durations, outcomes, and markers
 PYTEST_HOOK_CODE = """
 import json
+import os
 import pytest
 
 def pytest_configure(config):
@@ -36,12 +37,12 @@ def pytest_runtest_makereport(item, call):
 def pytest_unconfigure(config):
     if hasattr(config, '_smoke_outcomes'):
         # Unique name per worker if needed, but here we just need one
+        outcomes_file = os.environ.get('SMOKE_OUTCOMES_JSON', '.smoke_outcomes.json')
         try:
-            import os
-            os.unlink('.smoke_outcomes.json')
+            os.unlink(outcomes_file)
         except OSError:
             pass
-        with open('.smoke_outcomes.json', 'w') as f:
+        with open(outcomes_file, 'w') as f:
             json.dump(config._smoke_outcomes, f)
 """
 
@@ -122,6 +123,7 @@ def run_profiling(config: ResolvedConfig, project_root: Path) -> ProfilingData:
         env["PYTHONPATH"] = str(project_root) + os.pathsep + current_pythonpath
     else:
         env["PYTHONPATH"] = str(project_root)
+    env["SMOKE_OUTCOMES_JSON"] = str(outcomes_json)
 
     for i in range(config.iterations):
         if config.iterations > 1:

@@ -11,3 +11,8 @@
 **Vulnerability:** Found predictable temporary files like `.smoke_outcomes.json` and `_smoke_hook.py` being opened in write mode (`with open(..., 'w')` or `.write_text()`) without first checking or unlinking existing files.
 **Learning:** This exposes the application to a Symlink Attack (CWE-59). An attacker could pre-create a symlink at the predictable location pointing to a sensitive file (e.g., `/etc/passwd` or `~/.bashrc`). When the application writes to this predictable file path, it unwittingly overwrites the target file with the application's output, leading to data corruption, denial of service, or potentially privilege escalation.
 **Prevention:** Always use safe temporary file creation methods like `tempfile.NamedTemporaryFile`. If writing to predictable static paths in a shared directory, always `unlink` the file first (handling `FileNotFoundError` or using `Path.unlink(missing_ok=True)`) before opening it for writing, to ensure any existing symlink is destroyed.
+
+## 2024-03-27 - Insecure Relative Path in Subprocess Hooks
+**Vulnerability:** The profiling hook used an unqualified relative path (`.smoke_outcomes.json`) to store test outcomes. If a test changes the working directory (`os.chdir()`), the output file could be written elsewhere, breaking the optimiser or creating files in uncontrolled directories (Path Traversal risk in unsafe contexts).
+**Learning:** Hardcoded relative paths in inline test hooks (or subprocess codes) are fragile and insecure when the context (e.g., CWD) is not strictly controlled.
+**Prevention:** Always use absolute paths passed dynamically via environment variables or string formatting when executing hooks or scripts in a subprocess.
