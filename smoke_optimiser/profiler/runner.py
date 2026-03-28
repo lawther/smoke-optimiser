@@ -73,7 +73,7 @@ def check_prerequisites(config: ResolvedConfig) -> None:
                 fg=typer.colors.YELLOW,
                 err=True,
             )
-            typer.echo("Use --allow-ordered to suppress this check.", err=True)
+            typer.secho("💡 Use --allow-ordered to suppress this check.", fg=typer.colors.YELLOW, err=True)
             sys.exit(1)
 
 
@@ -125,7 +125,7 @@ def run_profiling(config: ResolvedConfig, project_root: Path) -> ProfilingData:
 
     for i in range(config.iterations):
         if config.iterations > 1:
-            typer.echo(f"  Iteration {i + 1}/{config.iterations}...")
+            typer.secho(f"  🔄 Iteration {i + 1}/{config.iterations}...", fg=typer.colors.CYAN)
 
         pytest_cmd = [
             sys.executable,
