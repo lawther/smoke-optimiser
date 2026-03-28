@@ -137,3 +137,40 @@ def test_optimise_coverage_equivalents() -> None:
     assert len(result.coverage_equivalents) == 1
     assert set(result.coverage_equivalents[0].tests) == {"test_a", "test_b"}
     assert result.full_suite_branches_covered == 1
+
+
+def test_optimise_coverage_equivalents_deterministic_order() -> None:
+    """Ensure equivalent groups are sorted deterministically by their string hash."""
+    expected_equivalent_groups = 3
+    tests = {
+        # Group 1 (branches: b1)
+        "test_a1": _create_outcome("test_a1", 1.0, ["b1"]),
+        "test_a2": _create_outcome("test_a2", 1.0, ["b1"]),
+        # Group 2 (branches: b2)
+        "test_b1": _create_outcome("test_b1", 1.0, ["b2"]),
+        "test_b2": _create_outcome("test_b2", 1.0, ["b2"]),
+        # Group 3 (branches: b3)
+        "test_c1": _create_outcome("test_c1", 1.0, ["b3"]),
+        "test_c2": _create_outcome("test_c2", 1.0, ["b3"]),
+    }
+    total_branches = frozenset(["b1", "b2", "b3"])
+    filtered = FilteredTests(
+        candidates=tests,
+        mandatory_included={},
+        excluded={},
+        failed={},
+        unmatched_includes=[],
+        unmatched_excludes=[],
+    )
+
+    result = optimise(filtered, total_branches, 10.0, 100.0)
+
+    assert len(result.coverage_equivalents) == expected_equivalent_groups
+
+    # Verify the IDs are assigned in a sorted hash order
+    hashes = [eq.branch_set_hash for eq in result.coverage_equivalents]
+    assert hashes == sorted(hashes)
+
+    # Verify tests are also sorted within each group
+    for eq in result.coverage_equivalents:
+        assert list(eq.tests) == sorted(eq.tests)
