@@ -141,7 +141,7 @@ def main(
 
     # Phase 1: Profiling
     if config.mode != OperationMode.OPTIMISE_ONLY:
-        typer.echo("Running profiling...")
+        typer.secho("🔍 Running profiling...", fg=typer.colors.CYAN, bold=True)
         profiling_data = run_profiling(config, project_root)
 
         if config.mode == OperationMode.PROFILE_ONLY:
@@ -182,9 +182,10 @@ def main(
                 tests=test_models,
                 total_branches=list(profiling_data.total_branches),
             )
+            intermediate_file.unlink(missing_ok=True)
             with open(intermediate_file, "w") as f:
                 json.dump(file_data.model_dump(mode="json"), f)
-            typer.echo(f"Profiling data saved to {intermediate_file}")
+            typer.secho(f"💾 Profiling data saved to {intermediate_file}", fg=typer.colors.GREEN)
 
     # Phase 2: Optimisation
     if config.mode != OperationMode.PROFILE_ONLY:
@@ -202,7 +203,7 @@ def main(
                 raw = json.load(f)
                 profiling_data = ProfilingDataFile(**raw).to_profiling_data()
 
-        typer.echo("Optimising smoke suite...")
+        typer.secho("⚡ Optimising smoke suite...", fg=typer.colors.CYAN, bold=True)
         filtered = apply_filters(profiling_data.tests, config.include_mandatory, config.exclude_mandatory)
 
         # Warn about unmatched includes/excludes

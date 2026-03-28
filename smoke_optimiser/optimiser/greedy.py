@@ -147,27 +147,41 @@ def optimise(
         **filtered.mandatory_included,
         **filtered.excluded,
     }
-    hash_to_tests = defaultdict(list)
+
+    # Use frozenset directly as dict key for fast C-level hashing and equality checks.
+    # This avoids calculating an expensive stable string hash for every single test.
+    branch_set_to_tests: dict[frozenset[str], list[str]] = defaultdict(list)
 
     # Calculate full suite coverage
     full_suite_coverage_set: set[str] = set()
     for test_id, outcome in all_passed.items():
-        h = _get_branch_set_hash(outcome.branches_covered)
-        hash_to_tests[h].append(test_id)
+        branch_set_to_tests[outcome.branches_covered].append(test_id)
         full_suite_coverage_set.update(outcome.branches_covered)
 
     equivalents = []
     group_id = 1
-    for h, test_ids in hash_to_tests.items():
+
+    # To maintain deterministic output, we must process the groups in a stable order.
+    # We sort the groups by their stable string hash to ensure the JSON output is always the same.
+    equivalent_groups = []
+    for branches, test_ids in branch_set_to_tests.items():
         if len(test_ids) > 1:
-            equivalents.append(
-                CoverageEquivalentGroup(
-                    group_id=group_id,
-                    branch_set_hash=h,
-                    tests=tuple(sorted(test_ids)),
-                )
+            # Only compute the expensive string hash for actual equivalent groups
+            h = _get_branch_set_hash(branches)
+            equivalent_groups.append((h, tuple(sorted(test_ids))))
+
+    # Sort by hash to guarantee deterministic group IDs
+    equivalent_groups.sort(key=lambda x: x[0])
+
+    for h, test_ids in equivalent_groups:
+        equivalents.append(
+            CoverageEquivalentGroup(
+                group_id=group_id,
+                branch_set_hash=h,
+                tests=test_ids,
             )
-            group_id += 1
+        )
+        group_id += 1
 
     total_tests_profiled = (
         len(filtered.candidates) + len(filtered.mandatory_included) + len(filtered.excluded) + len(filtered.failed)

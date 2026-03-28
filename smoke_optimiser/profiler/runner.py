@@ -17,6 +17,7 @@ from smoke_optimiser.profiler.parser import parse_coverage_json
 # Minimal inline pytest plugin to capture exact node IDs, durations, outcomes, and markers
 PYTEST_HOOK_CODE = """
 import json
+import os
 import pytest
 
 def pytest_configure(config):
@@ -36,7 +37,12 @@ def pytest_runtest_makereport(item, call):
 def pytest_unconfigure(config):
     if hasattr(config, '_smoke_outcomes'):
         # Unique name per worker if needed, but here we just need one
-        with open('.smoke_outcomes.json', 'w') as f:
+        outcomes_file = os.environ.get('SMOKE_OUTCOMES_JSON', '.smoke_outcomes.json')
+        try:
+            os.unlink(outcomes_file)
+        except OSError:
+            pass
+        with open(outcomes_file, 'w') as f:
             json.dump(config._smoke_outcomes, f)
 """
 
@@ -68,7 +74,7 @@ def check_prerequisites(config: ResolvedConfig) -> None:
                 fg=typer.colors.YELLOW,
                 err=True,
             )
-            typer.echo("Use --allow-ordered to suppress this check.", err=True)
+            typer.secho("💡 Use --allow-ordered to suppress this check.", fg=typer.colors.YELLOW, err=True)
             sys.exit(1)
 
 
@@ -98,6 +104,10 @@ def run_profiling(config: ResolvedConfig, project_root: Path) -> ProfilingData:
     hook_file = project_root / "_smoke_hook.py"
     coveragerc = project_root / ".smoke_coveragerc"
 
+    # Remove any existing files/symlinks to prevent arbitrary file overwrite attacks
+    for f in [coverage_json, outcomes_json, hook_file, coveragerc, project_root / ".coverage"]:
+        f.unlink(missing_ok=True)
+
     hook_file.write_text(PYTEST_HOOK_CODE)
     coveragerc.write_text(COVERAGERC_CONTENT)
 
@@ -113,10 +123,11 @@ def run_profiling(config: ResolvedConfig, project_root: Path) -> ProfilingData:
         env["PYTHONPATH"] = str(project_root) + os.pathsep + current_pythonpath
     else:
         env["PYTHONPATH"] = str(project_root)
+    env["SMOKE_OUTCOMES_JSON"] = str(outcomes_json)
 
     for i in range(config.iterations):
         if config.iterations > 1:
-            typer.echo(f"  Iteration {i + 1}/{config.iterations}...")
+            typer.secho(f"  🔄 Iteration {i + 1}/{config.iterations}...", fg=typer.colors.CYAN)
 
         pytest_cmd = [
             sys.executable,
