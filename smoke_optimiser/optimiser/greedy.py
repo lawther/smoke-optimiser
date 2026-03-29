@@ -1,4 +1,5 @@
 import hashlib
+import heapq
 from collections import defaultdict
 
 from smoke_optimiser.optimiser.filters import FilteredTests
@@ -9,6 +10,49 @@ from smoke_optimiser.optimiser.models import (
 )
 
 EFFICIENCY_EPSILON = 1e-9
+
+
+class _CandidateNode:
+    """Represents a candidate test in the priority queue for lazy greedy selection."""
+
+    __slots__ = (
+        "branches",
+        "duration",
+        "efficiency",
+        "last_eval_cov_len",
+        "marginal",
+        "orig_branches",
+        "test_id",
+    )
+
+    def __init__(
+        self,
+        test_id: str,
+        branches: set[str],
+        duration: float,
+        orig_branches: frozenset[str],
+        efficiency: float,
+        marginal: int,
+        last_eval_cov_len: int,
+    ) -> None:
+        self.test_id = test_id
+        self.branches = branches
+        self.duration = duration
+        self.orig_branches = orig_branches
+        self.efficiency = efficiency
+        self.marginal = marginal
+        self.last_eval_cov_len = last_eval_cov_len
+
+    def __lt__(self, other: "_CandidateNode") -> bool:
+        # We want the BEST candidate to be SMALLER for heapq (max heap simulation)
+        eff_diff = self.efficiency - other.efficiency
+        if abs(eff_diff) > EFFICIENCY_EPSILON:
+            return self.efficiency > other.efficiency
+        if self.marginal != other.marginal:
+            return self.marginal > other.marginal
+        if self.duration != other.duration:
+            return self.duration < other.duration
+        return self.test_id < other.test_id
 
 
 def _get_branch_set_hash(branches: frozenset[str]) -> str:
@@ -46,100 +90,63 @@ def optimise(
         elapsed_time += outcome.duration_s
 
     # 2. Greedy selection
+    heap: list[_CandidateNode] = []
 
-    # Pre-calculate candidate branches and keep them in a mutable list.
-    # We dynamically remove branches that are already covered to avoid computing
-    # `test.branches_covered & uncovered` on every iteration.
-    candidates = []
+    # Pre-calculate candidate branches and populate the priority queue.
     for test in filtered.candidates.values():
-        # Only track branches that are part of the target population and not already covered
         valid_branches = test.branches_covered & total_branches - covered_set
         if valid_branches:
-            candidates.append([test.test_id, set(valid_branches), test.duration_s, test.branches_covered])
+            marginal = len(valid_branches)
+            dur = test.duration_s
+            eff = marginal / dur if dur > 0 else (float("inf") if marginal > 0 else 0.0)
+
+            node = _CandidateNode(
+                test_id=test.test_id,
+                branches=set(valid_branches),
+                duration=dur,
+                orig_branches=test.branches_covered,
+                efficiency=eff,
+                marginal=marginal,
+                last_eval_cov_len=len(covered_set),
+            )
+            heapq.heappush(heap, node)
 
     target_count = (target_cov / 100.0) * len(total_branches)
 
-    while len(covered_set) < target_count:
+    while heap and len(covered_set) < target_count:
         if len(total_branches) == len(covered_set):
             break
 
-        best_idx = -1
-        best_efficiency = -1.0
-        best_marginal = -1
-        best_duration = float("inf")
-        best_test_id = ""
+        node = heapq.heappop(heap)
 
-        for idx, candidate in enumerate(candidates):
-            if candidate is None:
-                continue
+        # Check if adding this test would exceed the time cap
+        if elapsed_time + node.duration > time_cap:
+            continue
 
-            test_id, branches, duration, orig_branches = candidate
-
-            # Check if adding this test would exceed the time cap
-            if elapsed_time + duration > time_cap:
-                continue
-
-            marginal = len(branches)
-            if marginal == 0:
-                # Test provides no more marginal coverage; drop it from future checks
-                candidates[idx] = None
-                continue
-
-            # If duration is 0, it's infinitely efficient if it has marginal coverage
-            efficiency = marginal / duration if duration > 0 else (float("inf") if marginal > 0 else 0.0)
-
-            # Tie-breaking: higher efficiency -> higher marginal -> shorter duration -> alpha test_id
-            is_better = efficiency > best_efficiency or (
-                abs(efficiency - best_efficiency) < EFFICIENCY_EPSILON
-                and (
-                    marginal > best_marginal
-                    or (
-                        marginal == best_marginal
-                        and (
-                            duration < best_duration
-                            or (duration == best_duration and (best_idx == -1 or test_id < best_test_id))
-                        )
-                    )
+        if node.last_eval_cov_len == len(covered_set):
+            # Up to date, it's the best!
+            selected_tests.append(
+                SelectedTest(
+                    test_id=node.test_id,
+                    duration_s=node.duration,
+                    branches_covered=len(node.orig_branches),
+                    marginal_branches=node.marginal,
+                    efficiency=node.efficiency,
                 )
             )
-
-            if is_better:
-                best_idx = idx
-                best_efficiency = efficiency
-                best_marginal = marginal
-                best_duration = duration
-                best_test_id = test_id
-
-        if best_idx == -1 or best_marginal == 0:
-            break
-
-        winner = candidates[best_idx]
-        test_id, branches, duration, orig_branches = winner
-
-        selected_tests.append(
-            SelectedTest(
-                test_id=test_id,
-                duration_s=duration,
-                branches_covered=len(orig_branches),
-                marginal_branches=best_marginal,
-                efficiency=best_efficiency,
-            )
-        )
-
-        # Keep track of what was just added to dynamically subtract from candidates
-        new_covered = branches.copy()
-
-        # Ensure we add ALL originally covered branches to the global tracking set
-        covered_set.update(orig_branches)
-        elapsed_time += duration
-
-        # Remove the selected test
-        candidates[best_idx] = None
-
-        # Update remaining candidates efficiently in-place
-        for candidate in candidates:
-            if candidate is not None:
-                candidate[1] -= new_covered
+            covered_set.update(node.orig_branches)
+            elapsed_time += node.duration
+        else:
+            # Re-evaluate
+            remaining_branches = node.branches - covered_set
+            marginal = len(remaining_branches)
+            if marginal > 0:
+                eff = marginal / node.duration if node.duration > 0 else float("inf")
+                node.branches = remaining_branches
+                node.marginal = marginal
+                node.efficiency = eff
+                node.last_eval_cov_len = len(covered_set)
+                heapq.heappush(heap, node)
 
     # 3. Stats and equivalents
     all_passed = {
