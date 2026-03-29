@@ -88,13 +88,15 @@ def main(
 ) -> None:
     """smoke-optimiser: Identify a minimal, high-value smoke test suite."""
     if profile_only and optimise_only:
-        typer.secho("Error: --profile-only and --optimise-only are mutually exclusive.", fg=typer.colors.RED, err=True)
+        typer.secho(
+            "❌ Error: --profile-only and --optimise-only are mutually exclusive.", fg=typer.colors.RED, err=True
+        )
         raise typer.Exit(code=1)
 
     # Conflict check: --src and --cov in --pytest-args
     if src and pytest_args and "--cov" in pytest_args:
         typer.secho(
-            "Error: Conflict detected. Cannot use --src and --cov in --pytest-args simultaneously.",
+            "❌ Error: Conflict detected. Cannot use --src and --cov in --pytest-args simultaneously.",
             fg=typer.colors.RED,
             err=True,
         )
@@ -131,7 +133,7 @@ def main(
         from_file = file_config and file_config.cov_source
         if not from_file:
             typer.secho(
-                f"Warning: --src was not specified. Falling back to heuristic discovery: --src={config.cov_source}",
+                f"⚠ Warning: --src was not specified. Falling back to heuristic discovery: --src={config.cov_source}",
                 fg=typer.colors.YELLOW,
                 err=True,
             )
@@ -193,7 +195,7 @@ def main(
             # Try to load from intermediate file if it exists
             if not intermediate_file.exists():
                 typer.secho(
-                    "Error: No profiling data found. Run without --optimise-only first.",
+                    "❌ Error: No profiling data found. Run without --optimise-only first.",
                     fg=typer.colors.RED,
                     err=True,
                 )
@@ -209,13 +211,13 @@ def main(
         # Warn about unmatched includes/excludes
         for pattern in filtered.unmatched_includes:
             typer.secho(
-                f"Warning: include pattern '{pattern}' matched no tests.",
+                f"⚠ Warning: include pattern '{pattern}' matched no tests.",
                 fg=typer.colors.YELLOW,
                 err=True,
             )
         for pattern in filtered.unmatched_excludes:
             typer.secho(
-                f"Warning: exclude pattern '{pattern}' matched no tests.",
+                f"⚠ Warning: exclude pattern '{pattern}' matched no tests.",
                 fg=typer.colors.YELLOW,
                 err=True,
             )

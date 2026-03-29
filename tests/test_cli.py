@@ -108,7 +108,7 @@ def test_cli_profile_only(
 def test_cli_mutually_exclusive() -> None:
     result = runner.invoke(app, ["--profile-only", "--optimise-only"])
     assert result.exit_code == EXIT_CODE_ERROR
-    assert "Error: --profile-only and --optimise-only are mutually exclusive." in result.stderr
+    assert "❌ Error: --profile-only and --optimise-only are mutually exclusive." in result.stderr
 
 
 @patch("smoke_optimiser.cli.run_profiling")
