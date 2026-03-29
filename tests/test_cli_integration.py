@@ -75,4 +75,4 @@ def test_cli_optimise_only_no_data(tmp_path: Path) -> None:
         result = runner.invoke(app, ["--optimise-only"])
 
     assert result.exit_code == 1
-    assert "Error: No profiling data found" in result.stderr
+    assert "❌ Error: No profiling data found" in result.stderr
