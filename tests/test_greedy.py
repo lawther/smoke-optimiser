@@ -174,3 +174,36 @@ def test_optimise_coverage_equivalents_deterministic_order() -> None:
     # Verify tests are also sorted within each group
     for eq in result.coverage_equivalents:
         assert list(eq.tests) == sorted(eq.tests)
+
+
+def test_optimise_lazy_reevaluation() -> None:
+    """Ensure that the lazy re-evaluation correctly handles overlapping coverage drops."""
+    tests = {
+        # T1 covers 4 branches, T2 covers 3, T3 covers 3.
+        # Initially T1 wins. After T1 is selected, it covers b1, b2, b3, b4.
+        # T2's remaining coverage drops to 1 (b5).
+        # T3's remaining coverage drops to 2 (b6, b7).
+        # So T3 must leapfrog T2 in the next iteration.
+        "t1_initially_best": _create_outcome("t1_initially_best", 1.0, ["b1", "b2", "b3", "b4"]),
+        "t2_overlaps_t1": _create_outcome("t2_overlaps_t1", 1.0, ["b2", "b3", "b5"]),
+        "t3_disjoint_mostly": _create_outcome("t3_disjoint_mostly", 1.0, ["b1", "b6", "b7"]),
+    }
+    total_branches = frozenset(["b1", "b2", "b3", "b4", "b5", "b6", "b7"])
+    filtered = FilteredTests(
+        candidates=tests,
+        mandatory_included={},
+        excluded={},
+        failed={},
+        unmatched_includes=[],
+        unmatched_excludes=[],
+    )
+
+    result = optimise(filtered, total_branches, 10.0, 100.0)
+
+    # First: t1_initially_best (efficiency 4)
+    # Remaining uncovered: b5, b6, b7
+    # T2 marginal: 1 (b5)
+    # T3 marginal: 2 (b6, b7) -> T3 should be selected second
+    # T2 marginal: 1 -> T2 should be selected third
+    selected_ids = [t.test_id for t in result.selected_tests]
+    assert selected_ids == ["t1_initially_best", "t3_disjoint_mostly", "t2_overlaps_t1"]
