@@ -40,23 +40,23 @@ def _load_smoke_suite(config: pytest.Config) -> SmokeSuiteFile | None:
 
     if not path.exists():
         pytest.exit(
-            f"smoke-optimiser: smoke suite file not found: {path}\n  Hint: Run `smoke-optimiser` first to generate it.",
+            f"smoke-optimiser: ❌ Error: smoke suite file not found: {path}\n  Hint: Run `smoke-optimiser` first to generate it.",
             returncode=1,
         )
 
     try:
         suite = read_smoke_suite(path)
     except (ValidationError, ValueError) as e:
-        pytest.exit(f"smoke-optimiser: invalid smoke suite file: {path}: {e}", returncode=1)
+        pytest.exit(f"smoke-optimiser: ❌ Error: invalid smoke suite file: {path}: {e}", returncode=1)
     except Exception as e:
         pytest.exit(
-            f"smoke-optimiser: error reading smoke suite file: {path}: {e}",
+            f"smoke-optimiser: ❌ Error: error reading smoke suite file: {path}: {e}",
             returncode=1,
         )
 
     if suite.version not in SUPPORTED_VERSIONS:
         pytest.exit(
-            f"smoke-optimiser: unsupported smoke suite version {suite.version} "
+            f"smoke-optimiser: ❌ Error: unsupported smoke suite version {suite.version} "
             f"(supported: {sorted(SUPPORTED_VERSIONS)})",
             returncode=1,
         )
