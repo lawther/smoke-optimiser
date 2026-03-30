@@ -51,7 +51,7 @@ def test_run_profiling_basic(mock_parse: MagicMock, mock_run: MagicMock, tmp_pat
                 and "coverage" in args[0]
                 and "json" in args[0]
             ):
-                (tmp_path / ".smoke_optimiser_coverage.json").touch()
+                (Path(args[0][args[0].index("-o") + 1])).touch()
             return MagicMock(returncode=0, stdout="pytest-randomly")
 
         mock_run.side_effect = side_effect
