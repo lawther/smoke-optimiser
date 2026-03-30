@@ -66,7 +66,7 @@ def test_plugin_load_suite_not_found(pytester: pytest.Pytester, monkeypatch: pyt
     monkeypatch.setenv("PYTHONPATH", str(Path.cwd()))
     result = pytester.runpytest_subprocess("--smoke", "--smoke-file-path=nonexistent.json")
     assert result.ret == 1
-    result.stderr.fnmatch_lines(["*smoke-optimiser: smoke suite file not found: nonexistent.json*"])
+    result.stderr.fnmatch_lines(["*smoke-optimiser: ❌ Error: smoke suite file not found: nonexistent.json*"])
 
 
 def test_plugin_load_suite_malformed(
@@ -78,7 +78,7 @@ def test_plugin_load_suite_malformed(
     monkeypatch.setenv("PYTHONPATH", str(Path.cwd()))
     result = pytester.runpytest_subprocess("--smoke", f"--smoke-file-path={suite_file}")
     assert result.ret == 1
-    result.stderr.fnmatch_lines(["*smoke-optimiser: invalid smoke suite file:*"])
+    result.stderr.fnmatch_lines(["*smoke-optimiser: ❌ Error: invalid smoke suite file:*"])
 
 
 def test_plugin_load_suite_unsupported_version(
@@ -111,7 +111,7 @@ def test_plugin_load_suite_unsupported_version(
     monkeypatch.setenv("PYTHONPATH", str(Path.cwd()))
     result = pytester.runpytest_subprocess("--smoke", f"--smoke-file-path={suite_file}")
     assert result.ret == 1
-    result.stderr.fnmatch_lines(["*smoke-optimiser: unsupported smoke suite version 999*"])
+    result.stderr.fnmatch_lines(["*smoke-optimiser: ❌ Error: unsupported smoke suite version 999*"])
 
 
 def test_plugin_filtering(pytester: pytest.Pytester, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
