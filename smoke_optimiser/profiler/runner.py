@@ -4,6 +4,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import tempfile
 from collections import defaultdict
 from datetime import UTC, datetime
 from pathlib import Path
@@ -100,99 +101,97 @@ def run_profiling(config: ResolvedConfig, project_root: Path) -> ProfilingData:
     """Run the test suite under coverage instrumentation and collect results."""
     check_prerequisites(config)
 
-    coverage_json = project_root / ".smoke_optimiser_coverage.json"
-    outcomes_json = project_root / ".smoke_outcomes.json"
-    hook_file = project_root / "_smoke_hook.py"
-    coveragerc = project_root / ".smoke_coveragerc"
+    with tempfile.TemporaryDirectory() as temp_dir_str:
+        temp_dir = Path(temp_dir_str)
+        coverage_json = temp_dir / "coverage.json"
+        outcomes_json = temp_dir / "outcomes.json"
+        hook_file = temp_dir / "_smoke_hook.py"
+        coveragerc = temp_dir / ".coveragerc"
+        coverage_db = temp_dir / ".coverage"
 
-    # Remove any existing files/symlinks to prevent arbitrary file overwrite attacks
-    for f in [coverage_json, outcomes_json, hook_file, coveragerc, project_root / ".coverage"]:
-        f.unlink(missing_ok=True)
+        hook_file.write_text(PYTEST_HOOK_CODE)
+        coveragerc.write_text(COVERAGERC_CONTENT)
 
-    hook_file.write_text(PYTEST_HOOK_CODE)
-    coveragerc.write_text(COVERAGERC_CONTENT)
+        # 1. Run pytest iterations
+        # We aggregate durations across runs
+        all_durations: dict[str, list[float]] = defaultdict(list)
+        final_outcomes: dict[str, bool] = {}
+        final_markers: dict[str, frozenset[str]] = {}
 
-    # 1. Run pytest iterations
-    # We aggregate durations across runs
-    all_durations: dict[str, list[float]] = defaultdict(list)
-    final_outcomes: dict[str, bool] = {}
-    final_markers: dict[str, frozenset[str]] = {}
+        env = os.environ.copy()
+        current_pythonpath = env.get("PYTHONPATH", "")
+        # Add temp_dir to PYTHONPATH so pytest can load _smoke_hook
+        parts = [str(temp_dir), str(project_root)]
+        if current_pythonpath:
+            parts.append(current_pythonpath)
+        env["PYTHONPATH"] = os.pathsep.join(parts)
 
-    env = os.environ.copy()
-    current_pythonpath = env.get("PYTHONPATH", "")
-    if current_pythonpath:
-        env["PYTHONPATH"] = str(project_root) + os.pathsep + current_pythonpath
-    else:
-        env["PYTHONPATH"] = str(project_root)
-    env["SMOKE_OUTCOMES_JSON"] = str(outcomes_json)
+        env["SMOKE_OUTCOMES_JSON"] = str(outcomes_json)
+        env["COVERAGE_FILE"] = str(coverage_db)
 
-    for i in range(config.iterations):
-        if config.iterations > 1:
-            typer.secho(f"  🔄 Iteration {i + 1}/{config.iterations}...", fg=typer.colors.CYAN)
+        for i in range(config.iterations):
+            if config.iterations > 1:
+                typer.secho(f"  🔄 Iteration {i + 1}/{config.iterations}...", fg=typer.colors.CYAN)
 
-        pytest_cmd = [
-            sys.executable,
-            "-m",
-            "pytest",
-            "-p",
-            "_smoke_hook",
-            f"--cov-config={coveragerc}",
-            "--cov-branch",
-            "--cov-context=test",
-        ]
+            pytest_cmd = [
+                sys.executable,
+                "-m",
+                "pytest",
+                "-p",
+                "_smoke_hook",
+                f"--cov-config={coveragerc}",
+                "--cov-branch",
+                "--cov-context=test",
+            ]
 
-        has_cov_arg = False
-        if config.pytest_args:
-            args = shlex.split(config.pytest_args)
-            pytest_cmd.extend(args)
-            has_cov_arg = any(arg.startswith("--cov") for arg in args)
+            has_cov_arg = False
+            if config.pytest_args:
+                args = shlex.split(config.pytest_args)
+                pytest_cmd.extend(args)
+                has_cov_arg = any(arg.startswith("--cov") for arg in args)
 
-        if not has_cov_arg:
-            pytest_cmd.append(f"--cov={config.cov_source}")
+            if not has_cov_arg:
+                pytest_cmd.append(f"--cov={config.cov_source}")
 
-        subprocess.run(pytest_cmd, cwd=project_root, check=False, env=env)
+            subprocess.run(pytest_cmd, cwd=project_root, check=False, env=env)
 
-        # Load outcomes from this run
-        if outcomes_json.exists():
-            with open(outcomes_json) as f:
-                raw_outcomes = json.load(f)
-                for nodeid, data in raw_outcomes.items():
-                    all_durations[nodeid].append(data["duration"])
-                    # Use the last run's outcome/markers (should be consistent)
-                    final_outcomes[nodeid] = data["passed"]
-                    final_markers[nodeid] = frozenset(data["markers"])
-            outcomes_json.unlink()
+            # Load outcomes from this run
+            if outcomes_json.exists():
+                with open(outcomes_json) as f:
+                    raw_outcomes = json.load(f)
+                    for nodeid, data in raw_outcomes.items():
+                        all_durations[nodeid].append(data["duration"])
+                        # Use the last run's outcome/markers (should be consistent)
+                        final_outcomes[nodeid] = data["passed"]
+                        final_markers[nodeid] = frozenset(data["markers"])
+                outcomes_json.unlink()
 
-    # 2. Export coverage to JSON (from the last run)
-    # We capture_output=True to prevent coverage.py from printing the "Wrote JSON report" message
-    subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "coverage",
-            "json",
-            f"--rcfile={coveragerc}",
-            "--show-contexts",
-            "-o",
-            str(coverage_json),
-        ],
-        cwd=project_root,
-        check=False,
-        capture_output=True,
-    )
+        # 2. Export coverage to JSON (from the last run)
+        # We capture_output=True to prevent coverage.py from printing the "Wrote JSON report" message
+        subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "coverage",
+                "json",
+                f"--rcfile={coveragerc}",
+                "--show-contexts",
+                "-o",
+                str(coverage_json),
+            ],
+            cwd=project_root,
+            check=False,
+            capture_output=True,
+            env=env,
+        )
 
-    if not coverage_json.exists():
-        typer.secho("❌ Error: Coverage data was not generated.", fg=typer.colors.RED, err=True)
-        # Cleanup before exit
-        for f in [hook_file, coveragerc]:
-            if f.exists():
-                f.unlink()
-        sys.exit(1)
+        if not coverage_json.exists():
+            typer.secho("❌ Error: Coverage data was not generated.", fg=typer.colors.RED, err=True)
+            sys.exit(1)
 
-    # 3. Average the durations
-    avg_durations = {nodeid: sum(durations) / len(durations) for nodeid, durations in all_durations.items()}
+        # 3. Average the durations
+        avg_durations = {nodeid: sum(durations) / len(durations) for nodeid, durations in all_durations.items()}
 
-    try:
         # 4. Parse coverage JSON and merge
         data = parse_coverage_json(coverage_json, avg_durations, final_outcomes, final_markers)
 
@@ -211,12 +210,3 @@ def run_profiling(config: ResolvedConfig, project_root: Path) -> ProfilingData:
             tests=data.tests,
             total_branches=data.total_branches,
         )
-    finally:
-        # Cleanup temporary files
-        for f in [coverage_json, outcomes_json, hook_file, coveragerc]:
-            if f.exists():
-                f.unlink()
-        # coverage.py also creates a .coverage file
-        dot_coverage = project_root / ".coverage"
-        if dot_coverage.exists():
-            dot_coverage.unlink()
