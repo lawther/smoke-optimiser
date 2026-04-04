@@ -32,6 +32,15 @@ def parse_coverage_json(
         full_data = json.load(f)
         coverage_version = full_data.get("meta", {}).get("version", "unknown")
 
+        resolved_test_ids: dict[str, str | None] = {}
+        # Pre-compute test names for faster lookup (fallback 3)
+        # Keep only the *first* matching test candidate name to match original behaviour
+        candidate_names: dict[str, str] = {}
+        for c in test_durations:
+            clean_name = c.split("::")[-1].split("[")[0]
+            if clean_name not in candidate_names:
+                candidate_names[clean_name] = c
+
         for file_path, file_data in full_data.get("files", {}).items():
             executed_branches = file_data.get("executed_branches", [])
             missing_branches = file_data.get("missing_branches", [])
@@ -51,29 +60,31 @@ def parse_coverage_json(
                     if raw_test_id == "":
                         continue
 
-                    # NORMALIZE
-                    # Strip suffixes like "|run" or " (call)"
-                    clean_id = raw_test_id.split("|")[0].split(" (")[0]
-                    test_id = None
-
-                    # 1. Exact match
-                    if clean_id in test_durations:
-                        test_id = clean_id
+                    if raw_test_id in resolved_test_ids:
+                        test_id = resolved_test_ids[raw_test_id]
                     else:
-                        # 2. Suffix match
-                        for candidate in test_durations:
-                            if clean_id.endswith(candidate) or candidate.endswith(clean_id):
-                                test_id = candidate
-                                break
+                        # NORMALIZE
+                        # Strip suffixes like "|run" or " (call)"
+                        clean_id = raw_test_id.split("|")[0].split(" (")[0]
+                        test_id = None
 
-                        # 3. Test name match (for dynamic_context = test_function which uses dot notation)
-                        if not test_id:
-                            clean_name = clean_id.split(".")[-1]
+                        # 1. Exact match
+                        if clean_id in test_durations:
+                            test_id = clean_id
+                        else:
+                            # 2. Suffix match
                             for candidate in test_durations:
-                                candidate_name = candidate.split("::")[-1].split("[")[0]
-                                if clean_name == candidate_name:
+                                if clean_id.endswith(candidate) or candidate.endswith(clean_id):
                                     test_id = candidate
                                     break
+
+                            # 3. Test name match (for dynamic_context = test_function which uses dot notation)
+                            if not test_id:
+                                clean_name = clean_id.split(".")[-1]
+                                if clean_name in candidate_names:
+                                    test_id = candidate_names[clean_name]
+
+                        resolved_test_ids[raw_test_id] = test_id
 
                     if test_id:
                         if test_id not in tests_lines:
