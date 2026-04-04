@@ -31,13 +31,15 @@ def _get_cpu_model() -> str | None:
     """Best-effort CPU model name retrieval."""
     if platform.system() == "Darwin":
         # On macOS, we can use sysctl
-        sysctl_path = shutil.which("sysctl") or "/usr/sbin/sysctl"
-        try:
-            return subprocess.run(  # noqa: S603
-                [sysctl_path, "-n", "machdep.cpu.brand_string"], capture_output=True, text=True, check=False
-            ).stdout.strip()
-        except (OSError, ValueError):
-            return None
+        sysctl_path = shutil.which("sysctl")
+        if sysctl_path:
+            try:
+                return subprocess.run( # noqa: S603
+                    [sysctl_path, "-n", "machdep.cpu.brand_string"], capture_output=True, text=True, check=False
+                ).stdout.strip()
+            except (OSError, ValueError):
+                return None
+        return None
     elif platform.system() == "Linux":
         # On Linux, parse /proc/cpuinfo
         try:

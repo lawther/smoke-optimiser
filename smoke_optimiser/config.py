@@ -4,7 +4,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, Field
+import typer
+from pydantic import BaseModel, Field, ValidationError
 
 
 class OperationMode(Enum):
@@ -64,8 +65,12 @@ def _discover_cov_target(project_root: Path) -> str:
                     # If there's a folder matching the project name, instrument it
                     if (project_root / normalized).is_dir():
                         return normalized
-        except (tomllib.TOMLDecodeError, OSError):
-            pass
+        except (tomllib.TOMLDecodeError, OSError) as e:
+            typer.secho(
+                f"⚠️ Warning: Failed to parse project name from pyproject.toml: {e}",
+                fg=typer.colors.YELLOW,
+                err=True,
+            )
 
     return "."
 
@@ -86,7 +91,18 @@ def load_file_config(project_root: Path) -> FileConfig | None:
     if tool_config is None:
         return None
 
-    return FileConfig(**tool_config)
+    try:
+        return FileConfig(**tool_config)
+    except ValidationError as e:
+        typer.secho(
+            "❌ Error: Invalid configuration in pyproject.toml [tool.smoke_optimiser]:",
+            fg=typer.colors.RED,
+            err=True,
+        )
+        for err in e.errors():
+            loc = ".".join(str(loc_part) for loc_part in err["loc"])
+            typer.secho(f"  - {loc}: {err['msg']}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=1) from None
 
 
 def resolve_config(

@@ -82,7 +82,10 @@ def check_prerequisites(config: ResolvedConfig) -> None:
 
 def _get_git_commit(project_root: Path) -> str | None:
     """Best-effort git commit retrieval."""
-    git_path = shutil.which("git") or "/usr/bin/git"
+    git_path = shutil.which("git")
+    if not git_path:
+        return None
+
     try:
         result = subprocess.run(  # noqa: S603
             [git_path, "rev-parse", "HEAD"],
