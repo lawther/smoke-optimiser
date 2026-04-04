@@ -63,7 +63,7 @@ def check_prerequisites(config: ResolvedConfig) -> None:
 
     if not config.allow_ordered:
         # Check if pytest-randomly is installed
-        result = subprocess.run(
+        result = subprocess.run(  # noqa: S603 - calling the current python interpreter
             [sys.executable, "-m", "pytest", "--trace-config"],
             capture_output=True,
             text=True,
@@ -82,9 +82,10 @@ def check_prerequisites(config: ResolvedConfig) -> None:
 
 def _get_git_commit(project_root: Path) -> str | None:
     """Best-effort git commit retrieval."""
+    git_path = shutil.which("git") or "/usr/bin/git"
     try:
-        result = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
+        result = subprocess.run(  # noqa: S603
+            [git_path, "rev-parse", "HEAD"],
             cwd=project_root,
             capture_output=True,
             text=True,
@@ -153,7 +154,8 @@ def run_profiling(config: ResolvedConfig, project_root: Path) -> ProfilingData:
             if not has_cov_arg:
                 pytest_cmd.append(f"--cov={config.cov_source}")
 
-            subprocess.run(pytest_cmd, cwd=project_root, check=False, env=env)
+            # the command is built from sys.executable and user-provided args in a local CLI tool
+            subprocess.run(pytest_cmd, cwd=project_root, check=False, env=env)  # noqa: S603
 
             # Load outcomes from this run
             if outcomes_json.exists():
@@ -168,26 +170,28 @@ def run_profiling(config: ResolvedConfig, project_root: Path) -> ProfilingData:
 
         # 2. Export coverage to JSON (from the last run)
         # We capture_output=True to prevent coverage.py from printing the "Wrote JSON report" message
-        subprocess.run(
+        subprocess.run(  # noqa: S603 - calling current python for coverage tool
             [
                 sys.executable,
                 "-m",
                 "coverage",
                 "json",
+                f"--data-file={coverage_db}",
                 f"--rcfile={coveragerc}",
                 "--show-contexts",
                 "-o",
                 str(coverage_json),
             ],
             cwd=project_root,
-            check=False,
             capture_output=True,
-            env=env,
+            text=True,
+            check=False,
         )
 
         if not coverage_json.exists():
             typer.secho("❌ Error: Coverage data was not generated.", fg=typer.colors.RED, err=True)
             sys.exit(1)
+
 
         # 3. Average the durations
         avg_durations = {nodeid: sum(durations) / len(durations) for nodeid, durations in all_durations.items()}

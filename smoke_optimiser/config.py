@@ -64,7 +64,7 @@ def _discover_cov_target(project_root: Path) -> str:
                     # If there's a folder matching the project name, instrument it
                     if (project_root / normalized).is_dir():
                         return normalized
-        except Exception:
+        except (tomllib.TOMLDecodeError, OSError):
             pass
 
     return "."
