@@ -94,6 +94,9 @@ def parse_coverage_json(
                         tests_lines[test_id][file_path].add(line_num)
 
             # Now infer branch coverage for this file
+            # Pre-format branch strings to avoid redundant O(tests * branches) string concatenations
+            formatted_branches = [(br[0], br[1], f"{file_path}:{br[0]}->{br[1]}") for br in executed_branches]
+
             for test_id, file_lines in tests_lines.items():
                 if file_path not in file_lines:
                     continue
@@ -102,11 +105,10 @@ def parse_coverage_json(
                 if test_id not in tests_branches:
                     tests_branches[test_id] = set()
 
-                for br in executed_branches:
-                    u, v = br[0], br[1]
+                for u, v, branch_str in formatted_branches:
                     # A test covers branch u->v if it hit line u AND (it hit line v OR v is an exit branch)
                     if u in lines and (v <= 0 or v in lines):
-                        tests_branches[test_id].add(f"{file_path}:{u}->{v}")
+                        tests_branches[test_id].add(branch_str)
 
     profiling_outcomes = {}
     for test_id, duration in test_durations.items():
