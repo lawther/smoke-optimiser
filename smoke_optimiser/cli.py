@@ -209,9 +209,17 @@ def main(
                 )
                 raise typer.Exit(code=1)
 
-            with open(intermediate_file, "rb") as f:
-                raw = json.load(f)
-                profiling_data = ProfilingDataFile(**raw).to_profiling_data()
+            try:
+                with open(intermediate_file, "rb") as f:
+                    raw = json.load(f)
+                    profiling_data = ProfilingDataFile(**raw).to_profiling_data()
+            except (OSError, json.JSONDecodeError) as e:
+                typer.secho(
+                    f"❌ Error: Failed to parse profiling data ({intermediate_file}): {e}",
+                    fg=typer.colors.RED,
+                    err=True,
+                )
+                raise typer.Exit(code=1) from None
 
         typer.secho("⚡ Optimising smoke suite...", fg=typer.colors.CYAN, bold=True)
         filtered = apply_filters(profiling_data.tests, config.include_mandatory, config.exclude_mandatory)
