@@ -44,6 +44,12 @@ def format_summary(result: SmokeResult, config: ResolvedConfig, meta: ProfilingM
     runtime_str = f"{result.smoke_suite_runtime_s:.1f}s ({pct_runtime:.1f}% of full suite)"
     runtime_line = f"  Runtime:      {typer.style(runtime_str, fg=typer.colors.GREEN)}"
 
+    num_tests = len(result.selected_tests)
+    test_str = f"{num_tests} test{'s' if num_tests != 1 else ''} selected"
+
+    num_groups = len(result.coverage_equivalents)
+    group_str = f"{num_groups} group{'s' if num_groups != 1 else ''}"
+
     lines = [
         typer.style("═══════════════════════════════════════════════", fg=typer.colors.BLUE, bold=True),
         typer.style("  smoke-optimiser results", bold=True),
@@ -57,7 +63,7 @@ def format_summary(result: SmokeResult, config: ResolvedConfig, meta: ProfilingM
         f"  Full suite:   {result.full_suite_runtime_s:.1f}s runtime, {result.total_branches:,} branches",
         full_suite_cov_line,
         "",
-        f"  Smoke suite:  {typer.style(f'{len(result.selected_tests)} tests selected', bold=True)}",
+        f"  Smoke suite:  {typer.style(test_str, bold=True)}",
         smoke_coverage_line,
         runtime_line,
         "",
@@ -65,11 +71,12 @@ def format_summary(result: SmokeResult, config: ResolvedConfig, meta: ProfilingM
         "",
         f"  Saved to:     {typer.style(str(config.output_json), bold=True)}",
         "",
-        f"  Coverage-equivalent groups: {len(result.coverage_equivalents)} groups",
+        f"  Coverage-equivalent groups: {group_str}",
     ]
 
     if result.tests_failed > 0:
-        warning_str = f"⚠ {result.tests_failed} failing tests were excluded."
+        fail_word = "test was" if result.tests_failed == 1 else "tests were"
+        warning_str = f"⚠️ Warning: {result.tests_failed} failing {fail_word} excluded."
         lines.append(f"  {typer.style(warning_str, fg=typer.colors.RED, bold=True)}")
 
     lines.append(typer.style("═══════════════════════════════════════════════", fg=typer.colors.BLUE, bold=True))

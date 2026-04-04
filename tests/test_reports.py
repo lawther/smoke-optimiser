@@ -215,5 +215,5 @@ def test_format_summary() -> None:
     summary = format_summary(result, config, meta)
     assert "smoke-optimiser results" in summary
     assert "80.0%" in summary
-    assert "1 failing tests were excluded" in summary
+    assert "1 failing test was excluded" in summary
     assert "Coverage:     90 / 100 branches (90.0%)" in summary

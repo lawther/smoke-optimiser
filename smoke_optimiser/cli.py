@@ -141,7 +141,7 @@ def main(
         from_file = file_config and file_config.cov_source
         if not from_file:
             typer.secho(
-                f"⚠ Warning: --src was not specified. Falling back to heuristic discovery: --src={config.cov_source}",
+                f"⚠️ Warning: --src was not specified. Falling back to heuristic discovery: --src={config.cov_source}",
                 fg=typer.colors.YELLOW,
                 err=True,
             )
@@ -219,13 +219,13 @@ def main(
         # Warn about unmatched includes/excludes
         for pattern in filtered.unmatched_includes:
             typer.secho(
-                f"⚠ Warning: include pattern '{pattern}' matched no tests.",
+                f"⚠️ Warning: Include pattern '{pattern}' matched no tests.",
                 fg=typer.colors.YELLOW,
                 err=True,
             )
         for pattern in filtered.unmatched_excludes:
             typer.secho(
-                f"⚠ Warning: exclude pattern '{pattern}' matched no tests.",
+                f"⚠️ Warning: Exclude pattern '{pattern}' matched no tests.",
                 fg=typer.colors.YELLOW,
                 err=True,
             )
