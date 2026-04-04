@@ -11,48 +11,16 @@ from smoke_optimiser.optimiser.models import (
 
 EFFICIENCY_EPSILON = 1e-9
 
-
-class _CandidateNode:
-    """Represents a candidate test in the priority queue for lazy greedy selection."""
-
-    __slots__ = (
-        "branches",
-        "duration",
-        "efficiency",
-        "last_eval_cov_len",
-        "marginal",
-        "orig_branches",
-        "test_id",
-    )
-
-    def __init__(
-        self,
-        test_id: str,
-        branches: set[str],
-        duration: float,
-        orig_branches: frozenset[str],
-        efficiency: float,
-        marginal: int,
-        last_eval_cov_len: int,
-    ) -> None:
-        self.test_id = test_id
-        self.branches = branches
-        self.duration = duration
-        self.orig_branches = orig_branches
-        self.efficiency = efficiency
-        self.marginal = marginal
-        self.last_eval_cov_len = last_eval_cov_len
-
-    def __lt__(self, other: "_CandidateNode") -> bool:
-        # We want the BEST candidate to be SMALLER for heapq (max heap simulation)
-        eff_diff = self.efficiency - other.efficiency
-        if abs(eff_diff) > EFFICIENCY_EPSILON:
-            return self.efficiency > other.efficiency
-        if self.marginal != other.marginal:
-            return self.marginal > other.marginal
-        if self.duration != other.duration:
-            return self.duration < other.duration
-        return self.test_id < other.test_id
+# Indexes for candidate test attributes packed in a list.
+# Packing into a list natively supported by heapq (comparing element by element)
+# is much faster than using a custom Python __lt__ method.
+IDX_EFFICIENCY = 0
+IDX_MARGINAL = 1
+IDX_DURATION = 2
+IDX_TEST_ID = 3
+IDX_BRANCHES = 4
+IDX_ORIG_BRANCHES = 5
+IDX_LAST_EVAL_COV_LEN = 6
 
 
 def _get_branch_set_hash(branches: frozenset[str]) -> str:
@@ -90,7 +58,7 @@ def optimise(
         elapsed_time += outcome.duration_s
 
     # 2. Greedy selection
-    heap: list[_CandidateNode] = []
+    heap: list[list] = []
 
     # Pre-calculate candidate branches and populate the priority queue.
     for test in filtered.candidates.values():
@@ -98,17 +66,22 @@ def optimise(
         if valid_branches:
             marginal = len(valid_branches)
             dur = test.duration_s
+            # Use negative efficiency and negative marginal for max-heap behavior
+            # round to avoid floating point precision issues that EFFICIENCY_EPSILON solved
             eff = marginal / dur if dur > 0 else (float("inf") if marginal > 0 else 0.0)
+            eff_rounded = eff if eff == float("inf") else round(eff, 9)
 
-            node = _CandidateNode(
-                test_id=test.test_id,
-                branches=set(valid_branches),
-                duration=dur,
-                orig_branches=test.branches_covered,
-                efficiency=eff,
-                marginal=marginal,
-                last_eval_cov_len=len(covered_set),
-            )
+            # Format: [-eff_rounded, -marginal, duration, test_id, branches, orig_branches, last_eval_cov_len]
+            # We round -eff to 9 decimal places to mirror EFFICIENCY_EPSILON
+            node = [
+                -eff_rounded,
+                -marginal,
+                dur,
+                test.test_id,
+                set(valid_branches),
+                test.branches_covered,
+                len(covered_set)
+            ]
             heapq.heappush(heap, node)
 
     target_count = (target_cov / 100.0) * len(total_branches)
@@ -118,34 +91,37 @@ def optimise(
             break
 
         node = heapq.heappop(heap)
+        dur = node[IDX_DURATION]
 
         # Check if adding this test would exceed the time cap
-        if elapsed_time + node.duration > time_cap:
+        if elapsed_time + dur > time_cap:
             continue
 
-        if node.last_eval_cov_len == len(covered_set):
+        if node[IDX_LAST_EVAL_COV_LEN] == len(covered_set):
             # Up to date, it's the best!
+            orig_branches = node[IDX_ORIG_BRANCHES]
             selected_tests.append(
                 SelectedTest(
-                    test_id=node.test_id,
-                    duration_s=node.duration,
-                    branches_covered=len(node.orig_branches),
-                    marginal_branches=node.marginal,
-                    efficiency=node.efficiency,
+                    test_id=node[IDX_TEST_ID],
+                    duration_s=dur,
+                    branches_covered=len(orig_branches),
+                    marginal_branches=-node[IDX_MARGINAL],
+                    efficiency=-node[IDX_EFFICIENCY],
                 )
             )
-            covered_set.update(node.orig_branches)
-            elapsed_time += node.duration
+            covered_set.update(orig_branches)
+            elapsed_time += dur
         else:
             # Re-evaluate
-            remaining_branches = node.branches - covered_set
+            remaining_branches = node[IDX_BRANCHES] - covered_set
             marginal = len(remaining_branches)
             if marginal > 0:
-                eff = marginal / node.duration if node.duration > 0 else float("inf")
-                node.branches = remaining_branches
-                node.marginal = marginal
-                node.efficiency = eff
-                node.last_eval_cov_len = len(covered_set)
+                eff = marginal / dur if dur > 0 else float("inf")
+                eff_rounded = eff if eff == float("inf") else round(eff, 9)
+                node[IDX_BRANCHES] = remaining_branches
+                node[IDX_MARGINAL] = -marginal
+                node[IDX_EFFICIENCY] = -eff_rounded
+                node[IDX_LAST_EVAL_COV_LEN] = len(covered_set)
                 heapq.heappush(heap, node)
 
     # 3. Stats and equivalents
