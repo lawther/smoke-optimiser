@@ -71,7 +71,7 @@ def check_prerequisites(config: ResolvedConfig) -> None:
         )
         if "pytest-randomly" not in result.stdout:
             typer.secho(
-                "⚠ Warning: pytest-randomly is not installed. "
+                "⚠️ Warning: pytest-randomly is not installed. "
                 "Ordering-dependent tests produce unreliable smoke suites.",
                 fg=typer.colors.YELLOW,
                 err=True,
