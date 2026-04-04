@@ -45,13 +45,21 @@ def test_run_profiling_basic(mock_parse: MagicMock, mock_run: MagicMock, tmp_pat
     with patch("shutil.which", return_value="/usr/bin/pytest"):
 
         def side_effect(*args: object, **kwargs: object) -> MagicMock:
+            cmd_args = args[0]
             if (
-                isinstance(args[0], list)
-                and args[0][0] == sys.executable
-                and "coverage" in args[0]
-                and "json" in args[0]
+                isinstance(cmd_args, list)
+                and cmd_args
+                and cmd_args[0] == sys.executable
+                and "coverage" in cmd_args
+                and "json" in cmd_args
             ):
-                (Path(args[0][args[0].index("-o") + 1])).touch()
+                typed_args: list[str] = cmd_args  # ty: ignore[invalid-assignment]
+                try:
+                    idx = typed_args.index("-o")
+                    path_str = str(typed_args[idx + 1])
+                    Path(path_str).touch()
+                except (ValueError, IndexError):
+                    pass
             return MagicMock(returncode=0, stdout="pytest-randomly")
 
         mock_run.side_effect = side_effect

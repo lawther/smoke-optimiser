@@ -1,0 +1,27 @@
+name: Precommit Checks
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  precommit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+
+      - name: Install just
+        uses: extractions/setup-just@v2
+
+      - name: Run precommit checks
+        # This workflow invokes the Justfile, which is the Single Source Of Truth for precommit logic.
+        # DO NOT add precommit logic here; add it to the 'precommit' recipe in the Justfile.
+        run: just precommit
