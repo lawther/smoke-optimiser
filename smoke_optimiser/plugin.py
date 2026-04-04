@@ -40,7 +40,8 @@ def _load_smoke_suite(config: pytest.Config) -> SmokeSuiteFile | None:
 
     if not path.exists():
         pytest.exit(
-            f"smoke-optimiser: ❌ Error: smoke suite file not found: {path}\n  Hint: Run `smoke-optimiser` first to generate it.",
+            f"smoke-optimiser: ❌ Error: smoke suite file not found: {path}\n"
+            "  Hint: Run `smoke-optimiser` first to generate it.",
             returncode=1,
         )
 
