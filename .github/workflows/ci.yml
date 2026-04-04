@@ -6,6 +6,12 @@ on:
   pull_request:
     branches: [main]
 
+env:
+  # Opt into Node.js 24 to address deprecation of Node.js 20 in GitHub Actions runners.
+  # This workaround can be removed after June 2nd, 2026, when Node 24 becomes the default.
+  # It MUST be removed before September 16th, 2026, when Node 20 is removed from the runners.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   validate:
     runs-on: ubuntu-latest
