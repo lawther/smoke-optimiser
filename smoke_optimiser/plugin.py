@@ -101,7 +101,7 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
     missing = smoke_test_ids - found_ids
     for test_id in sorted(missing):
         warnings.warn(
-            f"smoke-optimiser: smoke test not found in collection: {test_id}",
+            f"smoke-optimiser: ⚠️ Warning: smoke test not found in collection: {test_id}",
             stacklevel=2,
         )
 
