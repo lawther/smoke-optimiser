@@ -192,7 +192,6 @@ def run_profiling(config: ResolvedConfig, project_root: Path) -> ProfilingData:
             typer.secho("❌ Error: Coverage data was not generated.", fg=typer.colors.RED, err=True)
             sys.exit(1)
 
-
         # 3. Average the durations
         avg_durations = {nodeid: sum(durations) / len(durations) for nodeid, durations in all_durations.items()}
 
