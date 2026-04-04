@@ -40,7 +40,8 @@ def _load_smoke_suite(config: pytest.Config) -> SmokeSuiteFile | None:
 
     if not path.exists():
         pytest.exit(
-            f"smoke-optimiser: ❌ Error: smoke suite file not found: {path}\n  Hint: Run `smoke-optimiser` first to generate it.",
+            f"smoke-optimiser: ❌ Error: smoke suite file not found: {path}\n"
+            "  Hint: Run `smoke-optimiser` first to generate it.",
             returncode=1,
         )
 
@@ -100,7 +101,7 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
     missing = smoke_test_ids - found_ids
     for test_id in sorted(missing):
         warnings.warn(
-            f"smoke-optimiser: smoke test not found in collection: {test_id}",
+            f"smoke-optimiser: ⚠️ Warning: smoke test not found in collection: {test_id}",
             stacklevel=2,
         )
 
