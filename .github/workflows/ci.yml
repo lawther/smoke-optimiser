@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - uses: extractions/setup-just@v2
+
+      - name: Install dependencies
+        run: uv sync
+
+      # Pre-commit logic is defined in the Justfile `precommit` target — do not add steps here.
+      - name: Validate project
+        run: just precommit

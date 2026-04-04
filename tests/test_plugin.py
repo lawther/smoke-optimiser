@@ -201,7 +201,7 @@ def test_plugin_missing_test_warning(
     result = pytester.runpytest_subprocess("--smoke", f"--smoke-file-path={suite_file}")
     result.stdout.fnmatch_lines(
         [
-            "*smoke-optimiser: smoke test not found in collection: test_app.py::test_missing*",
+            "*smoke-optimiser: ⚠️ Warning: smoke test not found in collection: test_app.py::test_missing*",
             "*1 deselected*",
         ]
     )

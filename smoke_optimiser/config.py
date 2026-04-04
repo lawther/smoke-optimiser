@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 import typer
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 
 class OperationMode(Enum):
@@ -92,7 +92,18 @@ def load_file_config(project_root: Path) -> FileConfig | None:
     if tool_config is None:
         return None
 
-    return FileConfig(**tool_config)
+    try:
+        return FileConfig(**tool_config)
+    except ValidationError as e:
+        typer.secho(
+            "❌ Error: Invalid configuration in pyproject.toml [tool.smoke_optimiser]:",
+            fg=typer.colors.RED,
+            err=True,
+        )
+        for err in e.errors():
+            loc = ".".join(str(loc_part) for loc_part in err["loc"])
+            typer.secho(f"  - {loc}: {err['msg']}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=1) from None
 
 
 def resolve_config(

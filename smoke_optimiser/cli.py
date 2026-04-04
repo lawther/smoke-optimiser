@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
+from pydantic import ValidationError
 
 from smoke_optimiser.config import OperationMode, load_file_config, resolve_config
 from smoke_optimiser.optimiser.filters import apply_filters
@@ -122,8 +123,15 @@ def main(
     }
 
     project_root = Path.cwd()
-    file_config = load_file_config(project_root)
-    config = resolve_config(file_config, cli_overrides, project_root)
+    try:
+        file_config = load_file_config(project_root)
+        config = resolve_config(file_config, cli_overrides, project_root)
+    except ValidationError as err:
+        typer.secho("❌ Error: Invalid configuration in pyproject.toml", fg=typer.colors.RED, err=True)
+        for error in err.errors():
+            loc = ".".join(str(loc) for loc in error["loc"])
+            typer.secho(f"  - {loc}: {error['msg']}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=1) from None
 
     # Inform user about heuristic fallback
     # If it wasn't in CLI and isn't in pytest_args, and we are profiling
