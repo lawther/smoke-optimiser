@@ -30,6 +30,7 @@ test-cov:
 # This Justfile is the Single Source Of Truth (SSOT) for all pre-commit checks.
 precommit:
     @echo "Running precommit checks..."
+    @uv lock --check || { echo "❌ uv.lock is out of sync with pyproject.toml"; exit 1; }
     @tmpfile=$(mktemp); \
     trap 'rm -f "$$tmpfile"' EXIT; \
     if ! ( \
@@ -42,6 +43,12 @@ precommit:
         exit 1; \
     fi
     @echo "✅ Precommit checks passed!"
+
+# Setup the development environment from a fresh clone
+setup-dev:
+    @uv sync
+    @just setup-git-hooks
+    @echo "✅ Development environment setup complete!"
 
 # Setup local git hooks
 setup-git-hooks:
