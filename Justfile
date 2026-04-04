@@ -27,6 +27,7 @@ test-cov:
     uv run pytest --cov=smoke_optimiser
 
 # Run formatting, linting and tests (quiet on success, shows errors on failure)
+# This Justfile is the Single Source Of Truth (SSOT) for all pre-commit checks.
 precommit:
     @echo "Running precommit checks..."
     @tmpfile=$(mktemp); \
