@@ -4,6 +4,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
+import typer
 from pydantic import BaseModel, Field
 
 
@@ -64,8 +65,13 @@ def _discover_cov_target(project_root: Path) -> str:
                     # If there's a folder matching the project name, instrument it
                     if (project_root / normalized).is_dir():
                         return normalized
-        except Exception:
-            pass
+        except Exception as e:
+            # Do not silently swallow exceptions during config parsing
+            typer.secho(
+                f"⚠️ Warning: Failed to parse project name from pyproject.toml: {e}",
+                fg=typer.colors.YELLOW,
+                err=True,
+            )
 
     return "."
 
