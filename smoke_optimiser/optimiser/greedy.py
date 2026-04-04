@@ -80,7 +80,7 @@ def optimise(
                 test.test_id,
                 set(valid_branches),
                 test.branches_covered,
-                len(covered_set)
+                len(covered_set),
             ]
             heapq.heappush(heap, node)
 

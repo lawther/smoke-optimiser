@@ -34,7 +34,7 @@ def _get_cpu_model() -> str | None:
         sysctl_path = shutil.which("sysctl")
         if sysctl_path:
             try:
-                return subprocess.run( # noqa: S603
+                return subprocess.run(  # noqa: S603
                     [sysctl_path, "-n", "machdep.cpu.brand_string"], capture_output=True, text=True, check=False
                 ).stdout.strip()
             except (OSError, ValueError):
