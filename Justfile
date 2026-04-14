@@ -34,10 +34,10 @@ precommit:
     @tmpfile=$(mktemp); \
     trap 'rm -f "$$tmpfile"' EXIT; \
     if ! ( \
-        set -e; \
-        uv run ruff format; \
-        uv run ruff check --fix; \
-        uv run ty check; \
+        grep -E "^[[:space:]]+#!.*" -A 10 Justfile | grep "&&" && { echo "❌ Shebang recipes must not use && chains. Use separate lines for reliable error reporting."; exit 1; } || true; \
+        uv run ruff format && \
+        uv run ruff check --fix && \
+        uv run ty check && \
         uv run pytest \
     ) > "$$tmpfile" 2>&1; then \
         cat "$$tmpfile"; \
