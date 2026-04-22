@@ -7,8 +7,8 @@ check: lint typecheck test
 
 # Run linting and formatting
 lint:
-    uv run ruff check --fix
     uv run ruff format
+    uv run ruff check --fix
 
 # Format the code
 format:
