@@ -39,6 +39,7 @@ precommit:
         just _lint-justfile
         uv run ruff format
         uv run ruff check --fix
+        git add $(git diff --cached --name-only)
         uv run ty check
         uv run pytest
     ) > "$tmpfile" 2>&1
