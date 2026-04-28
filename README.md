@@ -15,7 +15,7 @@ uv add --dev smoke-optimiser
 Or with pip:
 
 ```bash
-pip install --dev smoke-optimiser
+pip install smoke-optimiser
 ```
 
 This will make the `smoke-optimiser` command available in your environment and register the pytest plugin automatically.
