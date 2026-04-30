@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.0](https://github.com/lawther/smoke-optimiser/compare/v0.1.0...v0.2.0) (2026-04-30)
+
+
+### Features
+
+* upgrade release-please-action to v5 ([1506f37](https://github.com/lawther/smoke-optimiser/commit/1506f373e6d97aba3d5a377a1c50a36e49193579))
+
 ## 0.1.0 (2026-04-28)
 
 
