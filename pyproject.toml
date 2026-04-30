@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "smoke-optimiser"
-version = "0.1.0"
+version = "0.2.0"
 requires-python = ">=3.12"
 description = "A Python CLI tool and pytest plugin to identify and run a minimal smoke test suite."
 readme = "README.md"
