@@ -1,0 +1,9 @@
+#!/bin/sh
+# Git pre-commit hook — runs the full Justfile precommit suite before each commit.
+#
+# This file is version-controlled in .githooks/. To activate it on a fresh clone:
+#
+#   git config core.hooksPath .githooks
+#
+# Or run: just setup-git-hooks
+just precommit
