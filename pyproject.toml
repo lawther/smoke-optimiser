@@ -111,7 +111,7 @@ lint.per-file-ignores = { "tests/*" = ["S101"] }
 lint.pydocstyle.convention = "google"
 
 [tool.uv.sources]
-python-lint-hooks = { git = "https://github.com/lawther/python-lint-hooks", tag = "v0.2.0" }
+python-lint-hooks = { git = "https://github.com/lawther/python-lint-hooks", tag = "v0.4.0" }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
