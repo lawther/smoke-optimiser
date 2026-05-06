@@ -228,6 +228,15 @@ wheels = [
 ]
 
 [[package]]
+name = "pathspec"
+version = "1.1.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/5a/82/42f767fc1c1143d6fd36efb827202a2d997a375e160a71eb2888a925aac1/pathspec-1.1.1.tar.gz", hash = "sha256:17db5ecd524104a120e173814c90367a96a98d07c45b2e10c2f3919fff91bf5a", size = 135180, upload-time = "2026-04-27T01:46:08.907Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/f1/d9/7fb5aa316bc299258e68c73ba3bddbc499654a07f151cba08f6153988714/pathspec-1.1.1-py3-none-any.whl", hash = "sha256:a00ce642f577bf7f473932318056212bc4f8bfdf53128c78bbd5af0b9b20b189", size = 57328, upload-time = "2026-04-27T01:46:07.06Z" },
+]
+
+[[package]]
 name = "pluggy"
 version = "1.6.0"
 source = { registry = "https://pypi.org/simple" }
@@ -414,6 +423,15 @@ wheels = [
 ]
 
 [[package]]
+name = "python-lint-hooks"
+version = "0.2.0"
+source = { git = "https://github.com/lawther/python-lint-hooks?tag=v0.2.0#8c8cc079a78c483dd0f707348f857993d22a9710" }
+dependencies = [
+    { name = "pathspec" },
+    { name = "pydantic" },
+]
+
+[[package]]
 name = "rich"
 version = "14.3.3"
 source = { registry = "https://pypi.org/simple" }
@@ -487,6 +505,7 @@ dev = [
     { name = "psutil" },
     { name = "pytest-randomly" },
     { name = "pytest-timeout" },
+    { name = "python-lint-hooks" },
     { name = "ruff" },
     { name = "ty" },
 ]
@@ -510,6 +529,7 @@ dev = [
     { name = "psutil", specifier = ">=7.2.2" },
     { name = "pytest-randomly", specifier = "~=4.0" },
     { name = "pytest-timeout", specifier = "~=2.4" },
+    { name = "python-lint-hooks", git = "https://github.com/lawther/python-lint-hooks?tag=v0.2.0" },
     { name = "ruff", specifier = ">=0.15.4" },
     { name = "ty", specifier = ">=0.0.25" },
 ]
