@@ -9,6 +9,11 @@ check: lint typecheck test
 lint:
     uv run ruff format
     uv run ruff check --fix
+    just extra-lints
+
+# Check for bare dict/tuple return types and classes defined inside functions (ML001, ML002)
+extra-lints:
+    @uv run ml-lint smoke_optimiser/
 
 # Format the code
 format:
@@ -45,6 +50,7 @@ precommit:
         just _lint-justfile
         uv run ruff format
         uv run ruff check --fix
+        just extra-lints
         xargs -r -0 git add < "$staged_list"
         uv run ty check
         uv run pytest
