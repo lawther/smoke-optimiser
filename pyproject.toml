@@ -83,6 +83,7 @@ lint.select = [
   "ASYNC",
   "SIM",
   "LOG",
+  "DTZ",
 ]
 lint.ignore = [
   # pydocstyle
