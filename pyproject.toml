@@ -107,21 +107,36 @@ lint.ignore = [
   "PLR0913",
   "PLR0915",
 ]
-lint.per-file-ignores = { "tests/*" = ["S101"] }
+lint.per-file-ignores = { "tests/*" = ["S101"], "scripts/*" = ["S603", "S607"] }
 lint.pydocstyle.convention = "google"
 
 [tool.uv.sources]
-python-lint-hooks = { git = "https://github.com/lawther/python-lint-hooks", tag = "v0.4.0" }
+python-lint-hooks = { git = "https://github.com/lawther/python-lint-hooks", tag = "v0.6.1" }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
 timeout = 10
+addopts = "--cov=smoke_optimiser --cov-report=term-missing --cov-branch"
 filterwarnings = [
     "error::RuntimeWarning",
     "error::pytest.PytestUnraisableExceptionWarning",
     "error::pytest_cov.engine.CentralCovContextWarning",
     "error::coverage.exceptions.CoverageWarning",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["smoke_optimiser"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "def __repr__",
+    "raise NotImplementedError",
 ]
 
 [tool.hatch.build.targets.sdist]

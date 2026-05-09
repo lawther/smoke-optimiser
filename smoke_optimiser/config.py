@@ -47,6 +47,25 @@ class ResolvedConfig:
     iterations: int
 
 
+class ProjectMetadata(BaseModel):
+    """Minimal project metadata from pyproject.toml."""
+
+    name: str
+
+
+class ToolConfig(BaseModel):
+    """Tool configuration section in pyproject.toml."""
+
+    smoke_optimiser: FileConfig | None = None
+
+
+class PyProjectConfig(BaseModel):
+    """Structure of pyproject.toml for validation."""
+
+    project: ProjectMetadata | None = None
+    tool: ToolConfig | None = None
+
+
 def _discover_cov_target(project_root: Path) -> str:
     """Best-effort discovery of the source directory for coverage."""
     # 1. src/ layout is a very strong signal
@@ -58,14 +77,14 @@ def _discover_cov_target(project_root: Path) -> str:
     if pyproject_path.exists():
         try:
             with open(pyproject_path, "rb") as f:
-                data = tomllib.load(f)
-                name = data.get("project", {}).get("name")
-                if name:
-                    normalized = name.replace("-", "_")
+                raw_data = tomllib.load(f)
+                data = PyProjectConfig.model_validate(raw_data)
+                if data.project and data.project.name:
+                    normalized = data.project.name.replace("-", "_")
                     # If there's a folder matching the project name, instrument it
                     if (project_root / normalized).is_dir():
                         return normalized
-        except (tomllib.TOMLDecodeError, OSError) as e:
+        except (tomllib.TOMLDecodeError, OSError, ValidationError) as e:
             typer.secho(
                 f"⚠️ Warning: Failed to parse project name from pyproject.toml: {e}",
                 fg=typer.colors.YELLOW,
@@ -83,26 +102,16 @@ def load_file_config(project_root: Path) -> FileConfig | None:
 
     try:
         with open(pyproject_path, "rb") as f:
-            data = tomllib.load(f)
+            raw_data = tomllib.load(f)
     except (OSError, tomllib.TOMLDecodeError):
         return None
 
-    tool_config = data.get("tool", {}).get("smoke_optimiser")
-    if tool_config is None:
+    data = PyProjectConfig.model_validate(raw_data)
+
+    if data.tool is None or data.tool.smoke_optimiser is None:
         return None
 
-    try:
-        return FileConfig(**tool_config)
-    except ValidationError as e:
-        typer.secho(
-            "❌ Error: Invalid configuration in pyproject.toml [tool.smoke_optimiser]:",
-            fg=typer.colors.RED,
-            err=True,
-        )
-        for err in e.errors():
-            loc = ".".join(str(loc_part) for loc_part in err["loc"])
-            typer.secho(f"  - {loc}: {err['msg']}", fg=typer.colors.RED, err=True)
-        raise typer.Exit(code=1) from None
+    return data.tool.smoke_optimiser
 
 
 def resolve_config(

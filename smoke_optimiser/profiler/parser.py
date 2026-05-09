@@ -3,12 +3,35 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
+from pydantic import BaseModel, Field
+
 from smoke_optimiser.environment import capture_environment
 from smoke_optimiser.profiler.models import (
     ProfilingData,
     ProfilingMeta,
     ProfilingOutcome,
 )
+
+
+class CoverageMeta(BaseModel):
+    """Metadata section of coverage.py JSON report."""
+
+    version: str = "unknown"
+
+
+class CoverageFile(BaseModel):
+    """File section of coverage.py JSON report."""
+
+    executed_branches: list[list[int]] = Field(default_factory=list)
+    missing_branches: list[list[int]] = Field(default_factory=list)
+    contexts: dict[str, list[str]] = Field(default_factory=dict)
+
+
+class CoverageReport(BaseModel):
+    """Full coverage.py JSON report structure."""
+
+    meta: CoverageMeta = Field(default_factory=CoverageMeta)
+    files: dict[str, CoverageFile] = Field(default_factory=dict)
 
 
 def parse_coverage_json(
@@ -26,11 +49,11 @@ def parse_coverage_json(
     tests_lines: dict[str, dict[str, set[int]]] = {}
     tests_branches: dict[str, set[str]] = {}
     total_branches: set[str] = set()
-    coverage_version = "unknown"
 
     with open(coverage_json_path, "rb") as f:
-        full_data = json.load(f)
-        coverage_version = full_data.get("meta", {}).get("version", "unknown")
+        raw_data = json.load(f)
+        full_data = CoverageReport.model_validate(raw_data)
+        coverage_version = full_data.meta.version
 
         resolved_test_ids: dict[str, str | None] = {}
         # Pre-compute test names for faster lookup (fallback 3)
@@ -41,15 +64,15 @@ def parse_coverage_json(
             if clean_name not in candidate_names:
                 candidate_names[clean_name] = c
 
-        for file_path, file_data in full_data.get("files", {}).items():
-            executed_branches = file_data.get("executed_branches", [])
-            missing_branches = file_data.get("missing_branches", [])
+        for file_path, file_data in full_data.files.items():
+            executed_branches = file_data.executed_branches
+            missing_branches = file_data.missing_branches
             all_branches = executed_branches + missing_branches
 
             for br in all_branches:
                 total_branches.add(f"{file_path}:{br[0]}->{br[1]}")
 
-            contexts = file_data.get("contexts", {})
+            contexts = file_data.contexts
             for line_str, context_list in contexts.items():
                 try:
                     line_num = int(line_str)
