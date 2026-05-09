@@ -1,6 +1,7 @@
 import hashlib
 import heapq
 from collections import defaultdict
+from typing import NamedTuple
 
 from smoke_optimiser.optimiser.filters import FilteredTests
 from smoke_optimiser.optimiser.models import (
@@ -8,6 +9,15 @@ from smoke_optimiser.optimiser.models import (
     SelectedTest,
     SmokeResult,
 )
+from smoke_optimiser.profiler.models import ProfilingOutcome
+
+
+class MandatoryResult(NamedTuple):
+    """Result of processing mandatory tests."""
+
+    selected_tests: list[SelectedTest]
+    elapsed_time: float
+
 
 EFFICIENCY_EPSILON = 1e-9
 
@@ -29,39 +39,14 @@ def _get_branch_set_hash(branches: frozenset[str]) -> str:
     return hashlib.sha256(",".join(sorted_branches).encode()).hexdigest()
 
 
-def optimise(
-    filtered: FilteredTests,
+def _build_initial_heap(
+    candidates: dict[str, ProfilingOutcome],
     total_branches: frozenset[str],
-    time_cap: float,
-    target_cov: float,
-) -> SmokeResult:
-    """Select a subset of tests using a greedy weighted set-cover approximation."""
-    selected_tests: list[SelectedTest] = []
-    covered_set: set[str] = set()
-    elapsed_time = 0.0
-
-    # 1. Pre-population from mandatory_included
-    for test_id, outcome in filtered.mandatory_included.items():
-        marginal = len(outcome.branches_covered - covered_set)
-        efficiency = marginal / outcome.duration_s if outcome.duration_s > 0 else 0.0
-
-        selected_tests.append(
-            SelectedTest(
-                test_id=test_id,
-                duration_s=outcome.duration_s,
-                branches_covered=len(outcome.branches_covered),
-                marginal_branches=marginal,
-                efficiency=efficiency,
-            )
-        )
-        covered_set.update(outcome.branches_covered)
-        elapsed_time += outcome.duration_s
-
-    # 2. Greedy selection
+    covered_set: set[str],
+) -> list[list]:
+    """Pre-calculate candidate branches and populate the priority queue."""
     heap: list[list] = []
-
-    # Pre-calculate candidate branches and populate the priority queue.
-    for test in filtered.candidates.values():
+    for test in candidates.values():
         valid_branches = test.branches_covered & total_branches - covered_set
         if valid_branches:
             marginal = len(valid_branches)
@@ -83,6 +68,50 @@ def optimise(
                 len(covered_set),
             ]
             heapq.heappush(heap, node)
+    return heap
+
+
+def _process_mandatory_tests(
+    mandatory_included: dict[str, ProfilingOutcome],
+    covered_set: set[str],
+) -> MandatoryResult:
+    """Pre-populate selected tests from mandatory_included."""
+    selected_tests: list[SelectedTest] = []
+    elapsed_time = 0.0
+    for test_id, outcome in mandatory_included.items():
+        marginal = len(outcome.branches_covered - covered_set)
+        efficiency = marginal / outcome.duration_s if outcome.duration_s > 0 else 0.0
+
+        selected_tests.append(
+            SelectedTest(
+                test_id=test_id,
+                duration_s=outcome.duration_s,
+                branches_covered=len(outcome.branches_covered),
+                marginal_branches=marginal,
+                efficiency=efficiency,
+            )
+        )
+        covered_set.update(outcome.branches_covered)
+        elapsed_time += outcome.duration_s
+    return MandatoryResult(selected_tests, elapsed_time)
+
+
+def optimise(
+    filtered: FilteredTests,
+    total_branches: frozenset[str],
+    time_cap: float,
+    target_cov: float,
+) -> SmokeResult:
+    """Select a subset of tests using a greedy weighted set-cover approximation."""
+    covered_set: set[str] = set()
+
+    # 1. Pre-population from mandatory_included
+    mandatory = _process_mandatory_tests(filtered.mandatory_included, covered_set)
+    selected_tests = mandatory.selected_tests
+    elapsed_time = mandatory.elapsed_time
+
+    # 2. Greedy selection
+    heap = _build_initial_heap(filtered.candidates, total_branches, covered_set)
 
     target_count = (target_cov / 100.0) * len(total_branches)
 

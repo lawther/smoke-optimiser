@@ -9,9 +9,7 @@ requires-python = ">=3.12"
 description = "A Python CLI tool and pytest plugin to identify and run a minimal smoke test suite."
 readme = "README.md"
 license = { file = "LICENSE" }
-authors = [
-    { name = "Mike Lawther", email = "mike.lawther@gmail.com" }
-]
+authors = [{ name = "Mike Lawther", email = "mike.lawther@gmail.com" }]
 keywords = ["pytest", "testing", "smoke-test", "coverage", "optimisation"]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -67,35 +65,34 @@ line-length = 120
 # SIM: Simple checks
 # LOG: Logging checks
 lint.select = [
-  "B",
-  "C4",
-  "D",
-  "E",
-  "F",
-  "I",
-  "S",
-  "ICN",
-  "PGH",
-  "PL",
-  "RUF",
-  "UP",
-  "ANN",
-  "ASYNC",
-  "SIM",
-  "LOG",
-  "DTZ",
+    "B",
+    "C4",
+    "D",
+    "E",
+    "F",
+    "I",
+    "S",
+    "ICN",
+    "PGH",
+    "PL",
+    "RUF",
+    "UP",
+    "ANN",
+    "ASYNC",
+    "SIM",
+    "LOG",
+    "DTZ",
 ]
 lint.ignore = [
-  "D100",  # missing docstring in public module
-  "D101",  # missing docstring in public class
-  "D102",  # missing docstring in public method
-  "D103",  # missing docstring in public function
-  "D104",  # missing docstring in public package
-  "D105",  # missing docstring in magic method
-  "D107",  # missing docstring in __init__
-  "PLR0912",  # too many branches
-  "PLR0913",  # too many arguments
-  "PLR0915",  # too many statements
+    "D100",    # missing docstring in public module
+    "D101",    # missing docstring in public class
+    "D102",    # missing docstring in public method
+    "D103",    # missing docstring in public function
+    "D104",    # missing docstring in public package
+    "D105",    # missing docstring in magic method
+    "D107",    # missing docstring in __init__
+    "PLR0912", # too many branches
+    "PLR0913", # too many arguments
 ]
 lint.per-file-ignores = { "tests/*" = ["S101"], "scripts/*" = ["S603", "S607"] }
 lint.pydocstyle.convention = "google"

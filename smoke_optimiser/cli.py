@@ -10,6 +10,7 @@ from smoke_optimiser.optimiser.filters import apply_filters
 from smoke_optimiser.optimiser.greedy import optimise
 from smoke_optimiser.profiler.models import (
     MachineModel,
+    ProfilingData,
     ProfilingDataFile,
     ProfilingMetaModel,
     ProfilingOutcomeModel,
@@ -32,6 +33,75 @@ def _split_comma_list(items: list[str] | None) -> list[str]:
         elif item.strip():
             result.append(item.strip())
     return result
+
+
+def _save_profiling_data(profiling_data: ProfilingData, intermediate_file: Path) -> None:
+    """Save profiling data to an intermediate JSON file."""
+    # Save intermediate data
+    machine = profiling_data.meta.machine
+    machine_model = MachineModel(
+        os=machine.os,
+        os_version=machine.os_version,
+        platform=machine.platform,
+        architecture=machine.architecture,
+        cpu_model=machine.cpu_model,
+        cpu_cores_physical=machine.cpu_cores_physical,
+        cpu_cores_logical=machine.cpu_cores_logical,
+        ram_total_mb=machine.ram_total_mb,
+        ram_available_mb=machine.ram_available_mb,
+        hostname=machine.hostname,
+    )
+    meta_model = ProfilingMetaModel(
+        timestamp=profiling_data.meta.timestamp,
+        commit=profiling_data.meta.commit,
+        python_version=profiling_data.meta.python_version,
+        coverage_version=profiling_data.meta.coverage_version,
+        command=profiling_data.meta.command,
+        machine=machine_model,
+    )
+    test_models = {
+        tid: ProfilingOutcomeModel(
+            test_id=po.test_id,
+            duration_s=po.duration_s,
+            passed=po.passed,
+            branches_covered=list(po.branches_covered),
+            markers=list(po.markers),
+        )
+        for tid, po in profiling_data.tests.items()
+    }
+    file_data = ProfilingDataFile(
+        meta=meta_model,
+        tests=test_models,
+        total_branches=list(profiling_data.total_branches),
+    )
+    intermediate_file.unlink(missing_ok=True)
+    with open(intermediate_file, "w") as f:
+        json.dump(file_data.model_dump(mode="json"), f)
+    typer.secho(f"💾 Profiling data saved to {intermediate_file}", fg=typer.colors.GREEN)
+
+
+def _load_profiling_data(intermediate_file: Path) -> ProfilingData:
+    """Load profiling data from an intermediate JSON file."""
+    # Try to load from intermediate file if it exists
+    if not intermediate_file.exists():
+        typer.secho(
+            "❌ Error: No profiling data found. Run without --optimise-only first.",
+            fg=typer.colors.RED,
+            err=True,
+        )
+        raise typer.Exit(code=1)
+
+    try:
+        with open(intermediate_file, "rb") as f:
+            raw = json.load(f)
+            return ProfilingDataFile(**raw).to_profiling_data()
+    except (OSError, json.JSONDecodeError) as e:
+        typer.secho(
+            f"❌ Error: Failed to parse profiling data ({intermediate_file}): {e}",
+            fg=typer.colors.RED,
+            err=True,
+        )
+        raise typer.Exit(code=1) from None
 
 
 @app.command()
@@ -155,71 +225,12 @@ def main(
         profiling_data = run_profiling(config, project_root)
 
         if config.mode == OperationMode.PROFILE_ONLY:
-            # Save intermediate data
-            machine = profiling_data.meta.machine
-            machine_model = MachineModel(
-                os=machine.os,
-                os_version=machine.os_version,
-                platform=machine.platform,
-                architecture=machine.architecture,
-                cpu_model=machine.cpu_model,
-                cpu_cores_physical=machine.cpu_cores_physical,
-                cpu_cores_logical=machine.cpu_cores_logical,
-                ram_total_mb=machine.ram_total_mb,
-                ram_available_mb=machine.ram_available_mb,
-                hostname=machine.hostname,
-            )
-            meta_model = ProfilingMetaModel(
-                timestamp=profiling_data.meta.timestamp,
-                commit=profiling_data.meta.commit,
-                python_version=profiling_data.meta.python_version,
-                coverage_version=profiling_data.meta.coverage_version,
-                command=profiling_data.meta.command,
-                machine=machine_model,
-            )
-            test_models = {
-                tid: ProfilingOutcomeModel(
-                    test_id=po.test_id,
-                    duration_s=po.duration_s,
-                    passed=po.passed,
-                    branches_covered=list(po.branches_covered),
-                    markers=list(po.markers),
-                )
-                for tid, po in profiling_data.tests.items()
-            }
-            file_data = ProfilingDataFile(
-                meta=meta_model,
-                tests=test_models,
-                total_branches=list(profiling_data.total_branches),
-            )
-            intermediate_file.unlink(missing_ok=True)
-            with open(intermediate_file, "w") as f:
-                json.dump(file_data.model_dump(mode="json"), f)
-            typer.secho(f"💾 Profiling data saved to {intermediate_file}", fg=typer.colors.GREEN)
+            _save_profiling_data(profiling_data, intermediate_file)
 
     # Phase 2: Optimisation
     if config.mode != OperationMode.PROFILE_ONLY:
         if profiling_data is None:
-            # Try to load from intermediate file if it exists
-            if not intermediate_file.exists():
-                typer.secho(
-                    "❌ Error: No profiling data found. Run without --optimise-only first.",
-                    fg=typer.colors.RED,
-                    err=True,
-                )
-                raise typer.Exit(code=1)
-
-            try:
-                with open(intermediate_file, "rb") as f:
-                    raw = json.load(f)
-                    profiling_data = ProfilingDataFile(**raw).to_profiling_data()
-            except (OSError, json.JSONDecodeError) as e:
-                typer.secho(
-                    f"❌ Error: Failed to parse profiling data ({intermediate_file}): {e}",
-                    fg=typer.colors.RED,
-                    err=True,
-                )
-                raise typer.Exit(code=1) from None
+            profiling_data = _load_profiling_data(intermediate_file)
 
         typer.secho("⚡ Optimising smoke suite...", fg=typer.colors.CYAN, bold=True)
         filtered = apply_filters(profiling_data.tests, config.include_mandatory, config.exclude_mandatory)

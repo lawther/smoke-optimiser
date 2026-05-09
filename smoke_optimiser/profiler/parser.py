@@ -34,6 +34,41 @@ class CoverageReport(BaseModel):
     files: dict[str, CoverageFile] = Field(default_factory=dict)
 
 
+def _resolve_test_id(
+    raw_test_id: str,
+    test_durations: dict[str, float],
+    candidate_names: dict[str, str],
+    resolved_test_ids: dict[str, str | None],
+) -> str | None:
+    """Normalize and resolve a raw test ID from coverage contexts to a known test ID."""
+    if raw_test_id in resolved_test_ids:
+        return resolved_test_ids[raw_test_id]
+
+    # NORMALIZE
+    # Strip suffixes like "|run" or " (call)"
+    clean_id = raw_test_id.split("|", maxsplit=1)[0].split(" (", maxsplit=1)[0]
+    test_id = None
+
+    # 1. Exact match
+    if clean_id in test_durations:
+        test_id = clean_id
+    else:
+        # 2. Suffix match
+        for candidate in test_durations:
+            if clean_id.endswith(candidate) or candidate.endswith(clean_id):
+                test_id = candidate
+                break
+
+        # 3. Test name match (for dynamic_context = test_function which uses dot notation)
+        if not test_id:
+            clean_name = clean_id.split(".")[-1]
+            if clean_name in candidate_names:
+                test_id = candidate_names[clean_name]
+
+    resolved_test_ids[raw_test_id] = test_id
+    return test_id
+
+
 def parse_coverage_json(
     coverage_json_path: Path,
     test_durations: dict[str, float],
@@ -83,31 +118,7 @@ def parse_coverage_json(
                     if raw_test_id == "":
                         continue
 
-                    if raw_test_id in resolved_test_ids:
-                        test_id = resolved_test_ids[raw_test_id]
-                    else:
-                        # NORMALIZE
-                        # Strip suffixes like "|run" or " (call)"
-                        clean_id = raw_test_id.split("|")[0].split(" (")[0]
-                        test_id = None
-
-                        # 1. Exact match
-                        if clean_id in test_durations:
-                            test_id = clean_id
-                        else:
-                            # 2. Suffix match
-                            for candidate in test_durations:
-                                if clean_id.endswith(candidate) or candidate.endswith(clean_id):
-                                    test_id = candidate
-                                    break
-
-                            # 3. Test name match (for dynamic_context = test_function which uses dot notation)
-                            if not test_id:
-                                clean_name = clean_id.split(".")[-1]
-                                if clean_name in candidate_names:
-                                    test_id = candidate_names[clean_name]
-
-                        resolved_test_ids[raw_test_id] = test_id
+                    test_id = _resolve_test_id(raw_test_id, test_durations, candidate_names, resolved_test_ids)
 
                     if test_id:
                         if test_id not in tests_lines:
