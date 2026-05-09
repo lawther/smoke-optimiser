@@ -86,26 +86,16 @@ lint.select = [
   "DTZ",
 ]
 lint.ignore = [
-  # pydocstyle
-  # D1: Missing docstring in public module
-  "D100",
-  # D2: Missing docstring in public package
-  "D104",
-  # D3: Missing docstring in public function
-  "D103",
-  # D4: Missing docstring in public package
-  "D107",
-  # D5: Missing docstring in public method
-  "D102",
-  # D6: Missing docstring in public class
-  "D101",
-  # D7: Missing docstring in __init__
-  "D107",
-  # pylint
-  # PLR09: Too many <...>
-  "PLR0912",
-  "PLR0913",
-  "PLR0915",
+  "D100",  # missing docstring in public module
+  "D101",  # missing docstring in public class
+  "D102",  # missing docstring in public method
+  "D103",  # missing docstring in public function
+  "D104",  # missing docstring in public package
+  "D105",  # missing docstring in magic method
+  "D107",  # missing docstring in __init__
+  "PLR0912",  # too many branches
+  "PLR0913",  # too many arguments
+  "PLR0915",  # too many statements
 ]
 lint.per-file-ignores = { "tests/*" = ["S101"], "scripts/*" = ["S603", "S607"] }
 lint.pydocstyle.convention = "google"
