@@ -69,6 +69,96 @@ def _resolve_test_id(
     return test_id
 
 
+def _map_contexts_to_lines(
+    file_path: str,
+    contexts: dict[str, list[str]],
+    test_durations: dict[str, float],
+    candidate_names: dict[str, str],
+    resolved_test_ids: dict[str, str | None],
+    tests_lines: dict[str, dict[str, set[int]]],
+) -> None:
+    """Map coverage contexts (tests) to the lines they executed in a file."""
+    for line_str, context_list in contexts.items():
+        try:
+            line_num = int(line_str)
+        except ValueError:
+            continue
+
+        for raw_test_id in context_list:
+            if raw_test_id == "":
+                continue
+
+            test_id = _resolve_test_id(raw_test_id, test_durations, candidate_names, resolved_test_ids)
+
+            if test_id:
+                if test_id not in tests_lines:
+                    tests_lines[test_id] = {}
+                if file_path not in tests_lines[test_id]:
+                    tests_lines[test_id][file_path] = set()
+                tests_lines[test_id][file_path].add(line_num)
+
+
+def _infer_branch_coverage(
+    file_path: str,
+    executed_branches: list[list[int]],
+    tests_lines: dict[str, dict[str, set[int]]],
+    tests_branches: dict[str, set[str]],
+) -> None:
+    """Infer branch coverage for a file based on executed lines."""
+    # Pre-format branch strings to avoid redundant O(tests * branches) string concatenations
+    formatted_branches = [(br[0], br[1], f"{file_path}:{br[0]}->{br[1]}") for br in executed_branches]
+
+    for test_id, file_lines in tests_lines.items():
+        if file_path not in file_lines:
+            continue
+        lines = file_lines[file_path]
+
+        if test_id not in tests_branches:
+            tests_branches[test_id] = set()
+
+        for u, v, branch_str in formatted_branches:
+            # A test covers branch u->v if it hit line u AND (it hit line v OR v is an exit branch)
+            if u in lines and (v <= 0 or v in lines):
+                tests_branches[test_id].add(branch_str)
+
+
+def _assemble_profiling_data(
+    test_durations: dict[str, float],
+    test_outcomes: dict[str, bool],
+    test_markers: dict[str, frozenset[str]],
+    tests_branches: dict[str, set[str]],
+    total_branches: set[str],
+    coverage_version: str,
+) -> ProfilingData:
+    """Assemble final profiling results into a ProfilingData object."""
+    profiling_outcomes = {}
+    for test_id, duration in test_durations.items():
+        branches = frozenset(tests_branches.get(test_id, set()))
+
+        profiling_outcomes[test_id] = ProfilingOutcome(
+            test_id=test_id,
+            duration_s=duration,
+            passed=test_outcomes.get(test_id, False),
+            branches_covered=branches,
+            markers=test_markers.get(test_id, frozenset()),
+        )
+
+    meta = ProfilingMeta(
+        timestamp=datetime.now(UTC),
+        commit=None,
+        python_version=sys.version,
+        coverage_version=str(coverage_version),
+        command=" ".join(sys.argv),
+        machine=capture_environment(),
+    )
+
+    return ProfilingData(
+        meta=meta,
+        tests=profiling_outcomes,
+        total_branches=frozenset(total_branches),
+    )
+
+
 def parse_coverage_json(
     coverage_json_path: Path,
     test_durations: dict[str, float],
@@ -107,66 +197,22 @@ def parse_coverage_json(
             for br in all_branches:
                 total_branches.add(f"{file_path}:{br[0]}->{br[1]}")
 
-            contexts = file_data.contexts
-            for line_str, context_list in contexts.items():
-                try:
-                    line_num = int(line_str)
-                except ValueError:
-                    continue
+            _map_contexts_to_lines(
+                file_path,
+                file_data.contexts,
+                test_durations,
+                candidate_names,
+                resolved_test_ids,
+                tests_lines,
+            )
 
-                for raw_test_id in context_list:
-                    if raw_test_id == "":
-                        continue
+            _infer_branch_coverage(file_path, executed_branches, tests_lines, tests_branches)
 
-                    test_id = _resolve_test_id(raw_test_id, test_durations, candidate_names, resolved_test_ids)
-
-                    if test_id:
-                        if test_id not in tests_lines:
-                            tests_lines[test_id] = {}
-                        if file_path not in tests_lines[test_id]:
-                            tests_lines[test_id][file_path] = set()
-                        tests_lines[test_id][file_path].add(line_num)
-
-            # Now infer branch coverage for this file
-            # Pre-format branch strings to avoid redundant O(tests * branches) string concatenations
-            formatted_branches = [(br[0], br[1], f"{file_path}:{br[0]}->{br[1]}") for br in executed_branches]
-
-            for test_id, file_lines in tests_lines.items():
-                if file_path not in file_lines:
-                    continue
-                lines = file_lines[file_path]
-
-                if test_id not in tests_branches:
-                    tests_branches[test_id] = set()
-
-                for u, v, branch_str in formatted_branches:
-                    # A test covers branch u->v if it hit line u AND (it hit line v OR v is an exit branch)
-                    if u in lines and (v <= 0 or v in lines):
-                        tests_branches[test_id].add(branch_str)
-
-    profiling_outcomes = {}
-    for test_id, duration in test_durations.items():
-        branches = frozenset(tests_branches.get(test_id, set()))
-
-        profiling_outcomes[test_id] = ProfilingOutcome(
-            test_id=test_id,
-            duration_s=duration,
-            passed=test_outcomes.get(test_id, False),
-            branches_covered=branches,
-            markers=test_markers.get(test_id, frozenset()),
-        )
-
-    meta = ProfilingMeta(
-        timestamp=datetime.now(UTC),
-        commit=None,
-        python_version=sys.version,
-        coverage_version=str(coverage_version),
-        command=" ".join(sys.argv),
-        machine=capture_environment(),
-    )
-
-    return ProfilingData(
-        meta=meta,
-        tests=profiling_outcomes,
-        total_branches=frozenset(total_branches),
+    return _assemble_profiling_data(
+        test_durations,
+        test_outcomes,
+        test_markers,
+        tests_branches,
+        total_branches,
+        coverage_version,
     )

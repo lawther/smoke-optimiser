@@ -91,7 +91,6 @@ lint.ignore = [
     "D104",    # missing docstring in public package
     "D105",    # missing docstring in magic method
     "D107",    # missing docstring in __init__
-    "PLR0912", # too many branches
     "PLR0913", # too many arguments
 ]
 lint.per-file-ignores = { "tests/*" = ["S101"], "scripts/*" = ["S603", "S607"] }
