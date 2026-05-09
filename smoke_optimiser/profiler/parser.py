@@ -34,48 +34,71 @@ class CoverageReport(BaseModel):
     files: dict[str, CoverageFile] = Field(default_factory=dict)
 
 
-def _resolve_test_id(
-    raw_test_id: str,
-    test_durations: dict[str, float],
-    candidate_names: dict[str, str],
-    resolved_test_ids: dict[str, str | None],
-) -> str | None:
-    """Normalize and resolve a raw test ID from coverage contexts to a known test ID."""
-    if raw_test_id in resolved_test_ids:
-        return resolved_test_ids[raw_test_id]
+class TestResolver:
+    """Encapsulates test ID resolution logic and state."""
 
-    # NORMALIZE
-    # Strip suffixes like "|run" or " (call)"
-    clean_id = raw_test_id.split("|", maxsplit=1)[0].split(" (", maxsplit=1)[0]
-    test_id = None
+    def __init__(self, test_durations: dict[str, float]) -> None:
+        self.test_durations = test_durations
+        self.resolved_test_ids: dict[str, str | None] = {}
+        # Pre-compute test names for faster lookup (fallback 3)
+        self.candidate_names: dict[str, str] = {}
+        for c in test_durations:
+            clean_name = c.split("::")[-1].split("[")[0]
+            if clean_name not in self.candidate_names:
+                self.candidate_names[clean_name] = c
 
-    # 1. Exact match
-    if clean_id in test_durations:
-        test_id = clean_id
-    else:
-        # 2. Suffix match
-        for candidate in test_durations:
-            if clean_id.endswith(candidate) or candidate.endswith(clean_id):
-                test_id = candidate
-                break
+    def resolve(self, raw_test_id: str) -> str | None:
+        """Normalize and resolve a raw test ID from coverage contexts."""
+        if raw_test_id in self.resolved_test_ids:
+            return self.resolved_test_ids[raw_test_id]
 
-        # 3. Test name match (for dynamic_context = test_function which uses dot notation)
-        if not test_id:
-            clean_name = clean_id.split(".")[-1]
-            if clean_name in candidate_names:
-                test_id = candidate_names[clean_name]
+        # NORMALIZE
+        # Strip suffixes like "|run" or " (call)"
+        clean_id = raw_test_id.split("|", maxsplit=1)[0].split(" (", maxsplit=1)[0]
+        test_id = None
 
-    resolved_test_ids[raw_test_id] = test_id
-    return test_id
+        # 1. Exact match
+        if clean_id in self.test_durations:
+            test_id = clean_id
+        else:
+            # 2. Suffix match
+            for candidate in self.test_durations:
+                if clean_id.endswith(candidate) or candidate.endswith(clean_id):
+                    test_id = candidate
+                    break
+
+            # 3. Test name match (for dynamic_context = test_function which uses dot notation)
+            if not test_id:
+                clean_name = clean_id.split(".")[-1]
+                if clean_name in self.candidate_names:
+                    test_id = self.candidate_names[clean_name]
+
+        self.resolved_test_ids[raw_test_id] = test_id
+        return test_id
+
+
+class CoverageCollector:
+    """Stateful collector for coverage data during parsing."""
+
+    def __init__(self) -> None:
+        self.tests_lines: dict[str, dict[str, set[int]]] = {}
+        self.tests_branches: dict[str, set[str]] = {}
+        self.total_branches: set[str] = set()
+
+    def add_line(self, test_id: str, file_path: str, line_num: int) -> None:
+        """Record that a test executed a specific line."""
+        if test_id not in self.tests_lines:
+            self.tests_lines[test_id] = {}
+        if file_path not in self.tests_lines[test_id]:
+            self.tests_lines[test_id][file_path] = set()
+        self.tests_lines[test_id][file_path].add(line_num)
 
 
 def _map_contexts_to_lines(
     file_path: str,
     contexts: dict[str, list[str]],
-    test_durations: dict[str, float],
-    candidate_names: dict[str, str],
-    resolved_test_ids: dict[str, str | None],
-    tests_lines: dict[str, dict[str, set[int]]],
+    resolver: TestResolver,
+    collector: CoverageCollector,
 ) -> None:
     """Map coverage contexts (tests) to the lines they executed in a file."""
     for line_str, context_list in contexts.items():
@@ -88,52 +111,46 @@ def _map_contexts_to_lines(
             if raw_test_id == "":
                 continue
 
-            test_id = _resolve_test_id(raw_test_id, test_durations, candidate_names, resolved_test_ids)
+            test_id = resolver.resolve(raw_test_id)
 
             if test_id:
-                if test_id not in tests_lines:
-                    tests_lines[test_id] = {}
-                if file_path not in tests_lines[test_id]:
-                    tests_lines[test_id][file_path] = set()
-                tests_lines[test_id][file_path].add(line_num)
+                collector.add_line(test_id, file_path, line_num)
 
 
 def _infer_branch_coverage(
     file_path: str,
     executed_branches: list[list[int]],
-    tests_lines: dict[str, dict[str, set[int]]],
-    tests_branches: dict[str, set[str]],
+    collector: CoverageCollector,
 ) -> None:
     """Infer branch coverage for a file based on executed lines."""
     # Pre-format branch strings to avoid redundant O(tests * branches) string concatenations
     formatted_branches = [(br[0], br[1], f"{file_path}:{br[0]}->{br[1]}") for br in executed_branches]
 
-    for test_id, file_lines in tests_lines.items():
+    for test_id, file_lines in collector.tests_lines.items():
         if file_path not in file_lines:
             continue
         lines = file_lines[file_path]
 
-        if test_id not in tests_branches:
-            tests_branches[test_id] = set()
+        if test_id not in collector.tests_branches:
+            collector.tests_branches[test_id] = set()
 
         for u, v, branch_str in formatted_branches:
             # A test covers branch u->v if it hit line u AND (it hit line v OR v is an exit branch)
             if u in lines and (v <= 0 or v in lines):
-                tests_branches[test_id].add(branch_str)
+                collector.tests_branches[test_id].add(branch_str)
 
 
 def _assemble_profiling_data(
+    collector: CoverageCollector,
     test_durations: dict[str, float],
     test_outcomes: dict[str, bool],
     test_markers: dict[str, frozenset[str]],
-    tests_branches: dict[str, set[str]],
-    total_branches: set[str],
     coverage_version: str,
 ) -> ProfilingData:
     """Assemble final profiling results into a ProfilingData object."""
     profiling_outcomes = {}
     for test_id, duration in test_durations.items():
-        branches = frozenset(tests_branches.get(test_id, set()))
+        branches = frozenset(collector.tests_branches.get(test_id, set()))
 
         profiling_outcomes[test_id] = ProfilingOutcome(
             test_id=test_id,
@@ -155,7 +172,7 @@ def _assemble_profiling_data(
     return ProfilingData(
         meta=meta,
         tests=profiling_outcomes,
-        total_branches=frozenset(total_branches),
+        total_branches=frozenset(collector.total_branches),
     )
 
 
@@ -171,23 +188,13 @@ def parse_coverage_json(
     branches, we infer branch coverage: a test covers branch A->B if it
     executed both line A and line B (or if B is an exit branch <= 0).
     """
-    tests_lines: dict[str, dict[str, set[int]]] = {}
-    tests_branches: dict[str, set[str]] = {}
-    total_branches: set[str] = set()
+    collector = CoverageCollector()
 
     with open(coverage_json_path, "rb") as f:
         raw_data = json.load(f)
         full_data = CoverageReport.model_validate(raw_data)
         coverage_version = full_data.meta.version
-
-        resolved_test_ids: dict[str, str | None] = {}
-        # Pre-compute test names for faster lookup (fallback 3)
-        # Keep only the *first* matching test candidate name to match original behaviour
-        candidate_names: dict[str, str] = {}
-        for c in test_durations:
-            clean_name = c.split("::")[-1].split("[")[0]
-            if clean_name not in candidate_names:
-                candidate_names[clean_name] = c
+        resolver = TestResolver(test_durations)
 
         for file_path, file_data in full_data.files.items():
             executed_branches = file_data.executed_branches
@@ -195,24 +202,15 @@ def parse_coverage_json(
             all_branches = executed_branches + missing_branches
 
             for br in all_branches:
-                total_branches.add(f"{file_path}:{br[0]}->{br[1]}")
+                collector.total_branches.add(f"{file_path}:{br[0]}->{br[1]}")
 
-            _map_contexts_to_lines(
-                file_path,
-                file_data.contexts,
-                test_durations,
-                candidate_names,
-                resolved_test_ids,
-                tests_lines,
-            )
-
-            _infer_branch_coverage(file_path, executed_branches, tests_lines, tests_branches)
+            _map_contexts_to_lines(file_path, file_data.contexts, resolver, collector)
+            _infer_branch_coverage(file_path, executed_branches, collector)
 
     return _assemble_profiling_data(
+        collector,
         test_durations,
         test_outcomes,
         test_markers,
-        tests_branches,
-        total_branches,
         coverage_version,
     )

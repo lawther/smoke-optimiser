@@ -84,14 +84,13 @@ lint.select = [
     "DTZ",
 ]
 lint.ignore = [
-    "D100",    # missing docstring in public module
-    "D101",    # missing docstring in public class
-    "D102",    # missing docstring in public method
-    "D103",    # missing docstring in public function
-    "D104",    # missing docstring in public package
-    "D105",    # missing docstring in magic method
-    "D107",    # missing docstring in __init__
-    "PLR0913", # too many arguments
+    "D100", # missing docstring in public module
+    "D101", # missing docstring in public class
+    "D102", # missing docstring in public method
+    "D103", # missing docstring in public function
+    "D104", # missing docstring in public package
+    "D105", # missing docstring in magic method
+    "D107", # missing docstring in __init__
 ]
 lint.per-file-ignores = { "tests/*" = ["S101"], "scripts/*" = ["S603", "S607"] }
 lint.pydocstyle.convention = "google"

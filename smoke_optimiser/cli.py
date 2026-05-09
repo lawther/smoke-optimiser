@@ -105,7 +105,7 @@ def _load_profiling_data(intermediate_file: Path) -> ProfilingData:
 
 
 @app.command()
-def main(
+def main(  # noqa: PLR0913 # special case for this function since Typer works this way
     profile_only: Annotated[
         bool,
         typer.Option("--profile-only", help="Run only the profiling phase."),
