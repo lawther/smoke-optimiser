@@ -51,7 +51,7 @@ def _build_initial_heap(
         if valid_branches:
             marginal = len(valid_branches)
             dur = test.duration_s
-            # Use negative efficiency and negative marginal for max-heap behavior
+            # Use negative efficiency and negative marginal for max-heap behaviour
             # round to avoid floating point precision issues that EFFICIENCY_EPSILON solved
             eff = marginal / dur if dur > 0 else (float("inf") if marginal > 0 else 0.0)
             eff_rounded = eff if eff == float("inf") else round(eff, 9)

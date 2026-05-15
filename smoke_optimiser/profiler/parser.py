@@ -48,11 +48,11 @@ class TestResolver:
                 self.candidate_names[clean_name] = c
 
     def resolve(self, raw_test_id: str) -> str | None:
-        """Normalize and resolve a raw test ID from coverage contexts."""
+        """Normalise and resolve a raw test ID from coverage contexts."""
         if raw_test_id in self.resolved_test_ids:
             return self.resolved_test_ids[raw_test_id]
 
-        # NORMALIZE
+        # NORMALISE
         # Strip suffixes like "|run" or " (call)"
         clean_id = raw_test_id.split("|", maxsplit=1)[0].split(" (", maxsplit=1)[0]
         test_id = None

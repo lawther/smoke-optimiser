@@ -80,10 +80,10 @@ def _discover_cov_target(project_root: Path) -> str:
                 raw_data = tomllib.load(f)
                 data = PyProjectConfig.model_validate(raw_data)
                 if data.project and data.project.name:
-                    normalized = data.project.name.replace("-", "_")
+                    normalised = data.project.name.replace("-", "_")
                     # If there's a folder matching the project name, instrument it
-                    if (project_root / normalized).is_dir():
-                        return normalized
+                    if (project_root / normalised).is_dir():
+                        return normalised
         except (tomllib.TOMLDecodeError, OSError, ValidationError) as e:
             typer.secho(
                 f"⚠️ Warning: Failed to parse project name from pyproject.toml: {e}",

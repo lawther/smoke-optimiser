@@ -173,7 +173,7 @@ def main(  # noqa: PLR0913 # special case for this function since Typer works th
         )
         raise typer.Exit(code=1)
 
-    # Normalize comma-separated includes/excludes
+    # Normalise comma-separated includes/excludes
     final_includes = _split_comma_list(include)
     final_excludes = _split_comma_list(exclude)
 
