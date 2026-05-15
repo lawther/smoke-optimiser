@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.3.0](https://github.com/lawther/smoke-optimiser/compare/v0.2.0...v0.3.0) (2026-05-15)
+
+
+### Features
+
+* add version-controlled git hooks and auto-install on precommit ([05e3118](https://github.com/lawther/smoke-optimiser/commit/05e31186345f213b1773b6549b30161299aefedc))
+
+
+### Bug Fixes
+
+* validate external data with Pydantic to satisfy ML400 lint ([e33671b](https://github.com/lawther/smoke-optimiser/commit/e33671b65018f59214da4b785c573910dca1aa68))
+
 ## [0.2.0](https://github.com/lawther/smoke-optimiser/compare/v0.1.0...v0.2.0) (2026-04-30)
 
 
