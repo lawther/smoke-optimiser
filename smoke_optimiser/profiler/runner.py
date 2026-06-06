@@ -63,7 +63,7 @@ def check_prerequisites(config: ResolvedConfig) -> None:
 
     if not config.allow_ordered:
         # Check if pytest-randomly is installed
-        result = subprocess.run(  # noqa: S603 - calling the current python interpreter
+        result = subprocess.run(
             [sys.executable, "-m", "pytest", "--trace-config"],
             capture_output=True,
             text=True,

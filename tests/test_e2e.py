@@ -62,7 +62,7 @@ def test_add_negative():
 
     # We use --allow-ordered because we don't assume pytest-randomly is installed
     # We NO LONGER pass --cov=src explicitly, testing the heuristic (src/ exists)
-    result = subprocess.run(  # noqa: S603 - calling the current python interpreter for e2e testing
+    result = subprocess.run(
         [
             sys.executable,
             "-m",
@@ -90,7 +90,7 @@ def test_add_negative():
         assert len(data["smoke_tests"]) > 0
 
     # 3. Run pytest --smoke
-    result = subprocess.run(  # noqa: S603 - calling the current python interpreter for e2e testing
+    result = subprocess.run(
         [sys.executable, "-m", "pytest", "--smoke"],
         cwd=project_dir,
         capture_output=True,
