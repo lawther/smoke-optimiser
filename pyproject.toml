@@ -141,5 +141,5 @@ dev = [
     "pytest-timeout~=2.4",
     "python-lint-hooks",
     "ruff>=0.15.4",
-    "ty>=0.0.25",
+    "ty>=0.0.44",
 ]
