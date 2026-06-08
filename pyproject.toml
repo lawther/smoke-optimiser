@@ -143,3 +143,8 @@ dev = [
     "ruff>=0.15.16",
     "ty>=0.0.44",
 ]
+
+[tool.ty.rules]
+possibly-missing-submodule = "error"
+unused-type-ignore-comment = "error"
+
