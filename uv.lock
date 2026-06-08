@@ -424,8 +424,8 @@ wheels = [
 
 [[package]]
 name = "python-lint-hooks"
-version = "0.10.0"
-source = { git = "https://github.com/lawther/python-lint-hooks?tag=v0.10.0#746df0cf4ea63ccacb39d25f769d174d35661a07" }
+version = "0.11.0"
+source = { git = "https://github.com/lawther/python-lint-hooks?tag=v0.11.0#70c0579680b6f5864f81f003b869bb2cfb8e7a4b" }
 dependencies = [
     { name = "pathspec" },
     { name = "pydantic" },
@@ -529,7 +529,7 @@ dev = [
     { name = "psutil", specifier = ">=7.2.2" },
     { name = "pytest-randomly", specifier = "~=4.0" },
     { name = "pytest-timeout", specifier = "~=2.4" },
-    { name = "python-lint-hooks", git = "https://github.com/lawther/python-lint-hooks?tag=v0.10.0" },
+    { name = "python-lint-hooks", git = "https://github.com/lawther/python-lint-hooks?tag=v0.11.0" },
     { name = "ruff", specifier = ">=0.15.16" },
     { name = "ty", specifier = ">=0.0.44" },
 ]
