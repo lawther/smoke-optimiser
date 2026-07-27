@@ -13,7 +13,7 @@ lint:
 
 # Check for bare dict/tuple return types and classes defined inside functions (ML001, ML002)
 extra-lints:
-    @uv run ml-lint smoke_optimiser/
+    @uv run ml-lints smoke_optimiser/
 
 # Format the code
 format:
