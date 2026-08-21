@@ -220,15 +220,15 @@ wheels = [
 
 [[package]]
 name = "ml-lints"
-version = "0.12.4"
+version = "0.13.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pathspec" },
     { name = "pydantic" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/da/6e/751b7565da1c39eb1d811bb139ef1b16c1c4cd970fd881e300ad369cbff7/ml_lints-0.12.4.tar.gz", hash = "sha256:4396861596d888e347252f9241dfdb225cb1079f3e720c19322e45a5b264892d", size = 121893, upload-time = "2026-07-27T01:01:39.626Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/36/a4/86a3f5939a4bac811a5a556886d72a2aa57b337fd9c417c430774c6d90e6/ml_lints-0.13.0.tar.gz", hash = "sha256:3178124819c22eeba89478813d2c4a4907e478d07db079d2ffbc9e4ee3fa54dc", size = 128539, upload-time = "2026-08-20T06:23:30.316Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/17/e7/514a760ad012ca09a17e0419e8f3ba51004b84d046ea3b8b916eaabdc900/ml_lints-0.12.4-py3-none-any.whl", hash = "sha256:a5379e1f71fc0e4b67adf5e1401e7fed2588501cec67220defccb283201c33bf", size = 63095, upload-time = "2026-07-27T01:01:38.062Z" },
+    { url = "https://files.pythonhosted.org/packages/32/f7/f8fe9a1b9f7f323ee345f1f849faca379f9cdc7acc54f3923025d29f212c/ml_lints-0.13.0-py3-none-any.whl", hash = "sha256:f7f1c08ef9e3f045e18c71ca86fa7f17265ee3ce16ec17e2aba27060bb3a5c37", size = 65747, upload-time = "2026-08-20T06:23:28.993Z" },
 ]
 
 [[package]]
