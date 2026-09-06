@@ -65,6 +65,7 @@ def _save_profiling_data(profiling_data: ProfilingData, intermediate_file: Path)
             duration_s=po.duration_s,
             passed=po.passed,
             branches_covered=list(po.branches_covered),
+            files_covered=list(po.files_covered),
             markers=list(po.markers),
         )
         for tid, po in profiling_data.tests.items()
@@ -73,6 +74,7 @@ def _save_profiling_data(profiling_data: ProfilingData, intermediate_file: Path)
         meta=meta_model,
         tests=test_models,
         total_branches=list(profiling_data.total_branches),
+        measured_files=list(profiling_data.measured_files),
         unattributable_branches=list(profiling_data.unattributable_branches),
     )
     intermediate_file.unlink(missing_ok=True)

@@ -187,11 +187,15 @@ The profiling phase produces an intermediate representation (stored as JSON or e
     "test_module::test_func": {
       "duration_s": 0.032,
       "passed": true,
-      "branches_covered": ["file.py:12->14", "file.py:20->22", ...]
+      "branches_covered": ["file.py:12->14", "file.py:20->22", ...],
+      // every measured file the test executed, branchless files included
+      "files_covered": ["file.py", "constants.py", ...]
     },
     ...
   },
   "total_branches": ["file.py:12->14", "file.py:12->16", ...],
+  // every file coverage measured, including files no test executed
+  "measured_files": ["file.py", "constants.py", ...],
   // executed only at import time, under no test context, so unreachable by any selection
   "unattributable_branches": ["file.py:3->8", ...]
 }
@@ -232,6 +236,8 @@ Two consequences follow from reading the database directly:
 
 - **The schema is not a public API.** The `coverage_schema` version **must** be checked against a verified set on every read, and a mismatch **must** fail loudly, naming the version found, the versions supported, the installed coverage.py version, and the fact that smoke-optimiser itself needs updating. Silently mis-reading coverage would silently shrink the smoke suite, which is the worst failure this tool can have.
 - **Raw arcs are not reported branches.** The `arc` table records the interpreter's actual jump targets, whereas coverage reports branches in an AST-derived vocabulary — a jump into the middle of a multi-line statement is reported against that statement's first line. Recorded arcs **must** be translated through coverage's own file reporter before being treated as branches; comparing the two vocabularies directly silently loses branches.
+
+A file of straight-line code -- constants, re-exports, model declarations -- contains no branches, so it produces no branch ids and cannot be found through `branches_covered` at all. `files_covered` records the files each test executed regardless of branches, and `measured_files` records every file coverage measured, so "no test runs this file" stays distinguishable from "coverage never saw this file".
 
 The `arc` table records only branches that were *taken*, so a never-taken branch has no row at all and the denominator cannot come from SQL. `total_branches` is instead derived from coverage's own per-file analysis, which covers executed and unexecuted branches alike.
 

@@ -90,7 +90,9 @@ class CoverageIngest:
     """Everything the profiler needs from one coverage database."""
 
     tests_branches: dict[str, frozenset[str]]
+    tests_files: dict[str, frozenset[str]]
     total_branches: frozenset[str]
+    measured_files: frozenset[str]
     unattributable_branches: frozenset[str]
     coverage_version: str
 
@@ -244,10 +246,12 @@ def read_coverage_db(
             raw_arcs_by_file[int(file_id)].add(Arc(int(fromno), int(tono)))
 
         branches_by_file: dict[int, FileBranches] = {}
+        relative_paths: dict[int, str] = {}
         total_branches: set[str] = set()
         for file_id, absolute_path in measured_files.items():
             reporter = PythonFileReporter(absolute_path, cov)
             relative_path = _relative_path(Path(absolute_path), project_root)
+            relative_paths[file_id] = relative_path
             try:
                 branches = _build_file_branches(reporter, relative_path, raw_arcs_by_file.get(file_id, set()))
             except NoSource as exc:
@@ -266,17 +270,19 @@ def read_coverage_db(
         _verify_contexts(set(context_test_ids.values()), test_durations)
 
         tests_branches: dict[str, set[str]] = defaultdict(set)
+        tests_files: dict[str, set[str]] = defaultdict(set)
         unattributable: set[str] = set()
         for context_id, file_id, fromno, tono in connection.execute(
             "select context_id, file_id, fromno, tono from arc"
         ):
             branch_ids = branches_by_file[int(file_id)].raw_to_branch_ids.get(Arc(int(fromno), int(tono)))
-            if branch_ids is None:
-                continue
             test_id = context_test_ids.get(int(context_id))
             if test_id is None:
-                unattributable |= branch_ids
-            else:
+                if branch_ids is not None:
+                    unattributable |= branch_ids
+                continue
+            tests_files[test_id].add(relative_paths[int(file_id)])
+            if branch_ids is not None:
                 tests_branches[test_id] |= branch_ids
     finally:
         connection.close()
@@ -285,7 +291,9 @@ def read_coverage_db(
 
     return CoverageIngest(
         tests_branches={test_id: frozenset(branches) for test_id, branches in tests_branches.items()},
+        tests_files={test_id: frozenset(paths) for test_id, paths in tests_files.items()},
         total_branches=frozenset(total_branches),
+        measured_files=frozenset(relative_paths.values()),
         unattributable_branches=frozenset(unattributable - covered_by_tests),
         coverage_version=coverage_version,
     )
@@ -306,6 +314,7 @@ def build_profiling_data(
             duration_s=duration,
             passed=results.outcomes.get(test_id, False),
             branches_covered=ingest.tests_branches.get(test_id, frozenset()),
+            files_covered=ingest.tests_files.get(test_id, frozenset()),
             markers=results.markers.get(test_id, frozenset()),
         )
         for test_id, duration in results.durations.items()
@@ -324,5 +333,6 @@ def build_profiling_data(
         meta=meta,
         tests=tests,
         total_branches=ingest.total_branches,
+        measured_files=ingest.measured_files,
         unattributable_branches=ingest.unattributable_branches,
     )

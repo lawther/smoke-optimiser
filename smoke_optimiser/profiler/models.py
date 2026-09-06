@@ -8,12 +8,21 @@ from smoke_optimiser.environment import MachineEnvironment
 
 @dataclass(frozen=True)
 class ProfilingOutcome:
-    """Individual test outcome with duration and coverage."""
+    """Individual test outcome with duration and coverage.
+
+    Attributes:
+        files_covered: Project-relative paths of every measured file this test
+            executed, whether or not that file contains any branch. A file of
+            straight-line code -- constants, re-exports, model declarations --
+            contributes no branch ids at all, so ``branches_covered`` cannot
+            answer which tests touch it.
+    """
 
     test_id: str
     duration_s: float
     passed: bool
     branches_covered: frozenset[str]
+    files_covered: frozenset[str]
     markers: frozenset[str]
 
 
@@ -34,6 +43,10 @@ class ProfilingData:
     """Complete profiling data for a test suite.
 
     Attributes:
+        measured_files: Project-relative paths of every file coverage measured,
+            including files no test executed. A changed file that is absent
+            here is one coverage never saw at all, which is a different thing
+            from a file no test happens to run.
         unattributable_branches: Branches that were executed, but only outside
             any test context -- module-level code running at import time. No
             selection of tests can ever cover them, so they cap the coverage
@@ -43,6 +56,7 @@ class ProfilingData:
     meta: ProfilingMeta
     tests: dict[str, ProfilingOutcome]
     total_branches: frozenset[str]
+    measured_files: frozenset[str]
     unattributable_branches: frozenset[str] = frozenset()
 
 
@@ -62,6 +76,7 @@ class ProfilingOutcomeModel(BaseModel):
     duration_s: float
     passed: bool
     branches_covered: list[str]
+    files_covered: list[str]
     markers: list[str]
 
 
@@ -97,6 +112,7 @@ class ProfilingDataFile(BaseModel):
     meta: ProfilingMetaModel
     tests: dict[str, ProfilingOutcomeModel]
     total_branches: list[str]
+    measured_files: list[str]
     unattributable_branches: list[str] = Field(default_factory=list)
 
     def to_profiling_data(self) -> ProfilingData:
@@ -118,6 +134,7 @@ class ProfilingDataFile(BaseModel):
                 duration_s=tr.duration_s,
                 passed=tr.passed,
                 branches_covered=frozenset(tr.branches_covered),
+                files_covered=frozenset(tr.files_covered),
                 markers=frozenset(tr.markers),
             )
             for tid, tr in self.tests.items()
@@ -127,5 +144,6 @@ class ProfilingDataFile(BaseModel):
             meta=meta,
             tests=tests,
             total_branches=frozenset(self.total_branches),
+            measured_files=frozenset(self.measured_files),
             unattributable_branches=frozenset(self.unattributable_branches),
         )

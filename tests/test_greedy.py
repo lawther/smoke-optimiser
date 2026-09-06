@@ -17,6 +17,7 @@ def _create_outcome(test_id: str, duration: float, branches: list[str]) -> Profi
         duration_s=duration,
         passed=True,
         branches_covered=frozenset(branches),
+        files_covered=frozenset(),
         markers=frozenset(),
     )
 

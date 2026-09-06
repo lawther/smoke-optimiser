@@ -33,6 +33,17 @@ def classify(x):
     return "zero"
 """
 
+# A file of straight-line code: no branch anywhere in it, so it contributes
+# nothing to the branch vocabulary and cannot be found through branch ids.
+CONSTANTS_SOURCE = """\
+NAME = "app"
+VALUES = (1, 2, 3)
+
+
+def label():
+    return NAME
+"""
+
 EXPECTED_TOTAL_BRANCHES = 4
 EXPECTED_TEST_COUNT = 2
 
@@ -240,6 +251,8 @@ def test_build_profiling_data_carries_outcomes_and_markers(tmp_path: Path) -> No
     assert data.tests[TEST_POS].markers == frozenset(["unit"])
     assert data.tests[TEST_POS].duration_s == pytest.approx(0.1)
     assert data.tests[TEST_POS].branches_covered == frozenset(["app.py:2->3"])
+    assert data.tests[TEST_POS].files_covered == frozenset(["app.py"])
+    assert data.measured_files == frozenset(["app.py"])
     assert len(data.total_branches) == EXPECTED_TOTAL_BRANCHES
     assert data.meta.coverage_version != "unknown"
 
@@ -293,3 +306,80 @@ def test_files_outside_the_project_root_keep_their_full_path(tmp_path: Path) -> 
     ingest = read_coverage_db(db_path, project_root, {TEST_POS: 0.1})
 
     assert ingest.tests_branches[TEST_POS] == frozenset([f"{app.as_posix()}:2->3"])
+
+
+def test_a_branchless_file_is_still_attributed_to_the_tests_that_ran_it(tmp_path: Path) -> None:
+    """The point of the per-test file set.
+
+    constants.py has no branches at all, so it produces no branch ids and is
+    invisible to tests_branches. Asking which tests ran the file must still
+    answer, or change-based selection has to fall back to the whole suite on
+    an ordinary edit to a constants or model module.
+    """
+    constants = tmp_path / "constants.py"
+    constants.write_text(CONSTANTS_SOURCE)
+    db_path = tmp_path / ".coverage"
+    _write_db(db_path, {f"{TEST_POS}|run": {str(constants): {(-1, 1), (1, 2), (2, 5), (-5, 6), (6, -5)}}})
+
+    ingest = read_coverage_db(db_path, tmp_path, {TEST_POS: 0.1})
+
+    assert ingest.total_branches == frozenset(), "the file genuinely has no branches"
+    assert ingest.tests_branches.get(TEST_POS, frozenset()) == frozenset()
+    assert ingest.tests_files[TEST_POS] == frozenset(["constants.py"])
+
+
+def test_setup_and_teardown_files_land_on_the_same_test(tmp_path: Path) -> None:
+    app = _write_app(tmp_path)
+    constants = tmp_path / "constants.py"
+    constants.write_text(CONSTANTS_SOURCE)
+    db_path = tmp_path / ".coverage"
+    _write_db(
+        db_path,
+        {
+            f"{TEST_POS}|setup": {str(constants): {(1, 2)}},
+            f"{TEST_POS}|run": {str(app): {(2, 3)}},
+        },
+    )
+
+    ingest = read_coverage_db(db_path, tmp_path, {TEST_POS: 0.1})
+
+    assert ingest.tests_files[TEST_POS] == frozenset(["app.py", "constants.py"])
+
+
+def test_a_file_only_executed_at_import_time_is_measured_but_untested(tmp_path: Path) -> None:
+    """'No test runs this file' must be distinguishable from 'never seen it'.
+
+    Without measured_files both look identical -- absent -- so a changed file
+    that no test executes would be reported as new code.
+    """
+    app = _write_app(tmp_path)
+    constants = tmp_path / "constants.py"
+    constants.write_text(CONSTANTS_SOURCE)
+    db_path = tmp_path / ".coverage"
+    _write_db(
+        db_path,
+        {
+            "": {str(constants): {(1, 2)}},
+            f"{TEST_POS}|run": {str(app): {(2, 3)}},
+        },
+    )
+
+    ingest = read_coverage_db(db_path, tmp_path, {TEST_POS: 0.1})
+
+    assert ingest.measured_files == frozenset(["app.py", "constants.py"])
+    assert ingest.tests_files[TEST_POS] == frozenset(["app.py"])
+
+
+def test_files_outside_the_project_root_keep_their_full_path_in_the_file_set(tmp_path: Path) -> None:
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    app = outside / "app.py"
+    app.write_text(APP_SOURCE)
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    db_path = project_root / ".coverage"
+    _write_db(db_path, {f"{TEST_POS}|run": {str(app): {(2, 3)}}})
+
+    ingest = read_coverage_db(db_path, project_root, {TEST_POS: 0.1})
+
+    assert ingest.tests_files[TEST_POS] == frozenset([app.as_posix()])

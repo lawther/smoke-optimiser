@@ -11,6 +11,7 @@ def _create_outcome(test_id: str, passed: bool = True, markers: list[str] | None
         duration_s=0.1,
         passed=passed,
         branches_covered=frozenset(),
+        files_covered=frozenset(),
         markers=frozenset(markers or []),
     )
 

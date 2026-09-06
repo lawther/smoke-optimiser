@@ -201,5 +201,6 @@ def run_profiling(config: ResolvedConfig, project_root: Path) -> ProfilingData:
             meta=final_meta,
             tests=data.tests,
             total_branches=data.total_branches,
+            measured_files=data.measured_files,
             unattributable_branches=data.unattributable_branches,
         )
