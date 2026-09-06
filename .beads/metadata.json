@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "smoke_optimiser",
+  "project_id": "a5fb29cb-24bb-44bd-aaaf-bd7c9cac3d35"
+}
