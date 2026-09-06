@@ -68,7 +68,7 @@ smoke_optimiser/
 ├── config.py            # Config model (pyproject.toml + CLI)
 ├── profiler/
 │   ├── runner.py        # Orchestrates pytest + coverage run
-│   ├── parser.py        # Parses coverage JSON (ijson for large files)
+│   ├── coverage_db.py   # Reads coverage.py's SQLite database directly
 │   └── models.py        # Per-test coverage data structures
 ├── optimiser/
 │   ├── greedy.py        # Greedy set-cover algorithm
@@ -146,7 +146,7 @@ If only one is specified by the user, the other retains its default, acting as a
 
 1. Verify pytest is available. Verify `pytest-randomly` is installed (or `--allow-ordered` is set).
 2. Invoke pytest with `--cov-context=test` and any user-supplied `pytest_args`.
-3. On completion, export coverage data: `coverage json --show-contexts`.
+3. On completion, read per-test coverage directly from coverage.py's SQLite data file.
 4. Record per-test wall-clock duration using pytest's built-in timing.
 
 ### 5.2 Coverage Granularity
@@ -220,9 +220,18 @@ This data is included in both the intermediate profiling data and the final `.sm
 
 Any test observed to fail during profiling is **hard-excluded** from the optimiser. No exceptions, no overrides. Failing tests are recorded in the intermediate data with `"passed": false` for reporting purposes.
 
-### 5.6 Large-Scale Parsing
+### 5.6 Large-Scale Ingest
 
-For suites with tens of thousands of tests, `coverage json --show-contexts` can produce very large JSON. The parser **must** use streaming/iterative JSON parsing (e.g. `ijson`) rather than loading the entire file into memory.
+Per-test coverage is read straight from coverage.py's SQLite data file (`.coverage`), not from a JSON export. `coverage json --show-contexts` is not viable at scale: on a 2,600-test suite it produced a 1.2 GB file — 40x the size of the 29 MB database holding the same data — of which 99.8% was context records, and parsing it required many GB of resident Python objects.
+
+The public `CoverageData` API is not viable either: `set_query_contexts()` costs a query per context, measured at 6.51s for 40 contexts, which extrapolates to over 13 minutes for that suite. A single SQL join across `arc`, `context` and `file` extracts the same map in 0.43s.
+
+Two consequences follow from reading the database directly:
+
+- **The schema is not a public API.** The `coverage_schema` version **must** be checked against a verified set on every read, and a mismatch **must** fail loudly, naming the version found, the versions supported, the installed coverage.py version, and the fact that smoke-optimiser itself needs updating. Silently mis-reading coverage would silently shrink the smoke suite, which is the worst failure this tool can have.
+- **Raw arcs are not reported branches.** The `arc` table records the interpreter's actual jump targets, whereas coverage reports branches in an AST-derived vocabulary — a jump into the middle of a multi-line statement is reported against that statement's first line. Recorded arcs **must** be translated through coverage's own file reporter before being treated as branches; comparing the two vocabularies directly silently loses branches.
+
+The `arc` table records only branches that were *taken*, so a never-taken branch has no row at all and the denominator cannot come from SQL. `total_branches` is instead derived from coverage's own per-file analysis, which covers executed and unexecuted branches alike.
 
 ---
 
@@ -461,8 +470,8 @@ Test suites **must not** depend on execution order. The smoke suite is a subset 
 | Suite Size | Expectation |
 |---|---|
 | < 1,000 tests | Runs end-to-end in reasonable time on a single machine. |
-| 1,000–10,000 tests | Supported. Coverage JSON parsed with `ijson`. |
-| 10,000+ tests | Supported with streaming parsing. Greedy algorithm is O(n × b) per iteration where n = tests, b = branches; acceptable for this scale. |
+| 1,000–10,000 tests | Supported. Per-test coverage read directly from coverage.py's SQLite database. |
+| 10,000+ tests | Supported. Ingest cost is one SQL scan plus one AST analysis per source file. Greedy algorithm is O(n × b) per iteration where n = tests, b = branches; acceptable for this scale. |
 
 ### 10.3 Minimum Versions
 
@@ -574,5 +583,6 @@ pytest --smoke --smoke-file-path=build/.smoke_suite.json
 | Alphabetical tie-breaking | Imperfect but deterministic. Will evaluate in practice and may adopt test-stability or historical-failure-rate tie-breaking in future. |
 | `pytest-randomly` strongly recommended | Ordering-dependent suites produce unreliable coverage data. Enforcing randomisation surfaces hidden dependencies early. |
 | Stateless design | Keeps the tool simple, composable, and CI-friendly. No daemon, no database, no cache invalidation complexity. |
-| Streaming JSON parser for large suites | `coverage json --show-contexts` can produce multi-GB files for large suites. `ijson` keeps memory usage bounded. |
+| Read coverage.py's SQLite database directly | `coverage json --show-contexts` produced 1.2 GB for a 2,600-test suite against 29 MB for the same data in SQLite, and the public `CoverageData` context API extrapolated to over 13 minutes against 0.43s for one SQL join. The schema is internal, so its version is verified on every read and a mismatch fails loudly. |
+| Branches attributable to no test are kept in the denominator | Module-level code runs at import, under no test context, so no selection of tests can cover it. Excluding those branches would make `total_branches` disagree with `coverage report`; keeping them and reporting the attainable ceiling instead keeps the tool's promise honest. |
 | Machine environment in all outputs | Test durations are hardware-dependent. Recording the profiling machine's specs lets consumers judge whether timing data is representative of their environment. |

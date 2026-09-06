@@ -36,6 +36,17 @@ def format_summary(result: SmokeResult, config: ResolvedConfig, meta: ProfilingM
         f"{result.total_branches:,} branches ({full_suite_cov_pct:.1f}%)"
     )
 
+    # Branches that only ever run at import time cannot be reached by selecting tests,
+    # so they cap what any smoke suite -- or the full suite -- can achieve.
+    ceiling_line = None
+    if result.unattributable_branches > 0 and result.total_branches > 0:
+        ceiling_pct = (result.total_branches - result.unattributable_branches) / result.total_branches * 100.0
+        branch_word = "branch" if result.unattributable_branches == 1 else "branches"
+        ceiling_line = (
+            f"  Ceiling:      {ceiling_pct:.1f}% max attainable — "
+            f"{result.unattributable_branches:,} {branch_word} only execute outside any test"
+        )
+
     smoke_cov_str = (
         f"{result.smoke_branches_covered:,} / {result.total_branches:,} branches ({result.smoke_coverage_pct:.1f}%)"
     )
@@ -62,6 +73,7 @@ def format_summary(result: SmokeResult, config: ResolvedConfig, meta: ProfilingM
         profiled_line,
         f"  Full suite:   {result.full_suite_runtime_s:.1f}s runtime, {result.total_branches:,} branches",
         full_suite_cov_line,
+        *([ceiling_line] if ceiling_line else []),
         "",
         f"  Smoke suite:  {typer.style(test_str, bold=True)}",
         smoke_coverage_line,

@@ -73,6 +73,7 @@ def _save_profiling_data(profiling_data: ProfilingData, intermediate_file: Path)
         meta=meta_model,
         tests=test_models,
         total_branches=list(profiling_data.total_branches),
+        unattributable_branches=list(profiling_data.unattributable_branches),
     )
     intermediate_file.unlink(missing_ok=True)
     with open(intermediate_file, "w") as f:
@@ -249,7 +250,13 @@ def main(  # noqa: PLR0913 # special case for this function since Typer works th
                 err=True,
             )
 
-        result = optimise(filtered, profiling_data.total_branches, config.time_cap, config.target_cov)
+        result = optimise(
+            filtered,
+            profiling_data.total_branches,
+            config.time_cap,
+            config.target_cov,
+            profiling_data.unattributable_branches,
+        )
 
         # Output results
         write_smoke_suite(result, config, profiling_data.meta, config.output_json)

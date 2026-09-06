@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from smoke_optimiser.environment import MachineEnvironment
 
@@ -31,11 +31,28 @@ class ProfilingMeta:
 
 @dataclass(frozen=True)
 class ProfilingData:
-    """Complete profiling data for a test suite."""
+    """Complete profiling data for a test suite.
+
+    Attributes:
+        unattributable_branches: Branches that were executed, but only outside
+            any test context -- module-level code running at import time. No
+            selection of tests can ever cover them, so they cap the coverage
+            the optimiser can reach.
+    """
 
     meta: ProfilingMeta
     tests: dict[str, ProfilingOutcome]
     total_branches: frozenset[str]
+    unattributable_branches: frozenset[str] = frozenset()
+
+
+@dataclass(frozen=True)
+class SuiteRunResults:
+    """Per-test facts gathered by the pytest hook, keyed by node id."""
+
+    durations: dict[str, float]
+    outcomes: dict[str, bool]
+    markers: dict[str, frozenset[str]]
 
 
 class ProfilingOutcomeModel(BaseModel):
@@ -80,6 +97,7 @@ class ProfilingDataFile(BaseModel):
     meta: ProfilingMetaModel
     tests: dict[str, ProfilingOutcomeModel]
     total_branches: list[str]
+    unattributable_branches: list[str] = Field(default_factory=list)
 
     def to_profiling_data(self) -> ProfilingData:
         """Convert Pydantic model to internal frozen dataclasses."""
@@ -109,4 +127,5 @@ class ProfilingDataFile(BaseModel):
             meta=meta,
             tests=tests,
             total_branches=frozenset(self.total_branches),
+            unattributable_branches=frozenset(self.unattributable_branches),
         )

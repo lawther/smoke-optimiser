@@ -1,4 +1,3 @@
-import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -24,8 +23,8 @@ def test_check_prerequisites_success() -> None:
 
 
 @patch("subprocess.run")
-@patch("smoke_optimiser.profiler.runner.parse_coverage_json")
-def test_run_profiling_basic(mock_parse: MagicMock, mock_run: MagicMock, tmp_path: Path) -> None:
+@patch("smoke_optimiser.profiler.runner.build_profiling_data")
+def test_run_profiling_basic(mock_ingest: MagicMock, mock_run: MagicMock, tmp_path: Path) -> None:
     config = ResolvedConfig(
         mode=OperationMode.FULL,
         time_cap=15.0,
@@ -40,29 +39,9 @@ def test_run_profiling_basic(mock_parse: MagicMock, mock_run: MagicMock, tmp_pat
     )
 
     mock_run.return_value = MagicMock(returncode=0, stdout="pytest-randomly")
-    mock_parse.return_value = MagicMock()
+    mock_ingest.return_value = MagicMock()
 
     with patch("shutil.which", return_value="/usr/bin/pytest"):
-
-        def side_effect(*args: object, **kwargs: object) -> MagicMock:
-            cmd_args = args[0]
-            if (
-                isinstance(cmd_args, list)
-                and cmd_args
-                and cmd_args[0] == sys.executable
-                and "coverage" in cmd_args
-                and "json" in cmd_args
-            ):
-                typed_args: list[str] = cmd_args  # ty: ignore[invalid-assignment]
-                try:
-                    idx = typed_args.index("-o")
-                    path_str = str(typed_args[idx + 1])
-                    Path(path_str).touch()
-                except (ValueError, IndexError):
-                    pass
-            return MagicMock(returncode=0, stdout="pytest-randomly")
-
-        mock_run.side_effect = side_effect
         run_profiling(config, tmp_path)
 
     # Verify pytest command
@@ -73,3 +52,6 @@ def test_run_profiling_basic(mock_parse: MagicMock, mock_run: MagicMock, tmp_pat
     # We check that some --cov is present
     assert any(arg.startswith("--cov") for arg in cmd)
     assert "-p" in cmd
+    # Contexts are read from the coverage database, so no JSON export is run.
+    assert not any("json" in str(call.args[0]) for call in mock_run.call_args_list)
+    assert "--cov-context=test" in cmd

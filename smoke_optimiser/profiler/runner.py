@@ -12,8 +12,8 @@ from pathlib import Path
 import typer
 
 from smoke_optimiser.config import ResolvedConfig
-from smoke_optimiser.profiler.models import ProfilingData, ProfilingMeta
-from smoke_optimiser.profiler.parser import parse_coverage_json
+from smoke_optimiser.profiler.coverage_db import CoverageIngestError, build_profiling_data
+from smoke_optimiser.profiler.models import ProfilingData, ProfilingMeta, SuiteRunResults
 
 # Minimal inline pytest plugin to capture exact node IDs, durations, outcomes, and markers
 PYTEST_HOOK_CODE = """
@@ -50,9 +50,6 @@ def pytest_unconfigure(config):
 COVERAGERC_CONTENT = """
 [run]
 branch = True
-
-[json]
-show_contexts = True
 """
 
 
@@ -107,7 +104,6 @@ def run_profiling(config: ResolvedConfig, project_root: Path) -> ProfilingData:
 
     with tempfile.TemporaryDirectory() as temp_dir_str:
         temp_dir = Path(temp_dir_str)
-        coverage_json = temp_dir / "coverage.json"
         outcomes_json = temp_dir / "outcomes.json"
         hook_file = temp_dir / "_smoke_hook.py"
         coveragerc = temp_dir / ".coveragerc"
@@ -116,8 +112,7 @@ def run_profiling(config: ResolvedConfig, project_root: Path) -> ProfilingData:
         hook_file.write_text(PYTEST_HOOK_CODE)
         coveragerc.write_text(COVERAGERC_CONTENT)
 
-        # 1. Run pytest iterations
-        # We aggregate durations across runs
+        # Run pytest, aggregating durations across iterations
         all_durations: dict[str, list[float]] = defaultdict(list)
         final_outcomes: dict[str, bool] = {}
         final_markers: dict[str, frozenset[str]] = {}
@@ -171,35 +166,15 @@ def run_profiling(config: ResolvedConfig, project_root: Path) -> ProfilingData:
                         final_markers[nodeid] = frozenset(data["markers"])
                 outcomes_json.unlink()
 
-        # 2. Export coverage to JSON (from the last run)
-        # We capture_output=True to prevent coverage.py from printing the "Wrote JSON report" message
-        subprocess.run(  # noqa: S603 - calling current python for coverage tool
-            [
-                sys.executable,
-                "-m",
-                "coverage",
-                "json",
-                f"--data-file={coverage_db}",
-                f"--rcfile={coveragerc}",
-                "--show-contexts",
-                "-o",
-                str(coverage_json),
-            ],
-            cwd=project_root,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-
-        if not coverage_json.exists():
-            typer.secho("❌ Error: Coverage data was not generated.", fg=typer.colors.RED, err=True)
-            sys.exit(1)
-
-        # 3. Average the durations
         avg_durations = {nodeid: sum(durations) / len(durations) for nodeid, durations in all_durations.items()}
 
-        # 4. Parse coverage JSON and merge
-        data = parse_coverage_json(coverage_json, avg_durations, final_outcomes, final_markers)
+        # Read per-test coverage straight out of coverage.py's SQLite database
+        results = SuiteRunResults(durations=avg_durations, outcomes=final_outcomes, markers=final_markers)
+        try:
+            data = build_profiling_data(coverage_db, project_root, results, config_file=coveragerc)
+        except CoverageIngestError as exc:
+            typer.secho(f"\u274c Error: {exc}", fg=typer.colors.RED, err=True)
+            sys.exit(1)
 
         # Fill in the missing metadata
         final_meta = ProfilingMeta(
@@ -215,4 +190,5 @@ def run_profiling(config: ResolvedConfig, project_root: Path) -> ProfilingData:
             meta=final_meta,
             tests=data.tests,
             total_branches=data.total_branches,
+            unattributable_branches=data.unattributable_branches,
         )

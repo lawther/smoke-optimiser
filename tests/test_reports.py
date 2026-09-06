@@ -217,3 +217,59 @@ def test_format_summary() -> None:
     assert "80.0%" in summary
     assert "1 failing test was excluded" in summary
     assert "Coverage:     90 / 100 branches (90.0%)" in summary
+    # Nothing is unattributable here, so no ceiling should be claimed.
+    assert "Ceiling:" not in summary
+
+
+def test_format_summary_reports_the_attainable_ceiling() -> None:
+    """Branches that only run at import time make 100% unreachable, and we say so."""
+    meta = ProfilingMeta(
+        timestamp=datetime.now(UTC),
+        commit=None,
+        python_version="3.12",
+        coverage_version="7.0",
+        command="smoke-optimiser",
+        machine=MachineEnvironment(
+            os="Linux",
+            os_version="6.5",
+            platform="Ubuntu",
+            architecture="x86_64",
+            cpu_model="AMD",
+            cpu_cores_physical=16,
+            cpu_cores_logical=32,
+            ram_total_mb=65536,
+            ram_available_mb=58200,
+            hostname="ci-04",
+        ),
+    )
+    result = SmokeResult(
+        selected_tests=[],
+        total_tests_profiled=10,
+        tests_passed=10,
+        tests_failed=0,
+        total_branches=100,
+        full_suite_branches_covered=90,
+        smoke_branches_covered=80,
+        smoke_coverage_pct=80.0,
+        full_suite_runtime_s=100.0,
+        smoke_suite_runtime_s=10.0,
+        coverage_equivalents=[],
+        unattributable_branches=4,
+    )
+    config = ResolvedConfig(
+        mode=OperationMode.FULL,
+        time_cap=15.0,
+        target_cov=100.0,
+        include_mandatory=[],
+        exclude_mandatory=[],
+        pytest_args="",
+        output_json=Path(".smoke_suite.json"),
+        allow_ordered=False,
+        cov_source=".",
+        iterations=1,
+    )
+
+    summary = format_summary(result, config, meta)
+
+    assert "Ceiling:      96.0% max attainable" in summary
+    assert "4 branches only execute outside any test" in summary

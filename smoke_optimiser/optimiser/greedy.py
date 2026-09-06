@@ -101,6 +101,7 @@ def optimise(
     total_branches: frozenset[str],
     time_cap: float,
     target_cov: float,
+    unattributable_branches: frozenset[str] = frozenset(),
 ) -> SmokeResult:
     """Select a subset of tests using a greedy weighted set-cover approximation."""
     covered_set: set[str] = set()
@@ -215,4 +216,5 @@ def optimise(
         full_suite_runtime_s=full_suite_runtime,
         smoke_suite_runtime_s=elapsed_time,
         coverage_equivalents=equivalents,
+        unattributable_branches=len(unattributable_branches),
     )

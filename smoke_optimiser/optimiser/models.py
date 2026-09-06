@@ -36,3 +36,5 @@ class SmokeResult:
     full_suite_runtime_s: float
     smoke_suite_runtime_s: float
     coverage_equivalents: list[CoverageEquivalentGroup]
+    # Branches executed only outside any test context, so no selection can cover them.
+    unattributable_branches: int = 0
