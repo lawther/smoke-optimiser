@@ -154,13 +154,14 @@ def run_profiling(config: ResolvedConfig, project_root: Path) -> ProfilingData:
                 "--cov-context=test",
             ]
 
-            has_cov_arg = False
+            has_cov_source = False
             if config.pytest_args:
                 args = shlex.split(config.pytest_args)
                 pytest_cmd.extend(args)
-                has_cov_arg = any(arg.startswith("--cov") for arg in args)
+                # Only --cov itself sets what is measured; --cov-report and friends do not.
+                has_cov_source = any(arg == "--cov" or arg.startswith("--cov=") for arg in args)
 
-            if not has_cov_arg:
+            if not has_cov_source:
                 pytest_cmd.append(f"--cov={config.cov_source}")
 
             # the command is built from sys.executable and user-provided args in a local CLI tool

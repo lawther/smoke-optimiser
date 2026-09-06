@@ -55,3 +55,66 @@ def test_run_profiling_basic(mock_ingest: MagicMock, mock_run: MagicMock, tmp_pa
     # Contexts are read from the coverage database, so no JSON export is run.
     assert not any("json" in str(call.args[0]) for call in mock_run.call_args_list)
     assert "--cov-context=test" in cmd
+
+
+@patch("subprocess.run")
+@patch("smoke_optimiser.profiler.runner.build_profiling_data")
+def test_cov_report_in_pytest_args_does_not_suppress_the_cov_source(
+    mock_ingest: MagicMock, mock_run: MagicMock, tmp_path: Path
+) -> None:
+    """--cov-report is not --cov, and must not be mistaken for it.
+
+    Matching any argument starting with '--cov' treated --cov-report, --cov-branch
+    and --cov-config as though the user had chosen what to measure. The source
+    restriction was then dropped, so coverage measured everything imported --
+    site-packages included -- which both inflates total_branches and makes
+    measured_files describe the wrong tree.
+    """
+    config = ResolvedConfig(
+        mode=OperationMode.FULL,
+        time_cap=15.0,
+        target_cov=100.0,
+        include_mandatory=[],
+        exclude_mandatory=[],
+        pytest_args="--cov-report=term",
+        output_json=Path(".json"),
+        allow_ordered=True,
+        cov_source="smoke_optimiser",
+        iterations=1,
+    )
+
+    mock_run.return_value = MagicMock(returncode=0, stdout="")
+    mock_ingest.return_value = MagicMock()
+
+    with patch("shutil.which", return_value="/usr/bin/pytest"):
+        run_profiling(config, tmp_path)
+
+    cmd = mock_run.call_args_list[0].args[0]
+    assert "--cov=smoke_optimiser" in cmd
+
+
+@patch("subprocess.run")
+@patch("smoke_optimiser.profiler.runner.build_profiling_data")
+def test_an_explicit_cov_source_is_left_alone(mock_ingest: MagicMock, mock_run: MagicMock, tmp_path: Path) -> None:
+    config = ResolvedConfig(
+        mode=OperationMode.FULL,
+        time_cap=15.0,
+        target_cov=100.0,
+        include_mandatory=[],
+        exclude_mandatory=[],
+        pytest_args="--cov=chosen_package",
+        output_json=Path(".json"),
+        allow_ordered=True,
+        cov_source="smoke_optimiser",
+        iterations=1,
+    )
+
+    mock_run.return_value = MagicMock(returncode=0, stdout="")
+    mock_ingest.return_value = MagicMock()
+
+    with patch("shutil.which", return_value="/usr/bin/pytest"):
+        run_profiling(config, tmp_path)
+
+    cmd = mock_run.call_args_list[0].args[0]
+    assert "--cov=chosen_package" in cmd
+    assert "--cov=smoke_optimiser" not in cmd
