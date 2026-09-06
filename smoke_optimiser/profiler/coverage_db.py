@@ -13,6 +13,13 @@ back to the loop header but reported as a jump to the statement after the loop.
 Comparing the two vocabularies directly silently mismatches a few percent of
 branches, so raw arcs are translated through coverage's own reporter, once per
 file, into a lookup table that is then applied per arc.
+
+Branches are not the whole story either. A file of straight-line code contains
+no branches at all, so it produces no branch ids and would be invisible to
+anything asking which tests touch it. The same pass therefore records, per
+test, every measured file that test executed, and separately every file
+coverage measured -- which keeps "no test runs this file" distinguishable from
+"coverage never saw this file".
 """
 
 import sqlite3
