@@ -191,7 +191,9 @@ The profiling phase produces an intermediate representation (stored as JSON or e
     },
     ...
   },
-  "total_branches": ["file.py:12->14", "file.py:12->16", ...]
+  "total_branches": ["file.py:12->14", "file.py:12->16", ...],
+  // executed only at import time, under no test context, so unreachable by any selection
+  "unattributable_branches": ["file.py:3->8", ...]
 }
 ```
 
