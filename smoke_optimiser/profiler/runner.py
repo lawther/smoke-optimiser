@@ -34,6 +34,17 @@ def pytest_runtest_makereport(item, call):
             'duration': report.duration,
             'markers': [m.name for m in item.iter_markers()]
         }
+    elif report.when in ('setup', 'teardown') and report.failed and item.nodeid not in item.config._smoke_outcomes:
+        # A test whose fixture errors during setup never reaches 'call', so it would
+        # otherwise be absent from outcomes while its setup-phase coverage still lands
+        # in the coverage database under this test's context, tripping _verify_contexts.
+        # A teardown error after a passing call is deliberately NOT recorded here, so
+        # the call phase's passed=True is preserved.
+        item.config._smoke_outcomes[item.nodeid] = {
+            'passed': False,
+            'duration': report.duration,
+            'markers': [m.name for m in item.iter_markers()]
+        }
 
 def pytest_unconfigure(config):
     if hasattr(config, '_smoke_outcomes'):

@@ -46,12 +46,21 @@ def add(a, b):
         """
 from src.app import add
 import os
+import pytest
 
 def test_add_positive():
     assert add(1, 2) == 3
 
 def test_add_negative():
     assert add(-1, 2) == 2
+
+@pytest.fixture
+def broken():
+    add(1, 1)
+    raise RuntimeError("boom")
+
+def test_setup_error(broken):
+    pass
 """
     )
 
