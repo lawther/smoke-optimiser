@@ -4,6 +4,7 @@ import shutil
 import socket
 import subprocess
 from dataclasses import dataclass
+from pathlib import Path
 
 try:
     import psutil
@@ -35,15 +36,18 @@ def _get_cpu_model() -> str | None:
         if sysctl_path:
             try:
                 return subprocess.run(  # noqa: S603
-                    [sysctl_path, "-n", "machdep.cpu.brand_string"], capture_output=True, text=True, check=False
+                    [sysctl_path, "-n", "machdep.cpu.brand_string"],
+                    capture_output=True,
+                    text=True,
+                    check=False,
                 ).stdout.strip()
             except (OSError, ValueError):
                 return None
         return None
-    elif platform.system() == "Linux":
+    if platform.system() == "Linux":
         # On Linux, parse /proc/cpuinfo
         try:
-            with open("/proc/cpuinfo") as f:
+            with Path("/proc/cpuinfo").open() as f:
                 for line in f:
                     if line.startswith("model name"):
                         return line.split(":")[1].strip()

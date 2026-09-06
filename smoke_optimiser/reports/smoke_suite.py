@@ -135,12 +135,12 @@ def write_smoke_suite(
         coverage_equivalents=equivalents,
     )
 
-    with open(output_path, "w") as f:
+    with output_path.open("w") as f:
         json.dump(suite.model_dump(mode="json"), f, indent=2)
 
 
 def read_smoke_suite(path: Path) -> SmokeSuiteFile:
     """Read and validate a smoke suite file."""
-    with open(path, "rb") as f:
+    with path.open("rb") as f:
         data = json.load(f)
     return SmokeSuiteFile(**data)

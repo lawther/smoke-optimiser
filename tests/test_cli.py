@@ -18,16 +18,11 @@ TIME_CAP_VALUE = 45.0
 TARGET_COV_VALUE = 80.0
 
 
-@patch("smoke_optimiser.cli.run_profiling")
-@patch("smoke_optimiser.cli.optimise")
-@patch("smoke_optimiser.cli.write_smoke_suite")
-@patch("smoke_optimiser.cli.format_summary")
-def test_cli_help(
-    mock_format: MagicMock,
-    mock_write: MagicMock,
-    mock_optimise: MagicMock,
-    mock_run: MagicMock,
-) -> None:
+@patch("smoke_optimiser.cli.run_profiling", new=MagicMock())
+@patch("smoke_optimiser.cli.optimise", new=MagicMock())
+@patch("smoke_optimiser.cli.write_smoke_suite", new=MagicMock())
+@patch("smoke_optimiser.cli.format_summary", new=MagicMock())
+def test_cli_help() -> None:
     result = runner.invoke(app, ["--help"])
     assert result.exit_code == EXIT_CODE_SUCCESS
     assert "smoke-optimiser" in result.stdout
@@ -35,11 +30,10 @@ def test_cli_help(
 
 @patch("smoke_optimiser.cli.run_profiling")
 @patch("smoke_optimiser.cli.optimise")
-@patch("smoke_optimiser.cli.write_smoke_suite")
+@patch("smoke_optimiser.cli.write_smoke_suite", new=MagicMock())
 @patch("smoke_optimiser.cli.format_summary")
 def test_cli_defaults(
     mock_format: MagicMock,
-    mock_write: MagicMock,
     mock_optimise: MagicMock,
     mock_run: MagicMock,
 ) -> None:
@@ -53,11 +47,10 @@ def test_cli_defaults(
 
 @patch("smoke_optimiser.cli.run_profiling")
 @patch("smoke_optimiser.cli.optimise")
-@patch("smoke_optimiser.cli.write_smoke_suite")
+@patch("smoke_optimiser.cli.write_smoke_suite", new=MagicMock())
 @patch("smoke_optimiser.cli.format_summary")
 def test_cli_overrides(
     mock_format: MagicMock,
-    mock_write: MagicMock,
     mock_optimise: MagicMock,
     mock_run: MagicMock,
 ) -> None:
@@ -70,13 +63,10 @@ def test_cli_overrides(
 
 
 @patch("smoke_optimiser.cli.run_profiling")
-@patch("smoke_optimiser.cli.optimise")
-@patch("smoke_optimiser.cli.write_smoke_suite")
-@patch("smoke_optimiser.cli.format_summary")
+@patch("smoke_optimiser.cli.optimise", new=MagicMock())
+@patch("smoke_optimiser.cli.write_smoke_suite", new=MagicMock())
+@patch("smoke_optimiser.cli.format_summary", new=MagicMock())
 def test_cli_profile_only(
-    mock_format: MagicMock,
-    mock_write: MagicMock,
-    mock_optimise: MagicMock,
     mock_run: MagicMock,
     tmp_path: Path,
 ) -> None:
@@ -116,11 +106,10 @@ def test_cli_mutually_exclusive() -> None:
 
 @patch("smoke_optimiser.cli.run_profiling")
 @patch("smoke_optimiser.cli.optimise")
-@patch("smoke_optimiser.cli.write_smoke_suite")
+@patch("smoke_optimiser.cli.write_smoke_suite", new=MagicMock())
 @patch("smoke_optimiser.cli.format_summary")
 def test_cli_include_exclude(
     mock_format: MagicMock,
-    mock_write: MagicMock,
     mock_optimise: MagicMock,
     mock_run: MagicMock,
 ) -> None:

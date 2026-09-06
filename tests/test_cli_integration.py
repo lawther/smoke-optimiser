@@ -11,11 +11,10 @@ runner = CliRunner()
 
 @patch("smoke_optimiser.cli.run_profiling")
 @patch("smoke_optimiser.cli.optimise")
-@patch("smoke_optimiser.cli.write_smoke_suite")
+@patch("smoke_optimiser.cli.write_smoke_suite", new=MagicMock())
 @patch("smoke_optimiser.cli.format_summary")
 def test_cli_full_run(
     mock_format: MagicMock,
-    mock_write: MagicMock,
     mock_optimise: MagicMock,
     mock_run: MagicMock,
     tmp_path: Path,

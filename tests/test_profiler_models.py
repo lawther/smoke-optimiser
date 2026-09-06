@@ -55,13 +55,13 @@ def test_profiling_data_roundtrip() -> None:
                 "branches_covered": ["file.py:10"],
                 "files_covered": ["file.py"],
                 "markers": ["smoke"],
-            }
+            },
         },
         "total_branches": ["file.py:10", "file.py:11"],
         "measured_files": ["file.py", "other.py"],
     }
 
-    model = ProfilingDataFile(**cast(Any, raw_data))
+    model = ProfilingDataFile(**cast("Any", raw_data))
     data = model.to_profiling_data()
 
     assert isinstance(data, ProfilingData)
@@ -95,13 +95,13 @@ def test_a_profile_written_before_file_tracking_is_refused() -> None:
                 "passed": True,
                 "branches_covered": ["file.py:10"],
                 "markers": [],
-            }
+            },
         },
         "total_branches": ["file.py:10"],
     }
 
     with pytest.raises(ValidationError) as exc_info:
-        ProfilingDataFile(**cast(Any, raw_data))
+        ProfilingDataFile(**cast("Any", raw_data))
 
     message = str(exc_info.value)
     assert "files_covered" in message
@@ -112,4 +112,4 @@ def test_profiling_data_validation_error() -> None:
     # Missing required field
     with pytest.raises(ValidationError):
         # Use cast(Any, ...) to avoid ty's type check for intentionally invalid inputs
-        ProfilingDataFile(**cast(Any, {"meta": {}, "tests": {}, "total_branches": []}))
+        ProfilingDataFile(**cast("Any", {"meta": {}, "tests": {}, "total_branches": []}))

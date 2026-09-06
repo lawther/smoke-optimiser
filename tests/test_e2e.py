@@ -4,10 +4,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-import pytest
 
-
-def test_end_to_end_flow(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_end_to_end_flow(tmp_path: Path) -> None:
     """Test the full flow.
 
     1. Create a dummy project with code and tests.
@@ -23,7 +21,7 @@ def test_end_to_end_flow(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Non
         """
 [project]
 name = "my-project"
-"""
+""",
     )
 
     src_dir = project_dir / "src"
@@ -36,7 +34,7 @@ def add(a, b):
     if a > 0:
         return a + b
     return b
-"""
+""",
     )
 
     tests_dir = project_dir / "tests"
@@ -61,7 +59,7 @@ def broken():
 
 def test_setup_error(broken):
     pass
-"""
+""",
     )
 
     # 2. Run smoke-optimiser
@@ -94,7 +92,7 @@ def test_setup_error(broken):
     smoke_suite_file = project_dir / ".smoke_suite.json"
     assert smoke_suite_file.exists()
 
-    with open(smoke_suite_file) as f:
+    with smoke_suite_file.open() as f:
         data = json.load(f)
         assert len(data["smoke_tests"]) > 0
 

@@ -108,7 +108,7 @@ def test_non_branch_arcs_are_not_counted_as_branches(tmp_path: Path) -> None:
 
     covered = set().union(*ingest.tests_branches.values())
     assert covered <= ingest.total_branches
-    assert not any(bid.startswith("app.py:1->") or bid.startswith("app.py:3->") for bid in covered)
+    assert not any(bid.startswith(("app.py:1->", "app.py:3->")) for bid in covered)
 
 
 def test_paths_are_relative_to_the_project_root(tmp_path: Path) -> None:
@@ -145,7 +145,7 @@ def test_arcs_are_translated_into_coverage_reporting_vocabulary(tmp_path: Path) 
     """
     source = tmp_path / "multi.py"
     source.write_text(
-        "def total(xs):\n    n = 0\n    for x in xs:\n        n += x\n    return (\n        n\n        + 0\n    )\n"
+        "def total(xs):\n    n = 0\n    for x in xs:\n        n += x\n    return (\n        n\n        + 0\n    )\n",
     )
     db_path = tmp_path / ".coverage"
     _write_db(db_path, {f"{TEST_POS}|run": {str(source): {(2, 3), (3, 4), (4, 3), (3, 6), (6, 7), (7, 6), (5, -1)}}})

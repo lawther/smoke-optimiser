@@ -21,14 +21,12 @@ def build_repro_command(config: ResolvedConfig) -> str:
     if not config.include_mandatory:
         parts.append("--include=''")
     else:
-        for item in config.include_mandatory:
-            parts.append(f"--include={shlex.quote(item)}")
+        parts.extend(f"--include={shlex.quote(item)}" for item in config.include_mandatory)
 
     if not config.exclude_mandatory:
         parts.append("--exclude=''")
     else:
-        for item in config.exclude_mandatory:
-            parts.append(f"--exclude={shlex.quote(item)}")
+        parts.extend(f"--exclude={shlex.quote(item)}" for item in config.exclude_mandatory)
 
     # For strings and paths, use --arg=val format
     parts.append(f"--pytest-args={shlex.quote(config.pytest_args)}")

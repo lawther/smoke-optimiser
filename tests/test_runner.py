@@ -60,7 +60,9 @@ def test_run_profiling_basic(mock_ingest: MagicMock, mock_run: MagicMock, tmp_pa
 @patch("subprocess.run")
 @patch("smoke_optimiser.profiler.runner.build_profiling_data")
 def test_cov_report_in_pytest_args_does_not_suppress_the_cov_source(
-    mock_ingest: MagicMock, mock_run: MagicMock, tmp_path: Path
+    mock_ingest: MagicMock,
+    mock_run: MagicMock,
+    tmp_path: Path,
 ) -> None:
     """--cov-report is not --cov, and must not be mistaken for it.
 

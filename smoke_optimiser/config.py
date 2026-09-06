@@ -76,7 +76,7 @@ def _discover_cov_target(project_root: Path) -> str:
     pyproject_path = project_root / "pyproject.toml"
     if pyproject_path.exists():
         try:
-            with open(pyproject_path, "rb") as f:
+            with pyproject_path.open("rb") as f:
                 raw_data = tomllib.load(f)
                 data = PyProjectConfig.model_validate(raw_data)
                 if data.project and data.project.name:
@@ -101,7 +101,7 @@ def load_file_config(project_root: Path) -> FileConfig | None:
         return None
 
     try:
-        with open(pyproject_path, "rb") as f:
+        with pyproject_path.open("rb") as f:
             raw_data = tomllib.load(f)
     except (OSError, tomllib.TOMLDecodeError):
         return None
@@ -121,7 +121,7 @@ def resolve_config(
 ) -> ResolvedConfig:
     """Merge default config, file config, and CLI overrides into a final ResolvedConfig."""
     # Start with defaults from FileConfig
-    base_config = file_config if file_config else FileConfig()
+    base_config = file_config or FileConfig()
 
     # Apply CLI overrides
     config_dict = base_config.model_dump()

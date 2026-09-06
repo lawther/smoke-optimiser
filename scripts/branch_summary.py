@@ -1,10 +1,13 @@
 """Print a branch coverage summary from a coverage.py JSON report."""
 
+# ruff: noqa: INP001
+
 from __future__ import annotations
 
 import sys
 from pathlib import Path
 
+import typer
 from pydantic import BaseModel
 
 
@@ -51,22 +54,22 @@ def main() -> None:
 
     header = f"{'File':<{name_width}}  {'Exits':>8}  {'Hit':>7}  {'Partial':>7}  {'Missed':>6}  {'Cover':>6}"
     separator = "-" * len(header)
-    print()
-    print(header)
-    print(separator)
+    typer.echo()
+    typer.echo(header)
+    typer.echo(separator)
     for name, s in rows:
-        print(
+        typer.echo(
             f"{name:<{name_width}}  {s.num_branches:>8}  {s.covered_branches:>7}  "
             f"{s.num_partial_branches:>7}  {s.missing_branches:>6}  "
-            f"{_pct(s):>5.0f}%"
+            f"{_pct(s):>5.0f}%",
         )
 
     t = report.totals
-    print(separator)
-    print(
+    typer.echo(separator)
+    typer.echo(
         f"{'TOTAL':<{name_width}}  {t.num_branches:>8}  {t.covered_branches:>7}  "
         f"{t.num_partial_branches:>7}  {t.missing_branches:>6}  "
-        f"{_pct(t):>5.0f}%"
+        f"{_pct(t):>5.0f}%",
     )
 
 

@@ -49,7 +49,9 @@ def _load_smoke_suite(config: pytest.Config) -> SmokeSuiteFile | None:
         suite = read_smoke_suite(path)
     except (ValidationError, ValueError) as e:
         pytest.exit(f"smoke-optimiser: ❌ Error: invalid smoke suite file: {path}: {e}", returncode=1)
-    except Exception as e:
+    # A blind catch is deliberate: reading the suite must never surface a traceback through
+    # pytest's collection, so anything unexpected is reported as a clean error instead.
+    except Exception as e:  # noqa: BLE001
         pytest.exit(
             f"smoke-optimiser: ❌ Error: error reading smoke suite file: {path}: {e}",
             returncode=1,

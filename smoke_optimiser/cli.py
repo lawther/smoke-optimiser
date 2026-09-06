@@ -5,7 +5,7 @@ from typing import Annotated
 import typer
 from pydantic import ValidationError
 
-from smoke_optimiser.config import OperationMode, load_file_config, resolve_config
+from smoke_optimiser.config import FileConfig, OperationMode, ResolvedConfig, load_file_config, resolve_config
 from smoke_optimiser.optimiser.filters import apply_filters
 from smoke_optimiser.optimiser.greedy import optimise
 from smoke_optimiser.profiler.models import (
@@ -78,7 +78,7 @@ def _save_profiling_data(profiling_data: ProfilingData, intermediate_file: Path)
         unattributable_branches=list(profiling_data.unattributable_branches),
     )
     intermediate_file.unlink(missing_ok=True)
-    with open(intermediate_file, "w") as f:
+    with intermediate_file.open("w") as f:
         json.dump(file_data.model_dump(mode="json"), f)
     typer.secho(f"💾 Profiling data saved to {intermediate_file}", fg=typer.colors.GREEN)
 
@@ -95,7 +95,7 @@ def _load_profiling_data(intermediate_file: Path) -> ProfilingData:
         raise typer.Exit(code=1)
 
     try:
-        with open(intermediate_file, "rb") as f:
+        with intermediate_file.open("rb") as f:
             raw = json.load(f)
             return ProfilingDataFile(**raw).to_profiling_data()
     except (OSError, json.JSONDecodeError, ValidationError) as e:
@@ -108,8 +108,85 @@ def _load_profiling_data(intermediate_file: Path) -> ProfilingData:
         raise typer.Exit(code=1) from None
 
 
+def _validate_option_combinations(
+    *,
+    profile_only: bool,
+    optimise_only: bool,
+    src: str | None,
+    pytest_args: str | None,
+) -> None:
+    """Reject option combinations that cannot be honoured."""
+    if profile_only and optimise_only:
+        typer.secho(
+            "❌ Error: --profile-only and --optimise-only are mutually exclusive.",
+            fg=typer.colors.RED,
+            err=True,
+        )
+        raise typer.Exit(code=1)
+
+    if src and pytest_args and "--cov" in pytest_args:
+        typer.secho(
+            "❌ Error: Conflict detected. Cannot use --src and --cov in --pytest-args simultaneously.",
+            fg=typer.colors.RED,
+            err=True,
+        )
+        raise typer.Exit(code=1)
+
+
+def _warn_if_source_was_guessed(
+    config: ResolvedConfig,
+    file_config: FileConfig | None,
+    src: str | None,
+    pytest_args: str | None,
+) -> None:
+    """Tell the user when the coverage source came from heuristic discovery rather than from them."""
+    if config.mode == OperationMode.OPTIMISE_ONLY or src is not None:
+        return
+    if pytest_args and "--cov" in pytest_args:
+        return
+    if file_config and file_config.cov_source:
+        return
+
+    typer.secho(
+        f"⚠️ Warning: --src was not specified. Falling back to heuristic discovery: --src={config.cov_source}",
+        fg=typer.colors.YELLOW,
+        err=True,
+    )
+
+
+def _optimise_and_report(config: ResolvedConfig, profiling_data: ProfilingData) -> None:
+    """Run the optimisation phase and write out its results."""
+    typer.secho("⚡ Optimising smoke suite...", fg=typer.colors.CYAN, bold=True)
+    filtered = apply_filters(profiling_data.tests, config.include_mandatory, config.exclude_mandatory)
+
+    for pattern in filtered.unmatched_includes:
+        typer.secho(
+            f"⚠️ Warning: Include pattern '{pattern}' matched no tests.",
+            fg=typer.colors.YELLOW,
+            err=True,
+        )
+    for pattern in filtered.unmatched_excludes:
+        typer.secho(
+            f"⚠️ Warning: Exclude pattern '{pattern}' matched no tests.",
+            fg=typer.colors.YELLOW,
+            err=True,
+        )
+
+    result = optimise(
+        filtered,
+        profiling_data.total_branches,
+        config.time_cap,
+        config.target_cov,
+        profiling_data.unattributable_branches,
+    )
+
+    write_smoke_suite(result, config, profiling_data.meta, config.output_json)
+    typer.echo(format_summary(result, config, profiling_data.meta))
+
+
 @app.command()
 def main(  # noqa: PLR0913 # special case for this function since Typer works this way
+    *,
     profile_only: Annotated[
         bool,
         typer.Option("--profile-only", help="Run only the profiling phase."),
@@ -162,20 +239,12 @@ def main(  # noqa: PLR0913 # special case for this function since Typer works th
     ] = None,
 ) -> None:
     """smoke-optimiser: Identify a minimal, high-value smoke test suite."""
-    if profile_only and optimise_only:
-        typer.secho(
-            "❌ Error: --profile-only and --optimise-only are mutually exclusive.", fg=typer.colors.RED, err=True
-        )
-        raise typer.Exit(code=1)
-
-    # Conflict check: --src and --cov in --pytest-args
-    if src and pytest_args and "--cov" in pytest_args:
-        typer.secho(
-            "❌ Error: Conflict detected. Cannot use --src and --cov in --pytest-args simultaneously.",
-            fg=typer.colors.RED,
-            err=True,
-        )
-        raise typer.Exit(code=1)
+    _validate_option_combinations(
+        profile_only=profile_only,
+        optimise_only=optimise_only,
+        src=src,
+        pytest_args=pytest_args,
+    )
 
     # Normalise comma-separated includes/excludes
     final_includes = _split_comma_list(include)
@@ -207,18 +276,7 @@ def main(  # noqa: PLR0913 # special case for this function since Typer works th
             typer.secho(f"  - {loc}: {error['msg']}", fg=typer.colors.RED, err=True)
         raise typer.Exit(code=1) from None
 
-    # Inform user about heuristic fallback
-    # If it wasn't in CLI and isn't in pytest_args, and we are profiling
-    has_cov_in_args = pytest_args and "--cov" in pytest_args
-    if config.mode != OperationMode.OPTIMISE_ONLY and src is None and not has_cov_in_args:
-        # Check if it was in pyproject.toml
-        from_file = file_config and file_config.cov_source
-        if not from_file:
-            typer.secho(
-                f"⚠️ Warning: --src was not specified. Falling back to heuristic discovery: --src={config.cov_source}",
-                fg=typer.colors.YELLOW,
-                err=True,
-            )
+    _warn_if_source_was_guessed(config, file_config, src, pytest_args)
 
     profiling_data = None
     intermediate_file = project_root / ".smoke_profiling_data.json"
@@ -236,34 +294,7 @@ def main(  # noqa: PLR0913 # special case for this function since Typer works th
         if profiling_data is None:
             profiling_data = _load_profiling_data(intermediate_file)
 
-        typer.secho("⚡ Optimising smoke suite...", fg=typer.colors.CYAN, bold=True)
-        filtered = apply_filters(profiling_data.tests, config.include_mandatory, config.exclude_mandatory)
-
-        # Warn about unmatched includes/excludes
-        for pattern in filtered.unmatched_includes:
-            typer.secho(
-                f"⚠️ Warning: Include pattern '{pattern}' matched no tests.",
-                fg=typer.colors.YELLOW,
-                err=True,
-            )
-        for pattern in filtered.unmatched_excludes:
-            typer.secho(
-                f"⚠️ Warning: Exclude pattern '{pattern}' matched no tests.",
-                fg=typer.colors.YELLOW,
-                err=True,
-            )
-
-        result = optimise(
-            filtered,
-            profiling_data.total_branches,
-            config.time_cap,
-            config.target_cov,
-            profiling_data.unattributable_branches,
-        )
-
-        # Output results
-        write_smoke_suite(result, config, profiling_data.meta, config.output_json)
-        typer.echo(format_summary(result, config, profiling_data.meta))
+        _optimise_and_report(config, profiling_data)
 
 
 if __name__ == "__main__":

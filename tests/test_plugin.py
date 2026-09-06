@@ -13,7 +13,7 @@ def test_plugin_options_registered(pytester: pytest.Pytester, monkeypatch: pytes
             "*smoke-optimiser:*",
             "*--smoke *Run only the tests in the smoke suite.*",
             "*--smoke-file-path=SMOKE_FILE_PATH*",
-        ]
+        ],
     )
 
 
@@ -43,7 +43,7 @@ def test_plugin_load_suite_success(pytester: pytest.Pytester, tmp_path: Path, mo
                 "branches_covered": 5,
                 "marginal_branches": 5,
                 "efficiency": 50.0,
-            }
+            },
         ],
         "coverage_equivalents": [],
     }
@@ -55,7 +55,7 @@ def test_plugin_load_suite_success(pytester: pytest.Pytester, tmp_path: Path, mo
         import pytest
         def test_load(pytestconfig):
             pass
-        """
+        """,
     )
     monkeypatch.setenv("PYTHONPATH", str(Path.cwd()))
     result = pytester.runpytest_subprocess("--smoke", f"--smoke-file-path={suite_file}")
@@ -70,7 +70,9 @@ def test_plugin_load_suite_not_found(pytester: pytest.Pytester, monkeypatch: pyt
 
 
 def test_plugin_load_suite_malformed(
-    pytester: pytest.Pytester, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    pytester: pytest.Pytester,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     suite_file = tmp_path / "malformed.json"
     suite_file.write_text("{invalid json}")
@@ -82,7 +84,9 @@ def test_plugin_load_suite_malformed(
 
 
 def test_plugin_load_suite_unsupported_version(
-    pytester: pytest.Pytester, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    pytester: pytest.Pytester,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     suite_data = {
         "version": 999,
@@ -140,7 +144,7 @@ def test_plugin_filtering(pytester: pytest.Pytester, tmp_path: Path, monkeypatch
                 "branches_covered": 5,
                 "marginal_branches": 5,
                 "efficiency": 50.0,
-            }
+            },
         ],
         "coverage_equivalents": [],
     }
@@ -151,7 +155,7 @@ def test_plugin_filtering(pytester: pytest.Pytester, tmp_path: Path, monkeypatch
         test_app="""
         def test_smoke(): pass
         def test_other(): pass
-        """
+        """,
     )
 
     monkeypatch.setenv("PYTHONPATH", str(Path.cwd()))
@@ -161,7 +165,9 @@ def test_plugin_filtering(pytester: pytest.Pytester, tmp_path: Path, monkeypatch
 
 
 def test_plugin_missing_test_warning(
-    pytester: pytest.Pytester, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    pytester: pytest.Pytester,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     suite_data = {
         "version": 1,
@@ -188,7 +194,7 @@ def test_plugin_missing_test_warning(
                 "branches_covered": 5,
                 "marginal_branches": 5,
                 "efficiency": 50.0,
-            }
+            },
         ],
         "coverage_equivalents": [],
     }
@@ -203,7 +209,7 @@ def test_plugin_missing_test_warning(
         [
             "*smoke-optimiser: ⚠️ Warning: smoke test not found in collection: test_app.py::test_missing*",
             "*1 deselected*",
-        ]
+        ],
     )
 
 
@@ -241,7 +247,7 @@ def test_plugin_report_header(pytester: pytest.Pytester, tmp_path: Path, monkeyp
                 "branches_covered": 8,
                 "marginal_branches": 8,
                 "efficiency": 80.0,
-            }
+            },
         ],
         "coverage_equivalents": [],
     }

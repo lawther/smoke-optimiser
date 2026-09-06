@@ -112,12 +112,14 @@ def _read_schema_version(connection: sqlite3.Connection) -> int:
     try:
         row = connection.execute("select version from coverage_schema").fetchone()
     except sqlite3.Error as exc:
-        raise CoverageIngestError(
+        msg = (
             f"Could not read the coverage_schema table from the coverage database: {exc}. "
             "The file may be corrupt or may not be a coverage.py database."
-        ) from exc
+        )
+        raise CoverageIngestError(msg) from exc
     if row is None:
-        raise CoverageIngestError("The coverage database has an empty coverage_schema table.")
+        msg = "The coverage database has an empty coverage_schema table."
+        raise CoverageIngestError(msg)
     return int(row[0])
 
 
@@ -135,7 +137,7 @@ def _verify_database(connection: sqlite3.Connection) -> str:
         supported_versions = sorted(SUPPORTED_SCHEMA_VERSIONS)
         supported = ", ".join(str(version) for version in supported_versions)
         version_word = "version" if len(supported_versions) == 1 else "versions"
-        raise CoverageIngestError(
+        msg = (
             f"Unsupported coverage.py database schema version {schema_version} "
             f"(smoke-optimiser supports schema {version_word}: {supported}).\n"
             f"The database was written by coverage.py {writer_version}; "
@@ -145,15 +147,17 @@ def _verify_database(connection: sqlite3.Connection) -> str:
             "around.\n"
             f"To add support, verify the new layout and extend SUPPORTED_SCHEMA_VERSIONS in {SCHEMA_OWNER_MODULE}."
         )
+        raise CoverageIngestError(msg)
 
     if _read_meta(connection, "has_arcs") != "1":
-        raise CoverageIngestError(
+        msg = (
             "The coverage database was recorded without branch coverage, so it contains no branch data "
             "(line-only results are stored as bitmaps in the line_bits table, and the arc table is empty).\n"
             "smoke-optimiser selects tests by branch coverage and cannot work from line-only data.\n"
             "Re-run with branch coverage enabled: pass --cov-branch to pytest, or set 'branch = True' "
             "under [run] in your coverage configuration."
         )
+        raise CoverageIngestError(msg)
 
     return writer_version
 
@@ -211,13 +215,14 @@ def _verify_contexts(context_test_ids: set[str], test_durations: dict[str, float
     hidden = len(unknown) - MAX_UNKNOWN_CONTEXTS_SHOWN
     more = f"\n  ... and {hidden} more" if hidden > 0 else ""
     counted = "1 coverage context matches" if len(unknown) == 1 else f"{len(unknown)} coverage contexts match"
-    raise CoverageIngestError(
+    msg = (
         f"{counted} no test that pytest collected in this run:\n"
         f"{shown}{more}\n"
         "Their coverage cannot be attributed to a test, which would silently shrink the smoke suite. "
         "This usually means the coverage database is stale, or was combined across different runs; "
         "remove it and profile again."
     )
+    raise CoverageIngestError(msg)
 
 
 def _relative_path(path: Path, project_root: Path) -> str:
@@ -236,7 +241,8 @@ def read_coverage_db(
 ) -> CoverageIngest:
     """Read per-test branch coverage straight out of coverage.py's SQLite database."""
     if not coverage_db_path.exists():
-        raise CoverageIngestError(f"No coverage database at {coverage_db_path}. The profiling run produced no data.")
+        msg = f"No coverage database at {coverage_db_path}. The profiling run produced no data."
+        raise CoverageIngestError(msg)
 
     cov = coverage.Coverage(config_file=str(config_file) if config_file is not None else False)
     connection = sqlite3.connect(f"file:{coverage_db_path}?mode=ro", uri=True)
@@ -262,12 +268,13 @@ def read_coverage_db(
             try:
                 branches = _build_file_branches(reporter, relative_path, raw_arcs_by_file.get(file_id, set()))
             except NoSource as exc:
-                raise CoverageIngestError(
+                msg = (
                     f"The coverage database refers to {absolute_path}, but its source is no longer readable: {exc}\n"
                     "Branch data cannot be derived without the source, and guessing would misreport coverage. "
                     "This usually means the file was moved or removed while profiling was running, or that the "
                     "coverage database is left over from an earlier state of the tree; profile again."
-                ) from exc
+                )
+                raise CoverageIngestError(msg) from exc
             branches_by_file[file_id] = branches
             total_branches |= branches.all_branch_ids
 
@@ -280,7 +287,7 @@ def read_coverage_db(
         tests_files: dict[str, set[str]] = defaultdict(set)
         unattributable: set[str] = set()
         for context_id, file_id, fromno, tono in connection.execute(
-            "select context_id, file_id, fromno, tono from arc"
+            "select context_id, file_id, fromno, tono from arc",
         ):
             branch_ids = branches_by_file[int(file_id)].raw_to_branch_ids.get(Arc(int(fromno), int(tono)))
             test_id = context_test_ids.get(int(context_id))

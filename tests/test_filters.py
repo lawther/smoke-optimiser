@@ -5,7 +5,7 @@ EXPECTED_MATCH_COUNT = 2
 UNMATCHED_INCLUDES_COUNT = 2
 
 
-def _create_outcome(test_id: str, passed: bool = True, markers: list[str] | None = None) -> ProfilingOutcome:
+def _create_outcome(test_id: str, *, passed: bool = True, markers: list[str] | None = None) -> ProfilingOutcome:
     return ProfilingOutcome(
         test_id=test_id,
         duration_s=0.1,

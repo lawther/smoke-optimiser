@@ -56,8 +56,9 @@ def _build_initial_heap(
             eff = marginal / dur if dur > 0 else (float("inf") if marginal > 0 else 0.0)
             eff_rounded = eff if eff == float("inf") else round(eff, 9)
 
-            # Format: [-eff_rounded, -marginal, duration, test_id, branches, orig_branches, last_eval_cov_len]
-            # We round -eff to 9 decimal places to mirror EFFICIENCY_EPSILON
+            # Heap nodes order on negated efficiency first, then negated marginal gain, then
+            # duration, with the test id breaking any remaining tie. The trailing fields carry
+            # the branch sets and the coverage size the node was last evaluated against.
             node = [
                 -eff_rounded,
                 -marginal,
@@ -89,7 +90,7 @@ def _process_mandatory_tests(
                 branches_covered=len(outcome.branches_covered),
                 marginal_branches=marginal,
                 efficiency=efficiency,
-            )
+            ),
         )
         covered_set.update(outcome.branches_covered)
         elapsed_time += outcome.duration_s
@@ -137,7 +138,7 @@ def optimise(
                     branches_covered=len(orig_branches),
                     marginal_branches=-node[IDX_MARGINAL],
                     efficiency=-node[IDX_EFFICIENCY],
-                )
+                ),
             )
             covered_set.update(orig_branches)
             elapsed_time += dur
@@ -192,7 +193,7 @@ def optimise(
                 group_id=group_id,
                 branch_set_hash=h,
                 tests=test_ids,
-            )
+            ),
         )
         group_id += 1
 

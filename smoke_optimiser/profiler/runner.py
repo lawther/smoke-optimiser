@@ -67,7 +67,8 @@ branch = True
 def check_prerequisites(config: ResolvedConfig) -> None:
     """Verify that all necessary tools are available."""
     if shutil.which("pytest") is None:
-        raise RuntimeError("pytest not found in PATH")
+        msg = "pytest not found in PATH"
+        raise RuntimeError(msg)
 
     if not config.allow_ordered:
         # Check if pytest-randomly is installed
@@ -169,7 +170,7 @@ def run_profiling(config: ResolvedConfig, project_root: Path) -> ProfilingData:
 
             # Load outcomes from this run
             if outcomes_json.exists():
-                with open(outcomes_json) as f:
+                with outcomes_json.open() as f:
                     raw_outcomes = json.load(f)
                     for nodeid, data in raw_outcomes.items():
                         all_durations[nodeid].append(data["duration"])
