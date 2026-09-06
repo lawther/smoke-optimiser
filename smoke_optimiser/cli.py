@@ -98,9 +98,10 @@ def _load_profiling_data(intermediate_file: Path) -> ProfilingData:
         with open(intermediate_file, "rb") as f:
             raw = json.load(f)
             return ProfilingDataFile(**raw).to_profiling_data()
-    except (OSError, json.JSONDecodeError) as e:
+    except (OSError, json.JSONDecodeError, ValidationError) as e:
         typer.secho(
-            f"❌ Error: Failed to parse profiling data ({intermediate_file}): {e}",
+            f"❌ Error: Failed to parse profiling data ({intermediate_file}): {e}\n"
+            "If this profile was recorded by an older version, re-run the profiling phase to regenerate it.",
             fg=typer.colors.RED,
             err=True,
         )

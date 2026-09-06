@@ -1,10 +1,13 @@
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+import typer
 from typer.testing import CliRunner
 
-from smoke_optimiser.cli import app
+from smoke_optimiser.cli import _load_profiling_data, app
 
 runner = CliRunner()
 
@@ -127,3 +130,17 @@ def test_cli_include_exclude(
 
     result = runner.invoke(app, ["--include", "test_a", "--include", "test_b", "--exclude", "test_c"])
     assert result.exit_code == EXIT_CODE_SUCCESS
+
+
+def test_a_profile_from_an_older_version_reports_an_error_not_a_traceback(tmp_path: Path) -> None:
+    """A profile missing fields added later must fail as a clean CLI error.
+
+    ProfilingDataFile raises pydantic's ValidationError, which is neither an
+    OSError nor a JSONDecodeError -- so before this was handled it escaped as
+    a raw traceback for every profile written by an earlier version.
+    """
+    profile = tmp_path / "profile.json"
+    profile.write_text(json.dumps({"meta": {}, "tests": {}, "total_branches": []}))
+
+    with pytest.raises(typer.Exit):
+        _load_profiling_data(profile)
