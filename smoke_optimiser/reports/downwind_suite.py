@@ -17,11 +17,9 @@ from pydantic import BaseModel
 class BlindSpotReason(StrEnum):
     """Why so-jr5.2's rules could not answer for one input, forcing the full suite.
 
-    Each value names one of jr5.2's blunt refusal rules. Both directly-Python
-    reasons (UNKNOWN_PATH, CHANGED_CONFTEST) and the two graph-trust reasons
-    (UNATTRIBUTED_IMPORT, RESOLUTION_ERRORS) over-select rather than
-    under-select, so seeing one of these values here never means a test was
-    silently dropped.
+    Each value names one of jr5.2's blunt refusal rules, all of which
+    over-select rather than under-select, so seeing one of these values here
+    never means a test was silently dropped.
     """
 
     UNKNOWN_PATH = "unknown_path"
