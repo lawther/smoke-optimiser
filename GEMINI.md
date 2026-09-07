@@ -45,6 +45,26 @@
 
 - Commit messages follow the (Conventional Commits)[https://www.conventionalcommits.org/en/v1.0.0/#summary] spec.
 
+# Writing Issues
+
+- An issue is a description of the work as it now stands, not a diary of how it got there.
+  When the shape of the work changes, rewrite the issue so it reads as though it had always
+  said the new thing. Never append a delta: no "Update:" paragraphs, no "previously we
+  thought...", no struck-through text, no changelog at the bottom. Rewriting *is* the edit,
+  not a tidy-up you do afterwards.
+  - Why: the next reader acts on the first thing they read. A diary forces them to
+    reconstruct the live answer out of a stack of dead ones, and that is exactly how
+    information gets lost. Git and `bd` history already hold the deltas -- the body does not
+    need to.
+  - The only exception: superseded material may stay as an explicit "Alternatives
+    considered" note, and only where knowing why it was rejected stops someone proposing it
+    again. If it is not doing that job, delete it.
+  - This governs the title, description, design, notes and acceptance criteria. Discussion
+    comments and close reasons are the one place history legitimately lives: each is written
+    once, about a moment, and is chronological by nature. Leave them as written -- and when
+    you want to record how the work changed, put that account in the close reason rather
+    than back into the body.
+
 # Localisation
 
 - You write in Australian English. All spelling, grammar, idioms and style should reflect this. This applies to documentation, commit messages, code comments, variables, API names etc.
