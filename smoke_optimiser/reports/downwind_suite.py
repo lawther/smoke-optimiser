@@ -8,40 +8,36 @@ the list of node ids. See so-uom.
 
 import json
 from datetime import datetime
-from enum import StrEnum
 from pathlib import Path
 
 from pydantic import BaseModel, model_validator
 
-
-class BlindSpotReason(StrEnum):
-    """Why so-jr5.2's rules could not answer for one input, forcing the full suite.
-
-    Each value names one of jr5.2's blunt refusal rules, all of which
-    over-select rather than under-select, so seeing one of these values here
-    never means a test was silently dropped.
-    """
-
-    UNKNOWN_PATH = "unknown_path"
-    NON_PYTHON_FILE = "non_python_file"
-    UNATTRIBUTED_IMPORT = "unattributed_import"
-    EXPIRED_PROFILE = "expired_profile"
-    CHANGED_CONFTEST = "changed_conftest"
-    RESOLUTION_ERRORS = "resolution_errors"
+from smoke_optimiser.downwind.blind_spots import BlindSpot, BlindSpotReason
 
 
 class BlindSpotModel(BaseModel):
-    """One rule's refusal, naming the input it could not answer for.
+    """The serialised form of one :class:`BlindSpot`.
 
     file is None only for RESOLUTION_ERRORS, the one reason that is a
     property of the whole import graph rather than of any single changed
     file. resolution_errors is populated only for that same reason, carrying
-    the count jr5.2's refusal is required to name.
+    the count jr5.2's refusal is required to name. The invariant is validated
+    here as well as on the dataclass, because a file on disk is outside data
+    however it was written.
     """
 
     reason: BlindSpotReason
     file: str | None = None
     resolution_errors: int | None = None
+
+    @classmethod
+    def from_blind_spot(cls, blind_spot: BlindSpot) -> "BlindSpotModel":
+        """Build the model that writes one rule's refusal to the selection file."""
+        return cls(
+            reason=blind_spot.reason,
+            file=blind_spot.file,
+            resolution_errors=blind_spot.resolution_errors,
+        )
 
     @model_validator(mode="after")
     def _check_reason_matches_fields(self) -> "BlindSpotModel":

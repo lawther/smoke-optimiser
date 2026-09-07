@@ -4,9 +4,9 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
+from smoke_optimiser.downwind.blind_spots import BlindSpotReason
 from smoke_optimiser.reports.downwind_suite import (
     BlindSpotModel,
-    BlindSpotReason,
     DownwindSuiteFile,
     read_downwind_suite,
 )

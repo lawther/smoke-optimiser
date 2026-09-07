@@ -4,9 +4,9 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
+from smoke_optimiser.downwind.blind_spots import BlindSpot, BlindSpotReason
 from smoke_optimiser.reports.downwind_suite import (
     BlindSpotModel,
-    BlindSpotReason,
     DownwindSuiteFile,
     ProfileIdentityModel,
     read_downwind_suite,
@@ -128,3 +128,23 @@ def test_downwind_suite_rejects_unknown_reason(tmp_path: Path) -> None:
     )
     with pytest.raises(ValidationError):
         read_downwind_suite(output_file)
+
+
+def test_a_blind_spot_serialises_without_losing_its_reason_or_its_count() -> None:
+    # The rules produce BlindSpot values and the file carries BlindSpotModel
+    # ones. The two shapes must agree, or a refusal would be written to disk
+    # naming a different cause than the one the rules found.
+    swallowed_edges = 3
+    refusals = (
+        BlindSpot(reason=BlindSpotReason.UNKNOWN_PATH, file="src/brand_new.py"),
+        BlindSpot(reason=BlindSpotReason.RESOLUTION_ERRORS, resolution_errors=swallowed_edges),
+    )
+
+    models = [BlindSpotModel.from_blind_spot(refusal) for refusal in refusals]
+
+    assert models[0].reason is BlindSpotReason.UNKNOWN_PATH
+    assert models[0].file == "src/brand_new.py"
+    assert models[0].resolution_errors is None
+    assert models[1].reason is BlindSpotReason.RESOLUTION_ERRORS
+    assert models[1].file is None
+    assert models[1].resolution_errors == swallowed_edges
