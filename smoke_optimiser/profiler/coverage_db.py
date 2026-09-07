@@ -341,6 +341,7 @@ def build_profiling_data(
         coverage_version=ingest.coverage_version,
         command=" ".join(sys.argv),
         machine=capture_environment(),
+        xdist_workers=results.xdist_workers,
     )
 
     return ProfilingData(
@@ -348,5 +349,6 @@ def build_profiling_data(
         tests=tests,
         total_branches=ingest.total_branches,
         measured_files=ingest.measured_files,
+        import_graph=results.import_graph,
         unattributable_branches=ingest.unattributable_branches,
     )

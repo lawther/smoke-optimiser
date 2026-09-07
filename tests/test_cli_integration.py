@@ -19,7 +19,7 @@ def test_cli_full_run(
     mock_run: MagicMock,
     tmp_path: Path,
 ) -> None:
-    mock_run.return_value = MagicMock(tests={}, total_branches=frozenset(), meta=MagicMock())
+    mock_run.return_value = MagicMock(tests={}, total_branches=frozenset(), meta=MagicMock(xdist_workers=1))
     mock_optimise.return_value = MagicMock()
     mock_format.return_value = "Summary"
 

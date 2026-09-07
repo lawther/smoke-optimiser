@@ -33,6 +33,7 @@ def test_build_repro_command() -> None:
         allow_ordered=False,
         cov_source="src",
         iterations=1,
+        allow_parallel_durations=False,
     )
     cmd = build_repro_command(config)
     assert "smoke-optimiser" in cmd
@@ -42,7 +43,9 @@ def test_build_repro_command() -> None:
     assert "--exclude=@pytest.mark.slow" in cmd
     assert "--pytest-args=--timeout=30" in cmd
     assert "--output-json=.smoke_suite.json" in cmd
-    assert "--no-allow-ordered" in cmd
+    # allow_ordered is off in this config, and the flag has no negative form, so the
+    # reproducing command must simply leave it out.
+    assert "allow-ordered" not in cmd
     assert "--src=src" in cmd
 
 
@@ -58,6 +61,7 @@ def test_build_repro_command_empty_lists() -> None:
         allow_ordered=False,
         cov_source="src",
         iterations=1,
+        allow_parallel_durations=False,
     )
     cmd = build_repro_command(config)
     assert "--include=''" in cmd
@@ -99,16 +103,20 @@ def test_repro_command_completeness_against_help() -> None:
         exclude_mandatory=[],
         pytest_args="",
         output_json=Path(".smoke_suite.json"),
-        allow_ordered=False,
+        allow_ordered=True,
         cov_source=".",
         iterations=1,
+        allow_parallel_durations=True,
     )
     cmd = build_repro_command(config)
 
+    # Boolean flags carry no value and exist only in their positive form, so the config
+    # above turns every one of them on and the command must then name each of them.
+    boolean_flags = {"allow-ordered", "allow-parallel-durations"}
+
     for opt in required_options:
-        # allow-ordered is special because it can show up as --no-allow-ordered
-        if opt == "allow-ordered":
-            assert "--no-allow-ordered" in cmd or "--allow-ordered" in cmd
+        if opt in boolean_flags:
+            assert f"--{opt}" in cmd, f"Option --{opt} missing from canonical repro command"
         else:
             # Check if "--opt=" is in the command
             assert f"--{opt}=" in cmd, f"Option --{opt} missing from canonical repro command"
@@ -133,6 +141,7 @@ def test_smoke_suite_roundtrip(tmp_path: Path) -> None:
             ram_available_mb=58200,
             hostname="ci-04",
         ),
+        xdist_workers=1,
     )
     result = SmokeResult(
         selected_tests=[],
@@ -158,6 +167,7 @@ def test_smoke_suite_roundtrip(tmp_path: Path) -> None:
         allow_ordered=False,
         cov_source=".",
         iterations=1,
+        allow_parallel_durations=False,
     )
     output_file = tmp_path / ".smoke_suite.json"
     write_smoke_suite(result, config, meta, output_file)
@@ -186,6 +196,7 @@ def test_format_summary() -> None:
             ram_available_mb=58200,
             hostname="ci-04",
         ),
+        xdist_workers=1,
     )
     result = SmokeResult(
         selected_tests=[],
@@ -211,6 +222,7 @@ def test_format_summary() -> None:
         allow_ordered=False,
         cov_source=".",
         iterations=1,
+        allow_parallel_durations=False,
     )
     summary = format_summary(result, config, meta)
     assert "smoke-optimiser results" in summary
@@ -241,6 +253,7 @@ def test_format_summary_reports_the_attainable_ceiling() -> None:
             ram_available_mb=58200,
             hostname="ci-04",
         ),
+        xdist_workers=1,
     )
     result = SmokeResult(
         selected_tests=[],
@@ -267,6 +280,7 @@ def test_format_summary_reports_the_attainable_ceiling() -> None:
         allow_ordered=False,
         cov_source=".",
         iterations=1,
+        allow_parallel_durations=False,
     )
 
     summary = format_summary(result, config, meta)

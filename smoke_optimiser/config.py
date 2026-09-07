@@ -29,6 +29,7 @@ class FileConfig(BaseModel):
     smoke_file_path: Path = Field(default=Path("./.smoke_suite.json"))
     cov_source: str | None = Field(default=None)
     iterations: int = Field(default=1, ge=1)
+    allow_parallel_durations: bool = Field(default=False)
 
 
 @dataclass(frozen=True)
@@ -45,6 +46,7 @@ class ResolvedConfig:
     allow_ordered: bool
     cov_source: str
     iterations: int
+    allow_parallel_durations: bool
 
 
 class ProjectMetadata(BaseModel):
@@ -158,4 +160,5 @@ def resolve_config(
         allow_ordered=config_dict["allow_ordered"],
         cov_source=cov_source,
         iterations=config_dict["iterations"],
+        allow_parallel_durations=config_dict["allow_parallel_durations"],
     )

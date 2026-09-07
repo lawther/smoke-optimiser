@@ -9,6 +9,8 @@ from smoke_optimiser.config import FileConfig, OperationMode, ResolvedConfig, lo
 from smoke_optimiser.optimiser.filters import apply_filters
 from smoke_optimiser.optimiser.greedy import optimise
 from smoke_optimiser.profiler.models import (
+    ImportEdgeModel,
+    ImportGraphModel,
     MachineModel,
     ProfilingData,
     ProfilingDataFile,
@@ -58,6 +60,7 @@ def _save_profiling_data(profiling_data: ProfilingData, intermediate_file: Path)
         coverage_version=profiling_data.meta.coverage_version,
         command=profiling_data.meta.command,
         machine=machine_model,
+        xdist_workers=profiling_data.meta.xdist_workers,
     )
     test_models = {
         tid: ProfilingOutcomeModel(
@@ -70,11 +73,19 @@ def _save_profiling_data(profiling_data: ProfilingData, intermediate_file: Path)
         )
         for tid, po in profiling_data.tests.items()
     }
+    graph = profiling_data.import_graph
+    graph_model = ImportGraphModel(
+        edges=[ImportEdgeModel(importer=edge.importer, imported=edge.imported) for edge in sorted(graph.edges)],
+        unattributed_modules=sorted(graph.unattributed_modules),
+        resolution_errors=graph.resolution_errors,
+        error_samples=list(graph.error_samples),
+    )
     file_data = ProfilingDataFile(
         meta=meta_model,
         tests=test_models,
         total_branches=list(profiling_data.total_branches),
         measured_files=list(profiling_data.measured_files),
+        import_graph=graph_model,
         unattributable_branches=list(profiling_data.unattributable_branches),
     )
     intermediate_file.unlink(missing_ok=True)
@@ -154,8 +165,34 @@ def _warn_if_source_was_guessed(
     )
 
 
+def _reject_parallel_durations(config: ResolvedConfig, profiling_data: ProfilingData) -> None:
+    """Refuse to rank a profile whose durations were measured under contention.
+
+    The optimiser picks tests by coverage per second, so a profile recorded with
+    pytest-xdist ranks tests by how much they had to compete for the machine
+    rather than by how long they take. The resulting suite looks perfectly
+    ordinary and is quietly wrong, which is why this is an error and not a
+    warning. The coverage map itself is unaffected, so recording such a profile
+    is fine -- only ranking it is not.
+    """
+    workers = profiling_data.meta.xdist_workers
+    if workers <= 1 or config.allow_parallel_durations:
+        return
+
+    typer.secho(
+        f"❌ Error: this profile was recorded with {workers} pytest-xdist workers, so every duration "
+        "was measured while other tests competed for the machine. Ranking tests by coverage per "
+        "second on those timings gives a suite that looks right and is not.\n"
+        "  Hint: re-profile serially, or pass --allow-parallel-durations to rank them anyway.",
+        fg=typer.colors.RED,
+        err=True,
+    )
+    raise typer.Exit(code=1)
+
+
 def _optimise_and_report(config: ResolvedConfig, profiling_data: ProfilingData) -> None:
     """Run the optimisation phase and write out its results."""
+    _reject_parallel_durations(config, profiling_data)
     typer.secho("⚡ Optimising smoke suite...", fg=typer.colors.CYAN, bold=True)
     filtered = apply_filters(profiling_data.tests, config.include_mandatory, config.exclude_mandatory)
 
@@ -237,6 +274,14 @@ def main(  # noqa: PLR0913 # special case for this function since Typer works th
         int | None,
         typer.Option("--iterations", help="Number of times to run the suite to average timing."),
     ] = None,
+    allow_parallel_durations: Annotated[
+        bool,
+        typer.Option(
+            "--allow-parallel-durations",
+            help="Build a smoke suite from a profile recorded with pytest-xdist, whose durations "
+            "were measured under contention.",
+        ),
+    ] = False,
 ) -> None:
     """smoke-optimiser: Identify a minimal, high-value smoke test suite."""
     _validate_option_combinations(
@@ -263,6 +308,7 @@ def main(  # noqa: PLR0913 # special case for this function since Typer works th
         "allow_ordered": allow_ordered,
         "cov_source": src,
         "iterations": iterations,
+        "allow_parallel_durations": allow_parallel_durations or None,
     }
 
     project_root = Path.cwd()

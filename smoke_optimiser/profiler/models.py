@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from datetime import datetime
+from typing import NamedTuple
 
 from pydantic import BaseModel, Field
 
@@ -26,9 +27,55 @@ class ProfilingOutcome:
     markers: frozenset[str]
 
 
+class ImportEdge(NamedTuple):
+    """One module depending on another, as project-relative file paths."""
+
+    importer: str
+    imported: str
+
+
+@dataclass(frozen=True)
+class ImportGraph:
+    """Which project files import which, captured while the suite ran.
+
+    Coverage says which tests executed a file. This says which files DEPEND on a
+    file, which is the only thing that can answer for a module that runs solely at
+    import time -- constants, model declarations, package re-exports. Without it a
+    change to such a file has no relation to any test and forces a full run.
+
+    Attributes:
+        unattributed_modules: Project files observed being loaded that nothing was
+            seen to import. Test modules and conftest files belong here legitimately
+            (pytest loads them, no module imports them), as does anything loaded
+            through machinery the tracer cannot attribute. A change to one of these
+            means the graph CANNOT ANSWER, which must fall back to running
+            everything -- reading it as "nothing imports this" would select no tests
+            at all.
+        resolution_errors: How many times recording an edge failed and was
+            swallowed. Recording cannot be allowed to break the suite being
+            profiled, but each swallowed failure is a MISSING edge, and a missing
+            edge silently under-selects, so a non-zero count means the graph is
+            incomplete by an unknown amount.
+        error_samples: The first few of those failures, for diagnosis.
+    """
+
+    edges: frozenset[ImportEdge]
+    unattributed_modules: frozenset[str]
+    resolution_errors: int
+    error_samples: tuple[str, ...]
+
+
 @dataclass(frozen=True)
 class ProfilingMeta:
-    """Metadata for a profiling run."""
+    """Metadata for a profiling run.
+
+    Attributes:
+        xdist_workers: Number of pytest-xdist workers the suite ran under, 1 for
+            a serial run. Above 1, every duration was measured while that many
+            tests competed for the machine, so the durations are not comparable
+            with each other or with a serial profile. The coverage map is
+            unaffected.
+    """
 
     timestamp: datetime
     commit: str | None
@@ -36,6 +83,7 @@ class ProfilingMeta:
     coverage_version: str
     command: str
     machine: MachineEnvironment
+    xdist_workers: int
 
 
 @dataclass(frozen=True)
@@ -57,6 +105,7 @@ class ProfilingData:
     tests: dict[str, ProfilingOutcome]
     total_branches: frozenset[str]
     measured_files: frozenset[str]
+    import_graph: ImportGraph
     unattributable_branches: frozenset[str] = frozenset()
 
 
@@ -67,6 +116,59 @@ class SuiteRunResults:
     durations: dict[str, float]
     outcomes: dict[str, bool]
     markers: dict[str, frozenset[str]]
+    xdist_workers: int
+    import_graph: ImportGraph
+
+
+class OutcomeRecordModel(BaseModel):
+    """One test's outcome as the profiling hook writes it to the outcomes file."""
+
+    passed: bool
+    duration: float
+    markers: list[str]
+
+
+class OutcomesFileModel(BaseModel):
+    """Pydantic model for one process's outcomes file.
+
+    Under pytest-xdist each worker writes its own file, so a run produces
+    several of these plus an empty one from the controller.
+
+    Attributes:
+        worker: The PYTEST_XDIST_WORKER id that wrote this file, None when the
+            run was serial.
+        worker_count: PYTEST_XDIST_WORKER_COUNT as seen by the writing process,
+            None when the run was serial.
+    """
+
+    worker: str | None
+    worker_count: int | None
+    outcomes: dict[str, OutcomeRecordModel]
+
+
+class ImportEdgeModel(BaseModel):
+    """Pydantic model for one import edge."""
+
+    importer: str
+    imported: str
+
+
+class ImportGraphModel(BaseModel):
+    """Pydantic model for ImportGraph validation."""
+
+    edges: list[ImportEdgeModel]
+    unattributed_modules: list[str]
+    resolution_errors: int
+    error_samples: list[str]
+
+    def to_import_graph(self) -> ImportGraph:
+        """Convert to the internal frozen dataclass."""
+        return ImportGraph(
+            edges=frozenset(ImportEdge(importer=e.importer, imported=e.imported) for e in self.edges),
+            unattributed_modules=frozenset(self.unattributed_modules),
+            resolution_errors=self.resolution_errors,
+            error_samples=tuple(self.error_samples),
+        )
 
 
 class ProfilingOutcomeModel(BaseModel):
@@ -104,6 +206,7 @@ class ProfilingMetaModel(BaseModel):
     coverage_version: str
     command: str
     machine: MachineModel
+    xdist_workers: int
 
 
 class ProfilingDataFile(BaseModel):
@@ -113,6 +216,7 @@ class ProfilingDataFile(BaseModel):
     tests: dict[str, ProfilingOutcomeModel]
     total_branches: list[str]
     measured_files: list[str]
+    import_graph: ImportGraphModel
     unattributable_branches: list[str] = Field(default_factory=list)
 
     def to_profiling_data(self) -> ProfilingData:
@@ -126,6 +230,7 @@ class ProfilingDataFile(BaseModel):
             coverage_version=self.meta.coverage_version,
             command=self.meta.command,
             machine=machine_env,
+            xdist_workers=self.meta.xdist_workers,
         )
 
         tests = {
@@ -145,5 +250,6 @@ class ProfilingDataFile(BaseModel):
             tests=tests,
             total_branches=frozenset(self.total_branches),
             measured_files=frozenset(self.measured_files),
+            import_graph=self.import_graph.to_import_graph(),
             unattributable_branches=frozenset(self.unattributable_branches),
         )

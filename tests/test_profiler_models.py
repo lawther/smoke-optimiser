@@ -5,6 +5,7 @@ import pytest
 from pydantic import ValidationError
 
 from smoke_optimiser.profiler.models import (
+    ImportEdge,
     ProfilingData,
     ProfilingDataFile,
     ProfilingOutcome,
@@ -46,6 +47,7 @@ def test_profiling_data_roundtrip() -> None:
                 "ram_available_mb": 58200,
                 "hostname": "ci-04",
             },
+            "xdist_workers": 1,
         },
         "tests": {
             "test_a": {
@@ -59,6 +61,12 @@ def test_profiling_data_roundtrip() -> None:
         },
         "total_branches": ["file.py:10", "file.py:11"],
         "measured_files": ["file.py", "other.py"],
+        "import_graph": {
+            "edges": [{"importer": "tests/test_app.py", "imported": "file.py"}],
+            "unattributed_modules": ["tests/test_app.py"],
+            "resolution_errors": 0,
+            "error_samples": [],
+        },
     }
 
     model = ProfilingDataFile(**cast("Any", raw_data))
@@ -68,6 +76,8 @@ def test_profiling_data_roundtrip() -> None:
     assert data.meta.timestamp == datetime(2026, 3, 2, 10, 30, 0, tzinfo=UTC)
     assert data.meta.machine.os == "Linux"
     assert data.tests["test_a"].test_id == "test_a"
+    assert data.import_graph.edges == frozenset({ImportEdge(importer="tests/test_app.py", imported="file.py")})
+    assert data.import_graph.unattributed_modules == frozenset({"tests/test_app.py"})
     assert data.total_branches == frozenset(["file.py:10", "file.py:11"])
     assert data.tests["test_a"].files_covered == frozenset(["file.py"])
     assert data.measured_files == frozenset(["file.py", "other.py"])

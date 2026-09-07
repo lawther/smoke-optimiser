@@ -17,7 +17,7 @@ from smoke_optimiser.profiler.coverage_db import (
     build_profiling_data,
     read_coverage_db,
 )
-from smoke_optimiser.profiler.models import SuiteRunResults
+from smoke_optimiser.profiler.models import ImportGraph, SuiteRunResults
 
 TEST_POS = "tests/test_app.py::test_pos"
 TEST_NEG = "tests/test_app.py::test_neg"
@@ -235,12 +235,14 @@ def test_missing_source_fails_loudly(tmp_path: Path) -> None:
         read_coverage_db(db_path, tmp_path, _durations())
 
 
-def test_build_profiling_data_carries_outcomes_and_markers(tmp_path: Path) -> None:
+def test_build_profiling_data_carries_outcomes_and_markers(tmp_path: Path, empty_graph: ImportGraph) -> None:
     db_path = _standard_db(tmp_path)
     results = SuiteRunResults(
         durations=_durations(),
         outcomes={TEST_POS: True, TEST_NEG: False},
         markers={TEST_POS: frozenset(["unit"]), TEST_NEG: frozenset()},
+        xdist_workers=1,
+        import_graph=empty_graph,
     )
 
     data = build_profiling_data(db_path, tmp_path, results)
@@ -257,7 +259,7 @@ def test_build_profiling_data_carries_outcomes_and_markers(tmp_path: Path) -> No
     assert data.meta.coverage_version != "unknown"
 
 
-def test_a_test_with_no_recorded_coverage_still_appears(tmp_path: Path) -> None:
+def test_a_test_with_no_recorded_coverage_still_appears(tmp_path: Path, empty_graph: ImportGraph) -> None:
     app = _write_app(tmp_path)
     db_path = tmp_path / ".coverage"
     _write_db(db_path, {f"{TEST_POS}|run": {str(app): {(2, 3)}}})
@@ -265,6 +267,8 @@ def test_a_test_with_no_recorded_coverage_still_appears(tmp_path: Path) -> None:
         durations={TEST_POS: 0.1, TEST_NEG: 0.2},
         outcomes={TEST_POS: True, TEST_NEG: True},
         markers={},
+        xdist_workers=1,
+        import_graph=empty_graph,
     )
 
     data = build_profiling_data(db_path, tmp_path, results)

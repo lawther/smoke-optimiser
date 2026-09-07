@@ -7,7 +7,10 @@ import pytest
 import typer
 from typer.testing import CliRunner
 
-from smoke_optimiser.cli import _load_profiling_data, app
+from smoke_optimiser.cli import _load_profiling_data, _reject_parallel_durations, app
+from smoke_optimiser.config import OperationMode, ResolvedConfig
+from smoke_optimiser.environment import MachineEnvironment
+from smoke_optimiser.profiler.models import ImportGraph, ProfilingData, ProfilingMeta
 
 runner = CliRunner()
 
@@ -37,7 +40,7 @@ def test_cli_defaults(
     mock_optimise: MagicMock,
     mock_run: MagicMock,
 ) -> None:
-    mock_run.return_value = MagicMock(tests={}, total_branches=frozenset(), meta=MagicMock())
+    mock_run.return_value = MagicMock(tests={}, total_branches=frozenset(), meta=MagicMock(xdist_workers=1))
     mock_optimise.return_value = MagicMock()
     mock_format.return_value = "Summary"
 
@@ -54,7 +57,7 @@ def test_cli_overrides(
     mock_optimise: MagicMock,
     mock_run: MagicMock,
 ) -> None:
-    mock_run.return_value = MagicMock(tests={}, total_branches=frozenset(), meta=MagicMock())
+    mock_run.return_value = MagicMock(tests={}, total_branches=frozenset(), meta=MagicMock(xdist_workers=1))
     mock_optimise.return_value = MagicMock()
     mock_format.return_value = "Summary"
 
@@ -113,7 +116,7 @@ def test_cli_include_exclude(
     mock_optimise: MagicMock,
     mock_run: MagicMock,
 ) -> None:
-    mock_run.return_value = MagicMock(tests={}, total_branches=frozenset(), meta=MagicMock())
+    mock_run.return_value = MagicMock(tests={}, total_branches=frozenset(), meta=MagicMock(xdist_workers=1))
     mock_optimise.return_value = MagicMock()
     mock_format.return_value = "Summary"
 
@@ -133,3 +136,81 @@ def test_a_profile_from_an_older_version_reports_an_error_not_a_traceback(tmp_pa
 
     with pytest.raises(typer.Exit):
         _load_profiling_data(profile)
+
+
+def _profile_recorded_with(workers: int) -> ProfilingData:
+    """A minimal profile that claims to have been recorded with `workers` xdist workers."""
+    meta = ProfilingMeta(
+        timestamp=datetime(2026, 3, 2, 10, 30, 0, tzinfo=UTC),
+        commit=None,
+        python_version="3.12",
+        coverage_version="7.0",
+        command="smoke-optimiser",
+        machine=MachineEnvironment(
+            os=None,
+            os_version=None,
+            platform=None,
+            architecture=None,
+            cpu_model=None,
+            cpu_cores_physical=None,
+            cpu_cores_logical=None,
+            ram_total_mb=None,
+            ram_available_mb=None,
+            hostname=None,
+        ),
+        xdist_workers=workers,
+    )
+    return ProfilingData(
+        meta=meta,
+        tests={},
+        total_branches=frozenset(),
+        measured_files=frozenset(),
+        import_graph=ImportGraph(
+            edges=frozenset(),
+            unattributed_modules=frozenset(),
+            resolution_errors=0,
+            error_samples=(),
+        ),
+    )
+
+
+def _default_config(*, allow_parallel_durations: bool) -> ResolvedConfig:
+    return ResolvedConfig(
+        mode=OperationMode.FULL,
+        time_cap=15.0,
+        target_cov=100.0,
+        include_mandatory=[],
+        exclude_mandatory=[],
+        pytest_args="",
+        output_json=Path(".smoke_suite.json"),
+        allow_ordered=True,
+        cov_source=".",
+        iterations=1,
+        allow_parallel_durations=allow_parallel_durations,
+    )
+
+
+def test_ranking_a_parallel_profile_is_refused() -> None:
+    """Contended durations make a coverage-per-second ranking wrong but plausible.
+
+    Nothing about the resulting smoke suite would look unusual, which is why this
+    is an error rather than a warning the user can scroll past.
+    """
+    config = _default_config(allow_parallel_durations=False)
+
+    with pytest.raises(typer.Exit) as exc_info:
+        _reject_parallel_durations(config, _profile_recorded_with(8))
+
+    assert exc_info.value.exit_code == EXIT_CODE_ERROR
+
+
+def test_ranking_a_parallel_profile_is_allowed_with_the_override() -> None:
+    config = _default_config(allow_parallel_durations=True)
+
+    _reject_parallel_durations(config, _profile_recorded_with(8))
+
+
+def test_a_serial_profile_is_ranked_without_complaint() -> None:
+    config = _default_config(allow_parallel_durations=False)
+
+    _reject_parallel_durations(config, _profile_recorded_with(1))
