@@ -248,8 +248,10 @@ def test_the_profiling_hook_gives_each_xdist_worker_its_own_file(tmp_path: Path)
         }
         with patch.dict(os.environ, env, clear=False):
             # This test's own process may be a profiling run, whose graph file the
-            # exec'd hook would otherwise write into.
+            # exec'd hook would otherwise write into and whose project root the scope
+            # would otherwise be resolved against.
             os.environ.pop("SMOKE_IMPORT_GRAPH_JSON", None)
+            os.environ.pop("SMOKE_PROJECT_ROOT", None)
             namespace["pytest_unconfigure"](config)
 
     iteration = _read_iteration_outcomes(outcomes_json)
