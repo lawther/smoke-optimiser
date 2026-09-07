@@ -1,27 +1,33 @@
-import json
+"""The two selection modes, as two commands.
+
+``smoke`` is the coverage-per-second path: profile the suite, then pick the
+highest-value subset that fits a time cap. ``downwind`` is the categorical
+one: given what changed, run every test the profile says those changes can
+reach. They are separate commands because they answer different questions
+from the same profile, and almost none of the options of one mean anything
+to the other.
+"""
+
 from pathlib import Path
 from typing import Annotated
 
 import typer
 from pydantic import ValidationError
 
-from smoke_optimiser.config import FileConfig, OperationMode, ResolvedConfig, load_file_config, resolve_config
+from smoke_optimiser.config import (
+    DownwindConfig,
+    FileConfig,
+    OperationMode,
+    ResolvedConfig,
+    load_file_config,
+    resolve_config,
+    resolve_downwind_config,
+)
+from smoke_optimiser.downwind.command import run_downwind
 from smoke_optimiser.optimiser.filters import apply_filters
 from smoke_optimiser.optimiser.greedy import optimise
-from smoke_optimiser.profiler.models import (
-    PROFILE_SCHEMA_VERSION,
-    ImportEdgeModel,
-    ImportGraphModel,
-    MachineModel,
-    ProfileSchemaMismatchError,
-    ProfileScopeMissingError,
-    ProfileScopeModel,
-    ProfilingData,
-    ProfilingDataFile,
-    ProfilingMetaModel,
-    ProfilingOutcomeModel,
-    load_profiling_data_file,
-)
+from smoke_optimiser.profiler.models import ProfilingData
+from smoke_optimiser.profiler.persistence import load_profile, save_profile
 from smoke_optimiser.profiler.runner import run_profiling
 from smoke_optimiser.reports.smoke_suite import write_smoke_suite
 from smoke_optimiser.reports.summary import format_summary
@@ -42,69 +48,9 @@ def _split_comma_list(items: list[str] | None) -> list[str]:
     return result
 
 
-def _save_profiling_data(profiling_data: ProfilingData, intermediate_file: Path) -> None:
-    """Save profiling data to an intermediate JSON file."""
-    # Save intermediate data
-    machine = profiling_data.meta.machine
-    machine_model = MachineModel(
-        os=machine.os,
-        os_version=machine.os_version,
-        platform=machine.platform,
-        architecture=machine.architecture,
-        cpu_model=machine.cpu_model,
-        cpu_cores_physical=machine.cpu_cores_physical,
-        cpu_cores_logical=machine.cpu_cores_logical,
-        ram_total_mb=machine.ram_total_mb,
-        ram_available_mb=machine.ram_available_mb,
-        hostname=machine.hostname,
-    )
-    meta_model = ProfilingMetaModel(
-        timestamp=profiling_data.meta.timestamp,
-        commit=profiling_data.meta.commit,
-        python_version=profiling_data.meta.python_version,
-        coverage_version=profiling_data.meta.coverage_version,
-        command=profiling_data.meta.command,
-        machine=machine_model,
-        xdist_workers=profiling_data.meta.xdist_workers,
-    )
-    test_models = {
-        tid: ProfilingOutcomeModel(
-            test_id=po.test_id,
-            duration_s=po.duration_s,
-            passed=po.passed,
-            branches_covered=list(po.branches_covered),
-            files_covered=list(po.files_covered),
-            markers=list(po.markers),
-        )
-        for tid, po in profiling_data.tests.items()
-    }
-    graph = profiling_data.import_graph
-    graph_model = ImportGraphModel(
-        edges=[ImportEdgeModel(importer=edge.importer, imported=edge.imported) for edge in sorted(graph.edges)],
-        unattributed_modules=sorted(graph.unattributed_modules),
-        resolution_errors=graph.resolution_errors,
-        error_samples=list(graph.error_samples),
-    )
-    file_data = ProfilingDataFile(
-        schema_version=PROFILE_SCHEMA_VERSION,
-        meta=meta_model,
-        tests=test_models,
-        total_branches=list(profiling_data.total_branches),
-        measured_files=list(profiling_data.measured_files),
-        import_graph=graph_model,
-        scope=ProfileScopeModel.from_profile_scope(profiling_data.scope),
-        unattributable_branches=list(profiling_data.unattributable_branches),
-    )
-    intermediate_file.unlink(missing_ok=True)
-    with intermediate_file.open("w") as f:
-        json.dump(file_data.model_dump(mode="json"), f)
-    typer.secho(f"💾 Profiling data saved to {intermediate_file}", fg=typer.colors.GREEN)
-
-
-def _load_profiling_data(intermediate_file: Path) -> ProfilingData:
-    """Load profiling data from an intermediate JSON file."""
-    # Try to load from intermediate file if it exists
-    if not intermediate_file.exists():
+def _load_profiling_data(profile_path: Path) -> ProfilingData:
+    """Load the profile the optimisation phase ranks, or explain its absence."""
+    if not profile_path.exists():
         typer.secho(
             "❌ Error: No profiling data found. Run without --optimise-only first.",
             fg=typer.colors.RED,
@@ -112,44 +58,15 @@ def _load_profiling_data(intermediate_file: Path) -> ProfilingData:
         )
         raise typer.Exit(code=1)
 
-    try:
-        with intermediate_file.open("rb") as f:
-            raw = json.load(f)
-    except (OSError, json.JSONDecodeError) as e:
-        typer.secho(
-            f"❌ Error: Failed to parse profiling data ({intermediate_file}): {e}",
-            fg=typer.colors.RED,
-            err=True,
-        )
-        raise typer.Exit(code=1) from None
+    return load_profile(profile_path)
 
-    try:
-        return load_profiling_data_file(raw).to_profiling_data()
-    except ProfileSchemaMismatchError as e:
-        typer.secho(
-            f"❌ Error: Profiling data ({intermediate_file}) has schema version {e.found!r}, but this build "
-            f"expects schema version {e.expected}. Re-run the profiling phase to regenerate it.",
-            fg=typer.colors.RED,
-            err=True,
-        )
-        raise typer.Exit(code=1) from None
-    except ProfileScopeMissingError as e:
-        typer.secho(
-            f"❌ Error: Profiling data ({intermediate_file}) is schema version {e.schema_version} but records "
-            "no scope roots, so it cannot tell whether it has gone stale. Re-run the profiling phase; if the "
-            "message persists, no coverage target or test path resolved inside the repository -- check --cov "
-            "and pytest's testpaths.",
-            fg=typer.colors.RED,
-            err=True,
-        )
-        raise typer.Exit(code=1) from None
-    except ValidationError as e:
-        typer.secho(
-            f"❌ Error: Failed to parse profiling data ({intermediate_file}): {e}",
-            fg=typer.colors.RED,
-            err=True,
-        )
-        raise typer.Exit(code=1) from None
+
+def _report_invalid_configuration(err: ValidationError) -> None:
+    """Name every rejected setting, since both commands read the same table."""
+    typer.secho("❌ Error: Invalid configuration in pyproject.toml", fg=typer.colors.RED, err=True)
+    for error in err.errors():
+        loc = ".".join(str(loc) for loc in error["loc"])
+        typer.secho(f"  - {loc}: {error['msg']}", fg=typer.colors.RED, err=True)
 
 
 def _validate_option_combinations(
@@ -255,7 +172,7 @@ def _optimise_and_report(config: ResolvedConfig, profiling_data: ProfilingData) 
 
 
 @app.command()
-def main(  # noqa: PLR0913 # special case for this function since Typer works this way
+def smoke(  # noqa: PLR0913 # special case for this function since Typer works this way
     *,
     profile_only: Annotated[
         bool,
@@ -315,8 +232,12 @@ def main(  # noqa: PLR0913 # special case for this function since Typer works th
             "were measured under contention.",
         ),
     ] = None,
+    profile_path: Annotated[
+        Path | None,
+        typer.Option("--profile-path", help="Path for the recorded profile, which downwind also reads."),
+    ] = None,
 ) -> None:
-    """smoke-optimiser: Identify a minimal, high-value smoke test suite."""
+    """Identify a minimal, high-value smoke test suite, and record the profile it came from."""
     _validate_option_combinations(
         profile_only=profile_only,
         optimise_only=optimise_only,
@@ -342,6 +263,7 @@ def main(  # noqa: PLR0913 # special case for this function since Typer works th
         "cov_source": src,
         "iterations": iterations,
         "allow_parallel_durations": allow_parallel_durations,
+        "profile_path": profile_path,
     }
 
     project_root = Path.cwd()
@@ -349,16 +271,13 @@ def main(  # noqa: PLR0913 # special case for this function since Typer works th
         file_config = load_file_config(project_root)
         config = resolve_config(file_config, cli_overrides, project_root)
     except ValidationError as err:
-        typer.secho("❌ Error: Invalid configuration in pyproject.toml", fg=typer.colors.RED, err=True)
-        for error in err.errors():
-            loc = ".".join(str(loc) for loc in error["loc"])
-            typer.secho(f"  - {loc}: {error['msg']}", fg=typer.colors.RED, err=True)
+        _report_invalid_configuration(err)
         raise typer.Exit(code=1) from None
 
     _warn_if_source_was_guessed(config, file_config, src, pytest_args)
 
     profiling_data = None
-    intermediate_file = project_root / ".smoke_profiling_data.json"
+    profile_file = project_root / config.profile_path
 
     # Phase 1: Profiling
     if config.mode != OperationMode.OPTIMISE_ONLY:
@@ -366,14 +285,47 @@ def main(  # noqa: PLR0913 # special case for this function since Typer works th
         profiling_data = run_profiling(config, project_root)
 
         if config.mode == OperationMode.PROFILE_ONLY:
-            _save_profiling_data(profiling_data, intermediate_file)
+            save_profile(profiling_data, profile_file)
 
     # Phase 2: Optimisation
     if config.mode != OperationMode.PROFILE_ONLY:
         if profiling_data is None:
-            profiling_data = _load_profiling_data(intermediate_file)
+            profiling_data = _load_profiling_data(profile_file)
 
         _optimise_and_report(config, profiling_data)
+
+
+@app.command()
+def downwind(
+    *,
+    profile_path: Annotated[
+        Path | None,
+        typer.Option("--profile-path", help="Path of the profile to select from."),
+    ] = None,
+    downwind_file_path: Annotated[
+        Path | None,
+        typer.Option("--downwind-file-path", help="Path for the downwind selection file."),
+    ] = None,
+    pytest_args: Annotated[
+        str | None,
+        typer.Option("--pytest-args", help="Extra arguments forwarded to the downwind pytest run."),
+    ] = None,
+) -> None:
+    """Run every test downwind of your working-tree changes, or the full suite when it cannot tell."""
+    cli_overrides = {
+        "profile_path": profile_path,
+        "downwind_file_path": downwind_file_path,
+        "downwind_pytest_args": pytest_args,
+    }
+
+    invocation_dir = Path.cwd()
+    try:
+        config: DownwindConfig = resolve_downwind_config(load_file_config(invocation_dir), cli_overrides)
+    except ValidationError as err:
+        _report_invalid_configuration(err)
+        raise typer.Exit(code=1) from None
+
+    raise typer.Exit(code=run_downwind(config, invocation_dir))
 
 
 if __name__ == "__main__":

@@ -34,6 +34,7 @@ def test_build_repro_command() -> None:
         cov_source="src",
         iterations=1,
         allow_parallel_durations=False,
+        profile_path=Path(".smoke_profiling_data.json"),
     )
     cmd = build_repro_command(config)
     assert "smoke-optimiser" in cmd
@@ -62,6 +63,7 @@ def test_build_repro_command_empty_lists() -> None:
         cov_source="src",
         iterations=1,
         allow_parallel_durations=False,
+        profile_path=Path(".smoke_profiling_data.json"),
     )
     cmd = build_repro_command(config)
     assert "--include=''" in cmd
@@ -78,7 +80,7 @@ def test_repro_command_completeness_against_help() -> None:
     runner = CliRunner()
     # Rich wraps the help table to the terminal width, and a wrapped option name is
     # scraped as a truncated one ("--allow-parallel-du"), so ask for a wide terminal.
-    result = runner.invoke(app, ["--help"], env={"COLUMNS": "200"})
+    result = runner.invoke(app, ["smoke", "--help"], env={"COLUMNS": "200"})
     assert result.exit_code == 0
 
     # 1. Find all options (lines starting with --)
@@ -110,6 +112,7 @@ def test_repro_command_completeness_against_help() -> None:
         cov_source=".",
         iterations=1,
         allow_parallel_durations=True,
+        profile_path=Path(".smoke_profiling_data.json"),
     )
     cmd = build_repro_command(config)
 
@@ -176,6 +179,7 @@ def test_smoke_suite_roundtrip(tmp_path: Path) -> None:
         cov_source=".",
         iterations=1,
         allow_parallel_durations=False,
+        profile_path=Path(".smoke_profiling_data.json"),
     )
     output_file = tmp_path / ".smoke_suite.json"
     write_smoke_suite(result, config, meta, output_file)
@@ -231,6 +235,7 @@ def test_format_summary() -> None:
         cov_source=".",
         iterations=1,
         allow_parallel_durations=False,
+        profile_path=Path(".smoke_profiling_data.json"),
     )
     summary = format_summary(result, config, meta)
     assert "smoke-optimiser results" in summary
@@ -289,6 +294,7 @@ def test_format_summary_reports_the_attainable_ceiling() -> None:
         cov_source=".",
         iterations=1,
         allow_parallel_durations=False,
+        profile_path=Path(".smoke_profiling_data.json"),
     )
 
     summary = format_summary(result, config, meta)

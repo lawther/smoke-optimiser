@@ -89,18 +89,33 @@ smoke_optimiser/
 ### 3.1 Package
 
 - Distributed as a pip-installable Python package: `pip install smoke-optimiser`.
-- Provides a CLI entry point: `smoke-optimiser` (or `python -m smoke_optimiser`).
-- Provides a pytest plugin registered via `entry_points` (`pytest11`), activated by `--smoke`.
+- Provides a CLI entry point: `smoke-optimiser` (or `python -m smoke_optimiser`), with two
+  subcommands: `smoke` for coverage-per-second selection and `downwind` for change-based
+  selection.
+- Provides a pytest plugin registered via `entry_points` (`pytest11`), activated by `--smoke` or
+  `--downwind`. The two are mutually exclusive: filtering to their intersection would keep
+  neither promise.
 
 ### 3.2 Operational Modes
 
-The CLI supports three execution modes:
+`smoke-optimiser smoke` supports three execution modes:
 
 | Mode | Flag | Behaviour |
 |---|---|---|
 | Full (default) | _(none)_ | Run profiling, then optimisation. One-shot. |
 | Profile only | `--profile-only` | Run the test suite under coverage instrumentation; produce intermediate data. |
 | Optimise only | `--optimise-only` | Read existing intermediate data; run the greedy algorithm and emit outputs. Fails if intermediate data is absent. |
+
+`smoke-optimiser downwind` has no modes. It reads the profile, collects the working-tree diff,
+applies the downwind rules, writes `.downwind.json` and runs pytest under `--downwind`, exiting
+with pytest's own exit code so it can gate a commit. It must run from the repository root, since
+that is the only place git's paths and the profile's are relative to the same thing.
+
+Two cases exit 0 without invoking pytest: a clean tree, and a change the profile says no test
+reaches. The second warns and names the files, because as well as being a real answer it can mean
+the profile is missing a route to the suite. A missing profile falls back to the full suite with
+the command to record one; a profile that exists and cannot be read is an error, since a slow run
+would hide it.
 
 ---
 
@@ -126,6 +141,9 @@ Configuration is resolved in this order (later wins):
 | `output_json` | `--output-json` | `path` | `./.smoke_suite.json` | Path for the smoke suite definition file. |
 | `allow_ordered` | `--allow-ordered` / `--no-allow-ordered` | `bool` | `false` | Suppress the warning/error when `pytest-randomly` is not installed. |
 | `allow_parallel_durations` | `--allow-parallel-durations` / `--no-allow-parallel-durations` | `bool` | `false` | Build a smoke suite from a profile recorded with `pytest-xdist`, whose durations were measured under contention. |
+| `profile_path` | `--profile-path` | `path` | `./.smoke_profiling_data.json` | Path for the recorded profile. Read by both subcommands, so they agree on one file. |
+| `downwind_file_path` | `--downwind-file-path` | `path` | `./.downwind.json` | Path for the downwind selection file. `downwind` only. |
+| `downwind_pytest_args` | `--pytest-args` | `str` | `""` | Extra arguments forwarded to the downwind pytest run. `downwind` only, and deliberately separate from `pytest_args`: the profiling run's coverage flags would otherwise instrument every commit. |
 | — | `--profile-only` | `flag` | `false` | Run only the profiling phase. |
 | — | `--optimise-only` | `flag` | `false` | Run only the optimisation phase. |
 | `smoke_file_path` | `--smoke-file-path` | `path` | `./.smoke_suite.json` | (pytest plugin) Location of the smoke suite file. |
@@ -376,7 +394,7 @@ Primary machine-readable output consumed by the pytest plugin.
   "version": 1,
   "generated_at": "2026-03-02T10:30:00Z",
   "generator_version": "0.1.0",
-  "repro_command": "smoke-optimiser --time-cap 15 --target-cov 80 --output-json .smoke_suite.json",
+  "repro_command": "smoke-optimiser smoke --time-cap 15 --target-cov 80 --output-json .smoke_suite.json",
   "machine": {
     "os": "Linux",
     "os_version": "6.5.0-44-generic",
@@ -448,7 +466,7 @@ Printed to the console after optimisation:
   Coverage:     9,960 / 12,450 branches (80.0%)
   Runtime:      14.8s (4.7% of full suite)
 
-  Repro:        smoke-optimiser --time-cap 15 --target-cov 80
+  Repro:        smoke-optimiser smoke --time-cap 15 --target-cov 80
                   --output-json .smoke_suite.json
 
   Saved to:     .smoke_suite.json
@@ -601,19 +619,23 @@ allow_ordered = false
 
 ```bash
 # Full run with defaults
-smoke-optimiser
+smoke-optimiser smoke
 
 # Profile only (eg on CI, save intermediate data for later)
-smoke-optimiser --profile-only
+smoke-optimiser smoke --profile-only
 
 # Optimise from existing profile data, custom targets
-smoke-optimiser --optimise-only --time-cap 10 --target-cov 90
+smoke-optimiser smoke --optimise-only --time-cap 10 --target-cov 90
 
 # Run the smoke suite via pytest
 pytest --smoke
 
 # Smoke suite file in a non-default location
 pytest --smoke --smoke-file-path=build/.smoke_suite.json
+
+# Run every test your working-tree changes can reach. Runs pytest itself, and
+# exits with pytest's exit code, so a precommit hook can call it directly.
+smoke-optimiser downwind
 ```
 
 ## Appendix C: Decision Log

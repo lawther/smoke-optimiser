@@ -5,7 +5,7 @@ from smoke_optimiser.config import OperationMode, ResolvedConfig
 
 def build_repro_command(config: ResolvedConfig) -> str:
     """Build a canonical CLI command that reproduces the current configuration."""
-    parts = ["smoke-optimiser"]
+    parts = ["smoke-optimiser", "smoke"]
 
     # Exception: profile/optimise only flags are only present if given
     if config.mode == OperationMode.PROFILE_ONLY:
@@ -40,6 +40,8 @@ def build_repro_command(config: ResolvedConfig) -> str:
     parts.append(f"--src={shlex.quote(src_val)}")
 
     parts.append(f"--iterations={config.iterations}")
+
+    parts.append(f"--profile-path={shlex.quote(str(config.profile_path))}")
 
     parts.append("--allow-parallel-durations" if config.allow_parallel_durations else "--no-allow-parallel-durations")
 

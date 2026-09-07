@@ -64,7 +64,7 @@ def _load_smoke_suite(config: pytest.Config) -> SmokeSuiteFile | None:
     if not path.exists():
         pytest.exit(
             f"smoke-optimiser: ❌ Error: smoke suite file not found: {path}\n"
-            "  Hint: Run `smoke-optimiser` first to generate it.",
+            "  Hint: Run `smoke-optimiser smoke` first to generate it.",
             returncode=1,
         )
 
@@ -101,7 +101,7 @@ def _load_downwind_suite(config: pytest.Config) -> DownwindSuiteFile | None:
     if not path.exists():
         pytest.exit(
             f"smoke-optimiser: ❌ Error: downwind selection file not found: {path}\n"
-            "  Hint: Run `smoke-optimiser --downwind` first to generate it.",
+            "  Hint: Run `smoke-optimiser downwind` first, which writes it and runs pytest itself.",
             returncode=1,
         )
 

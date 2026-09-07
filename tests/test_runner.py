@@ -34,6 +34,7 @@ def test_check_prerequisites_success() -> None:
         cov_source=".",
         iterations=1,
         allow_parallel_durations=False,
+        profile_path=Path(".smoke_profiling_data.json"),
     )
     with patch("shutil.which", return_value="/usr/bin/pytest"):
         check_prerequisites(config)
@@ -54,6 +55,7 @@ def test_run_profiling_basic(mock_ingest: MagicMock, mock_run: MagicMock, tmp_pa
         cov_source=".",
         iterations=1,
         allow_parallel_durations=False,
+        profile_path=Path(".smoke_profiling_data.json"),
     )
 
     mock_run.return_value = MagicMock(returncode=0, stdout="pytest-randomly")
@@ -102,6 +104,7 @@ def test_cov_report_in_pytest_args_does_not_suppress_the_cov_source(
         cov_source="smoke_optimiser",
         iterations=1,
         allow_parallel_durations=False,
+        profile_path=Path(".smoke_profiling_data.json"),
     )
 
     mock_run.return_value = MagicMock(returncode=0, stdout="")
@@ -129,6 +132,7 @@ def test_an_explicit_cov_source_is_left_alone(mock_ingest: MagicMock, mock_run: 
         cov_source="smoke_optimiser",
         iterations=1,
         allow_parallel_durations=False,
+        profile_path=Path(".smoke_profiling_data.json"),
     )
 
     mock_run.return_value = MagicMock(returncode=0, stdout="")
@@ -306,6 +310,7 @@ def test_an_outer_xdist_worker_does_not_leak_into_the_profiled_run(
         cov_source="smoke_optimiser",
         iterations=1,
         allow_parallel_durations=False,
+        profile_path=Path(".smoke_profiling_data.json"),
     )
     outer = {"PYTEST_XDIST_WORKER": "gw0", "PYTEST_XDIST_WORKER_COUNT": "4"}
 
@@ -344,6 +349,7 @@ def _profiling_config(iterations: int = 1) -> ResolvedConfig:
         cov_source=".",
         iterations=iterations,
         allow_parallel_durations=False,
+        profile_path=Path(".smoke_profiling_data.json"),
     )
 
 

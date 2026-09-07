@@ -8,6 +8,8 @@ from smoke_optimiser.downwind.changes import (
     ChangeKind,
     GitStatusError,
     changed_files,
+    repository_root,
+    tracked_files,
 )
 
 
@@ -166,3 +168,70 @@ def test_merge_conflict_is_modified(repo: Path) -> None:
     subprocess.run(["git", "merge", "other"], cwd=repo, check=False, capture_output=True, text=True)  # noqa: S607
 
     assert changed_files(repo) == frozenset({ChangedFile("f.py", ChangeKind.MODIFIED)})
+
+
+def test_repository_root_is_found_from_the_root_itself(repo: Path) -> None:
+    _commit(repo, "a.py", "one\n")
+
+    assert repository_root(repo).resolve() == repo.resolve()
+
+
+def test_repository_root_is_found_from_a_subdirectory(repo: Path) -> None:
+    """The query answers from anywhere, so the caller can compare rather than guess.
+
+    Downwind refuses to run outside the root, and it can only make that
+    comparison if this returns the root from wherever it was invoked.
+    """
+    _commit(repo, "pkg/a.py", "one\n")
+
+    assert repository_root(repo / "pkg").resolve() == repo.resolve()
+
+
+def test_repository_root_outside_a_repository_raises_with_what_git_said(tmp_path: Path) -> None:
+    """The three parts of the diagnostic must survive as fields, not as prose.
+
+    A caller renders them as a labelled block, so reconstructing them by
+    parsing our own message would be the alternative.
+    """
+    not_a_repo = tmp_path / "plain"
+    not_a_repo.mkdir()
+
+    with pytest.raises(GitStatusError) as raised:
+        repository_root(not_a_repo)
+
+    assert raised.value.command == "git rev-parse --show-toplevel"
+    assert raised.value.directory == not_a_repo
+    assert "not a git repository" in raised.value.detail
+
+
+def test_tracked_files_lists_the_committed_tree(repo: Path) -> None:
+    _commit(repo, "src/a.py", "one\n")
+    _commit(repo, "tests/test_a.py", "two\n")
+
+    assert tracked_files(repo) == frozenset({"src/a.py", "tests/test_a.py"})
+
+
+def test_tracked_files_excludes_untracked_and_ignored_files(repo: Path) -> None:
+    """Tracked only, which is what lets .gitignore do the excluding.
+
+    An untracked file is one just created, which the changed set already
+    reports and the rules answer with a better reason. Relying on .gitignore
+    is also what makes a scope root of the whole repository survivable: no
+    hand-rolled rules for .venv and friends, and so no second definition of
+    what counts as a project file.
+    """
+    _commit(repo, ".gitignore", "build/\n")
+    _commit(repo, "src/a.py", "one\n")
+    (repo / "src" / "brand_new.py").write_text("three\n")
+    (repo / "build").mkdir()
+    (repo / "build" / "generated.py").write_text("four\n")
+
+    assert tracked_files(repo) == frozenset({".gitignore", "src/a.py"})
+
+
+def test_tracked_files_outside_a_repository_raises(tmp_path: Path) -> None:
+    not_a_repo = tmp_path / "plain"
+    not_a_repo.mkdir()
+
+    with pytest.raises(GitStatusError):
+        tracked_files(not_a_repo)

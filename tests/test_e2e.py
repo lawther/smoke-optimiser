@@ -78,6 +78,7 @@ def test_setup_error(broken):
             sys.executable,
             "-m",
             "smoke_optimiser",
+            "smoke",
             "--allow-ordered",
         ],
         cwd=project_dir,
@@ -172,7 +173,7 @@ def _run_smoke_optimiser(project_dir: Path, *extra_args: str) -> subprocess.Comp
     env = os.environ.copy()
     env["PYTHONPATH"] = str(Path.cwd()) + os.pathsep + str(project_dir)
     return subprocess.run(  # noqa: S603 - the command is a literal plus this test's own arguments
-        [sys.executable, "-m", "smoke_optimiser", "--allow-ordered", "--src=src", *extra_args],
+        [sys.executable, "-m", "smoke_optimiser", "smoke", "--allow-ordered", "--src=src", *extra_args],
         cwd=project_dir,
         capture_output=True,
         text=True,

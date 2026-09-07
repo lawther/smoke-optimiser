@@ -4,6 +4,11 @@
 
 ### ⚠ BREAKING CHANGES
 
+* the CLI now has two subcommands rather than one bare command. The existing coverage-per-second
+  path moves from `smoke-optimiser <options>` to `smoke-optimiser smoke <options>`, with every
+  option unchanged, and the new change-based selection is `smoke-optimiser downwind`. Scripts,
+  precommit hooks and CI steps invoking the bare command must add `smoke`. The canonical repro
+  command that `--output-json` records names the subcommand too.
 * profiling data files now carry a required `schema_version` field. A profile written by an
   earlier version has no such field and will be rejected on load with a message naming the
   expected and found versions -- re-run the profiling phase to regenerate it.

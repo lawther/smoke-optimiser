@@ -30,6 +30,9 @@ class FileConfig(BaseModel):
     cov_source: str | None = Field(default=None)
     iterations: int = Field(default=1, ge=1)
     allow_parallel_durations: bool = Field(default=False)
+    profile_path: Path = Field(default=Path("./.smoke_profiling_data.json"))
+    downwind_file_path: Path = Field(default=Path("./.downwind.json"))
+    downwind_pytest_args: str = Field(default="")
 
 
 @dataclass(frozen=True)
@@ -47,6 +50,34 @@ class ResolvedConfig:
     cov_source: str
     iterations: int
     allow_parallel_durations: bool
+    profile_path: Path
+
+
+@dataclass(frozen=True)
+class DownwindConfig:
+    """Fully resolved configuration for the downwind command.
+
+    Separate from :class:`ResolvedConfig` rather than a mode of it: downwind
+    has no time cap, no coverage target and no coverage source to discover,
+    and giving it a ResolvedConfig would mean handing it a mode it does not
+    have and a cov_source it never reads. The two share the one
+    ``[tool.smoke_optimiser]`` table and the one precedence rule; only the
+    resolved shapes differ.
+
+    Attributes:
+        profile_path: Where the profile both commands agree on lives. Shared
+            with ResolvedConfig, since downwind reads exactly the file the
+            profiling phase writes.
+        downwind_file_path: Where the selection is written, and where the
+            pytest plugin is told to read it from.
+        pytest_args: Extra arguments for the selective run. Deliberately not
+            ResolvedConfig.pytest_args, which carries the profiling run's
+            coverage flags -- forwarding those would instrument every commit.
+    """
+
+    profile_path: Path
+    downwind_file_path: Path
+    pytest_args: str
 
 
 class ProjectMetadata(BaseModel):
@@ -116,17 +147,45 @@ def load_file_config(project_root: Path) -> FileConfig | None:
     return data.tool.smoke_optimiser
 
 
+def _apply_cli_overrides(file_config: FileConfig | None, cli_overrides: dict[str, Any]) -> FileConfig:
+    """Lay the CLI's stated settings over the file's, defaults underneath.
+
+    A value of None means "not passed", which is why every boolean flag is
+    declared as a pair: a plain False would be indistinguishable from silence
+    and would clobber the file on every run.
+
+    Returns a FileConfig rather than the merged dict, so each resolver below
+    reads named, typed attributes off it. Keys the model does not declare --
+    the mode selectors, which are not settings -- are dropped here rather
+    than in each resolver.
+    """
+    base = file_config or FileConfig()
+    stated = {
+        key: value for key, value in cli_overrides.items() if key in FileConfig.model_fields and value is not None
+    }
+    return base.model_copy(update=stated)
+
+
+def resolve_downwind_config(
+    file_config: FileConfig | None,
+    cli_overrides: dict[str, Any],
+) -> DownwindConfig:
+    """Merge defaults, file config and CLI overrides for the downwind command."""
+    resolved = _apply_cli_overrides(file_config, cli_overrides)
+    return DownwindConfig(
+        profile_path=resolved.profile_path,
+        downwind_file_path=resolved.downwind_file_path,
+        pytest_args=resolved.downwind_pytest_args,
+    )
+
+
 def resolve_config(
     file_config: FileConfig | None,
     cli_overrides: dict[str, Any],
     project_root: Path,
 ) -> ResolvedConfig:
     """Merge default config, file config, and CLI overrides into a final ResolvedConfig."""
-    # Start with defaults from FileConfig
-    base_config = file_config or FileConfig()
-
-    # Apply CLI overrides
-    config_dict = base_config.model_dump()
+    resolved = _apply_cli_overrides(file_config, cli_overrides)
 
     # Determine mode from CLI overrides first
     profile_only = cli_overrides.get("profile_only", False)
@@ -139,26 +198,22 @@ def resolve_config(
     else:
         mode = OperationMode.FULL
 
-    # Only override if CLI value is not None
-    for key, value in cli_overrides.items():
-        if key in config_dict and value is not None:
-            config_dict[key] = value
-
     # If cov_source is still None (not in file and not in CLI), discover it
-    cov_source = config_dict["cov_source"]
+    cov_source = resolved.cov_source
     if cov_source is None:
         cov_source = _discover_cov_target(project_root)
 
     return ResolvedConfig(
         mode=mode,
-        time_cap=config_dict["time_cap"],
-        target_cov=config_dict["target_cov"],
-        include_mandatory=config_dict["include_mandatory"],
-        exclude_mandatory=config_dict["exclude_mandatory"],
-        pytest_args=config_dict["pytest_args"],
-        output_json=Path(config_dict["output_json"]),
-        allow_ordered=config_dict["allow_ordered"],
+        time_cap=resolved.time_cap,
+        target_cov=resolved.target_cov,
+        include_mandatory=resolved.include_mandatory,
+        exclude_mandatory=resolved.exclude_mandatory,
+        pytest_args=resolved.pytest_args,
+        output_json=resolved.output_json,
+        allow_ordered=resolved.allow_ordered,
         cov_source=cov_source,
-        iterations=config_dict["iterations"],
-        allow_parallel_durations=config_dict["allow_parallel_durations"],
+        iterations=resolved.iterations,
+        allow_parallel_durations=resolved.allow_parallel_durations,
+        profile_path=resolved.profile_path,
     )

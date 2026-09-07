@@ -1,8 +1,18 @@
 # smoke-optimiser
 
-`smoke-optimiser` is a tool and pytest plugin that analyses your test suite to produce a minimal **smoke suite** — a subset of tests that delivers maximum code coverage in minimum wall-clock time.
+`smoke-optimiser` is a tool and pytest plugin that profiles your test suite once and then selects
+from it in two different ways.
 
-It helps you find the "bang for buck" sweet spot: for example, achieving 80% of your total branch coverage in only 5% of the total runtime.
+**`smoke-optimiser smoke`** produces a minimal **smoke suite** — a subset of tests that delivers
+maximum code coverage in minimum wall-clock time. It helps you find the "bang for buck" sweet
+spot: for example, achieving 80% of your total branch coverage in only 5% of the total runtime.
+It is a coverage bet: a fixed subset that makes no promise about what it skips.
+
+**`smoke-optimiser downwind`** selects on what you actually changed: given your working-tree diff,
+it runs every test the profile says those changes can reach — every test that has ever executed a
+file you touched, plus every test whose module transitively imports one. Where it cannot answer
+from the profile it says so and runs the whole suite. That promise is categorical rather than
+statistical, which is what makes it usable as a precommit gate.
 
 ## Installation
 
@@ -25,7 +35,7 @@ This will make the `smoke-optimiser` command available in your environment and r
 1. **Generate the smoke suite**:
    Run the optimiser in your project root. It will automatically detect your source code and profile your tests.
    ```bash
-   uv run smoke-optimiser
+   uv run smoke-optimiser smoke
    ```
 
 2. **Run the smoke suite**:
@@ -34,32 +44,42 @@ This will make the `smoke-optimiser` command available in your environment and r
    uv run pytest --smoke
    ```
 
+3. **Or run what your changes can reach**:
+   Record a profile, then select against your diff. `downwind` runs pytest itself, and exits with
+   pytest's own exit code, so it can gate a commit.
+   ```bash
+   uv run smoke-optimiser smoke --profile-only
+   uv run smoke-optimiser downwind
+   ```
+   It must be run from the repository root: git reports repo-relative paths and the profile's
+   paths are relative to where it was profiled from, so anywhere else the two stop agreeing.
+
 ## Common Usages
 
 ### Custom Efficiency Targets
 By default, the tool tries to get maximum coverage within a 15-second time cap. You can tighten these bounds:
 ```bash
 # Aim for 80% coverage, but stop if it takes longer than 5 seconds
-uv run smoke-optimiser --target-cov=80 --time-cap=5
+uv run smoke-optimiser smoke --target-cov=80 --time-cap=5
 ```
 
 ### Stabilising Timing Data
 Test execution times can vary. Use `--iterations` to run the suite multiple times and average the results for a more stable smoke suite:
 ```bash
-uv run smoke-optimiser --iterations=3
+uv run smoke-optimiser smoke --iterations=3
 ```
 
 ### Mandatory Inclusion/Exclusion
 Force certain tests (or markers) to be included or excluded from the smoke suite:
 ```bash
 # Always include authentication tests, but exclude anything marked as 'slow'
-uv run smoke-optimiser --include="tests/test_auth.py" --exclude="@pytest.mark.slow"
+uv run smoke-optimiser smoke --include="tests/test_auth.py" --exclude="@pytest.mark.slow"
 ```
 *Multiple items can be separated by commas.*
 
 ## Command-line Arguments
 
-### `smoke-optimiser` (Generator)
+### `smoke-optimiser smoke` (Generator)
 
 | Argument | Description | Default |
 | :--- | :--- | :--- |
@@ -75,6 +95,23 @@ uv run smoke-optimiser --include="tests/test_auth.py" --exclude="@pytest.mark.sl
 | `--optimise-only` | Run only the optimisation phase using existing profile data. | `False` |
 | `--allow-ordered` / `--no-allow-ordered` | Suppress warning when `pytest-randomly` is not installed. | `False` |
 | `--allow-parallel-durations` / `--no-allow-parallel-durations` | Rank a profile whose durations were recorded under `pytest-xdist` contention. | `False` |
+| `--profile-path` | Path for the recorded profile, which `downwind` also reads. | `.smoke_profiling_data.json` |
+
+### `smoke-optimiser downwind` (Change-based selection)
+
+| Argument | Description | Default |
+| :--- | :--- | :--- |
+| `--profile-path` | Path of the profile to select from. | `.smoke_profiling_data.json` |
+| `--downwind-file-path` | Path for the generated downwind selection file. | `.downwind.json` |
+| `--pytest-args` | Extra arguments forwarded to the downwind pytest run. Deliberately separate from the profiling run's, whose coverage flags would otherwise instrument every commit. | `""` |
+
+Its exit code is pytest's own, so a failing selected test fails the commit and a collection error
+never reads as a successful selective run. Two cases exit 0 without running pytest at all: a clean
+tree, and a change the profile says no test reaches — the latter with a warning naming the files,
+since it can also mean the profile is missing a route to the suite.
+
+With no profile at all it runs the full suite and prints the command to record one. A profile that
+exists but cannot be read is an error, not a silent full-suite run.
 
 ### `pytest` (Plugin)
 
@@ -82,6 +119,11 @@ uv run smoke-optimiser --include="tests/test_auth.py" --exclude="@pytest.mark.sl
 | :--- | :--- | :--- |
 | `--smoke` | Activates the plugin; filters collection to the smoke suite. | `False` |
 | `--smoke-file-path` | Path to the smoke suite JSON file to use. | `.smoke_suite.json` |
+| `--downwind` | Activates the plugin; filters collection to the downwind selection. | `False` |
+| `--downwind-file-path` | Path to the downwind selection JSON file to use. | `.downwind.json` |
+
+`--smoke` and `--downwind` cannot be used together: running both would select only the tests in
+both, which keeps neither promise.
 
 ## How it works
 

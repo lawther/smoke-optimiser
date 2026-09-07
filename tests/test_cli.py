@@ -7,10 +7,11 @@ import pytest
 import typer
 from typer.testing import CliRunner
 
-from smoke_optimiser.cli import _load_profiling_data, _reject_parallel_durations, app
+from smoke_optimiser.cli import _reject_parallel_durations, app
 from smoke_optimiser.config import OperationMode, ResolvedConfig
 from smoke_optimiser.environment import MachineEnvironment
 from smoke_optimiser.profiler.models import PROFILE_SCHEMA_VERSION, ImportGraph, ProfilingData, ProfilingMeta
+from smoke_optimiser.profiler.persistence import load_profile
 from smoke_optimiser.profiler.scope import ProfileScope
 from tests.conftest import RawProfileFactory
 
@@ -28,9 +29,20 @@ TARGET_COV_VALUE = 80.0
 @patch("smoke_optimiser.cli.write_smoke_suite", new=MagicMock())
 @patch("smoke_optimiser.cli.format_summary", new=MagicMock())
 def test_cli_help() -> None:
-    result = runner.invoke(app, ["--help"])
+    """Both selection modes must be reachable, and be named the way every message names them."""
+    result = runner.invoke(app, ["--help"], env={"COLUMNS": "200"})
     assert result.exit_code == EXIT_CODE_SUCCESS
-    assert "smoke-optimiser" in result.stdout
+    assert "smoke" in result.stdout
+    assert "downwind" in result.stdout
+
+    smoke_help = runner.invoke(app, ["smoke", "--help"], env={"COLUMNS": "200"})
+    assert smoke_help.exit_code == EXIT_CODE_SUCCESS
+    assert "--time-cap" in smoke_help.stdout
+
+    downwind_help = runner.invoke(app, ["downwind", "--help"], env={"COLUMNS": "200"})
+    assert downwind_help.exit_code == EXIT_CODE_SUCCESS
+    # The optimiser's options must not have leaked onto a command that cannot honour them.
+    assert "--time-cap" not in downwind_help.stdout
 
 
 @patch("smoke_optimiser.cli.run_profiling")
@@ -46,7 +58,7 @@ def test_cli_defaults(
     mock_optimise.return_value = MagicMock()
     mock_format.return_value = "Summary"
 
-    result = runner.invoke(app, [])
+    result = runner.invoke(app, ["smoke"])
     assert result.exit_code == EXIT_CODE_SUCCESS
 
 
@@ -63,7 +75,7 @@ def test_cli_overrides(
     mock_optimise.return_value = MagicMock()
     mock_format.return_value = "Summary"
 
-    result = runner.invoke(app, ["--time-cap", str(TIME_CAP_VALUE), "--target-cov", str(TARGET_COV_VALUE)])
+    result = runner.invoke(app, ["smoke", "--time-cap", str(TIME_CAP_VALUE), "--target-cov", str(TARGET_COV_VALUE)])
     assert result.exit_code == EXIT_CODE_SUCCESS
 
 
@@ -99,12 +111,12 @@ def test_cli_profile_only(
     )
 
     with patch("pathlib.Path.cwd", return_value=tmp_path):
-        result = runner.invoke(app, ["--profile-only"])
+        result = runner.invoke(app, ["smoke", "--profile-only"])
     assert result.exit_code == EXIT_CODE_SUCCESS
 
 
 def test_cli_mutually_exclusive() -> None:
-    result = runner.invoke(app, ["--profile-only", "--optimise-only"])
+    result = runner.invoke(app, ["smoke", "--profile-only", "--optimise-only"])
     assert result.exit_code == EXIT_CODE_ERROR
     assert "❌ Error: --profile-only and --optimise-only are mutually exclusive." in result.stderr
 
@@ -122,7 +134,7 @@ def test_cli_include_exclude(
     mock_optimise.return_value = MagicMock()
     mock_format.return_value = "Summary"
 
-    result = runner.invoke(app, ["--include", "test_a", "--include", "test_b", "--exclude", "test_c"])
+    result = runner.invoke(app, ["smoke", "--include", "test_a", "--include", "test_b", "--exclude", "test_c"])
     assert result.exit_code == EXIT_CODE_SUCCESS
 
 
@@ -143,7 +155,7 @@ def test_a_profile_with_a_current_schema_version_but_missing_fields_reports_a_co
     )
 
     with pytest.raises(typer.Exit):
-        _load_profiling_data(profile)
+        load_profile(profile)
 
     stderr = capsys.readouterr().err
     assert "Failed to parse profiling data" in stderr
@@ -164,7 +176,7 @@ def test_a_profile_from_an_older_schema_version_reports_a_distinct_error(
     profile.write_text(json.dumps({"schema_version": PROFILE_SCHEMA_VERSION - 1}))
 
     with pytest.raises(typer.Exit):
-        _load_profiling_data(profile)
+        load_profile(profile)
 
     stderr = capsys.readouterr().err
     assert str(PROFILE_SCHEMA_VERSION - 1) in stderr
@@ -190,7 +202,7 @@ def test_a_profile_recording_no_scope_reports_what_to_configure(
     profile.write_text(json.dumps(raw))
 
     with pytest.raises(typer.Exit):
-        _load_profiling_data(profile)
+        load_profile(profile)
 
     stderr = capsys.readouterr().err
     assert "no scope roots" in stderr
@@ -253,6 +265,7 @@ def _default_config(*, allow_parallel_durations: bool) -> ResolvedConfig:
         cov_source=".",
         iterations=1,
         allow_parallel_durations=allow_parallel_durations,
+        profile_path=Path(".smoke_profiling_data.json"),
     )
 
 
@@ -302,7 +315,7 @@ def test_a_boolean_set_in_pyproject_survives_a_run_that_does_not_mention_it(
     mock_run.return_value = MagicMock(tests={}, total_branches=frozenset(), meta=MagicMock(xdist_workers=1))
 
     with patch("pathlib.Path.cwd", return_value=tmp_path):
-        result = runner.invoke(app, [])
+        result = runner.invoke(app, ["smoke"])
 
     assert result.exit_code == EXIT_CODE_SUCCESS
     assert _resolved_config_from_a_run(mock_run).allow_ordered is True
@@ -321,7 +334,7 @@ def test_the_negative_form_of_a_flag_turns_off_a_setting_the_file_turned_on(
     mock_run.return_value = MagicMock(tests={}, total_branches=frozenset(), meta=MagicMock(xdist_workers=1))
 
     with patch("pathlib.Path.cwd", return_value=tmp_path):
-        result = runner.invoke(app, ["--no-allow-ordered"])
+        result = runner.invoke(app, ["smoke", "--no-allow-ordered"])
 
     assert result.exit_code == EXIT_CODE_SUCCESS
     assert _resolved_config_from_a_run(mock_run).allow_ordered is False

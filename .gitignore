@@ -19,3 +19,4 @@ _smoke_hook.py
 *.db
 .beads-credential-key
 .beads/proxieddb/
+.downwind.json

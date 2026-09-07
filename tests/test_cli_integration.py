@@ -24,7 +24,7 @@ def test_cli_full_run(
     mock_format.return_value = "Summary"
 
     with patch("pathlib.Path.cwd", return_value=tmp_path):
-        result = runner.invoke(app, [])
+        result = runner.invoke(app, ["smoke"])
 
     assert result.exit_code == 0
     assert "Running profiling..." in result.stdout
@@ -61,7 +61,7 @@ def test_cli_profile_only(mock_run: MagicMock, tmp_path: Path) -> None:
     )
 
     with patch("pathlib.Path.cwd", return_value=tmp_path):
-        result = runner.invoke(app, ["--profile-only"])
+        result = runner.invoke(app, ["smoke", "--profile-only"])
 
     assert result.exit_code == 0
     assert "Running profiling..." in result.stdout
@@ -71,7 +71,7 @@ def test_cli_profile_only(mock_run: MagicMock, tmp_path: Path) -> None:
 
 def test_cli_optimise_only_no_data(tmp_path: Path) -> None:
     with patch("pathlib.Path.cwd", return_value=tmp_path):
-        result = runner.invoke(app, ["--optimise-only"])
+        result = runner.invoke(app, ["smoke", "--optimise-only"])
 
     assert result.exit_code == 1
     assert "❌ Error: No profiling data found" in result.stderr
