@@ -172,3 +172,58 @@ def test_file_with_no_dependents_has_an_empty_but_known_closure() -> None:
 
     assert maps.knows("src/leaf.py")
     assert maps.dependents_of("src/leaf.py") == frozenset()
+
+
+def test_unattributed_file_is_known_but_distinguishable_from_an_attributed_one() -> None:
+    # The blind spot jr5.2 has to catch: conftest.py is known (knows() folds
+    # unattributed modules in on purpose) and its dependents closure is empty
+    # -- exactly like src/leaf.py, which really has no dependents. Only
+    # is_unattributed separates "the graph says nothing imports this" from
+    # "the graph never saw who imports this".
+    profile = _profile(
+        tests={},
+        measured_files=frozenset({"src/leaf.py"}),
+        edges=frozenset({ImportEdge(importer="tests/test_a.py", imported="src/leaf.py")}),
+        unattributed_modules=frozenset({"tests/test_a.py", "conftest.py"}),
+    )
+
+    maps = DownwindMaps.from_profile(profile)
+
+    assert maps.knows("conftest.py")
+    assert maps.dependents_of("conftest.py") == frozenset()
+    assert maps.is_unattributed("conftest.py")
+
+    assert maps.dependents_of("src/leaf.py") == frozenset({"tests/test_a.py"})
+    assert not maps.is_unattributed("src/leaf.py")
+
+
+def test_is_unattributed_raises_for_a_file_the_maps_never_saw() -> None:
+    # False would say "known, and the graph did attribute it", which is the
+    # conflation UnknownFileError exists to prevent.
+    profile = _profile(tests={}, measured_files=frozenset({"src/a.py"}))
+
+    maps = DownwindMaps.from_profile(profile)
+
+    with pytest.raises(UnknownFileError):
+        maps.is_unattributed("src/never_seen.py")
+
+
+_SWALLOWED_EDGES = 3
+
+
+def test_resolution_errors_survive_the_inversion_as_a_count() -> None:
+    # A degraded graph looks identical to a healthy one through the maps
+    # themselves -- the missing edges are missing. The count is the only
+    # evidence that src/a.py's empty closure might be wrong.
+    degraded = _profile(
+        tests={},
+        measured_files=frozenset({"src/a.py"}),
+        resolution_errors=_SWALLOWED_EDGES,
+    )
+    healthy = _profile(
+        tests={},
+        measured_files=frozenset({"src/a.py"}),
+    )
+
+    assert DownwindMaps.from_profile(degraded).resolution_errors == _SWALLOWED_EDGES
+    assert DownwindMaps.from_profile(healthy).resolution_errors == 0

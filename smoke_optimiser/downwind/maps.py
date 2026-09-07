@@ -25,6 +25,13 @@ between "known, but empty" and "never seen" -- the caller need not
 cross-reference a third set to tell them apart. Measured at the largest
 observed repo scale (271 files), that costs a few tens of kilobytes and a
 few microseconds of build time, once per profile.
+
+Two facts about the import graph's own trustworthiness ride along with the
+maps: which files the graph could not attribute an importer to, and how many
+edges it failed to record. Neither is a relation, but both qualify the
+answers the relations give, and the rules that read them read nothing else --
+so they live here rather than making the caller carry the raw profile
+alongside the maps and keep the two in step.
 """
 
 from __future__ import annotations
@@ -114,21 +121,28 @@ class DownwindMaps:
     Built by :meth:`from_profile`; query with :meth:`knows`,
     :meth:`tests_executing` and :meth:`dependents_of`. so-jr5.2's rules are
     the only intended caller -- this class answers "what does the profile
-    say", never "should this file force a full run".
+    say", never "should this file force a full run". :meth:`is_unattributed`
+    and :attr:`resolution_errors` keep to that split: they report where the
+    import graph is blind, and leave what to do about it to the rules.
     """
 
     _tests_by_file: dict[str, frozenset[str]]
     _dependents_by_file: dict[str, frozenset[str]]
     _known_files: frozenset[str]
+    _unattributed_modules: frozenset[str]
+    _resolution_errors: int
 
     @classmethod
     def from_profile(cls, profile: ProfilingData) -> DownwindMaps:
         """Build both maps from a loaded profile, once."""
         known_files = _known_files(profile)
+        graph = profile.import_graph
         return cls(
             _tests_by_file=_tests_by_file(profile, known_files),
             _dependents_by_file=_dependents_by_file(profile, known_files),
             _known_files=known_files,
+            _unattributed_modules=graph.unattributed_modules,
+            _resolution_errors=graph.resolution_errors,
         )
 
     def knows(self, path: str) -> bool:
@@ -152,3 +166,31 @@ class DownwindMaps:
         if path not in self._known_files:
             raise UnknownFileError(path)
         return self._dependents_by_file[path]
+
+    def is_unattributed(self, path: str) -> bool:
+        """Was ``path`` loaded without the tracer seeing anything import it?
+
+        True means :meth:`dependents_of` cannot answer for this file: an empty
+        closure is the graph being blind, not the file being a leaf. Test
+        modules and conftest files are the legitimate case, and :meth:`knows`
+        deliberately folds them in so they count as known -- which is exactly
+        why telling the two apart needs its own query.
+
+        Raises :class:`UnknownFileError` if ``knows(path)`` is false, for the
+        same reason the map lookups do: answering False for a file never seen
+        would conflate it with a file the graph did attribute.
+        """
+        if path not in self._known_files:
+            raise UnknownFileError(path)
+        return path in self._unattributed_modules
+
+    @property
+    def resolution_errors(self) -> int:
+        """How many import edges the tracer failed to record and swallowed.
+
+        Each one is a MISSING edge of unknown identity, so any non-zero count
+        makes every closure :meth:`dependents_of` returns a possible
+        under-estimate. The count, not merely the fact, so a refusal can say
+        how incomplete the graph is.
+        """
+        return self._resolution_errors
