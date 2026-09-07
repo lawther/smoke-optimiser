@@ -5,10 +5,13 @@ import pytest
 from pydantic import ValidationError
 
 from smoke_optimiser.profiler.models import (
+    PROFILE_SCHEMA_VERSION,
     ImportEdge,
+    ProfileSchemaMismatchError,
     ProfilingData,
     ProfilingDataFile,
     ProfilingOutcome,
+    load_profiling_data_file,
 )
 
 
@@ -29,6 +32,7 @@ def test_profiling_outcome_construction() -> None:
 
 def test_profiling_data_roundtrip() -> None:
     raw_data = {
+        "schema_version": PROFILE_SCHEMA_VERSION,
         "meta": {
             "timestamp": "2026-03-02T10:30:00Z",
             "commit": "abcdef",
@@ -123,3 +127,45 @@ def test_profiling_data_validation_error() -> None:
     with pytest.raises(ValidationError):
         # Use cast(Any, ...) to avoid ty's type check for intentionally invalid inputs
         ProfilingDataFile(**cast("Any", {"meta": {}, "tests": {}, "total_branches": []}))
+
+
+def test_schema_version_has_no_default() -> None:
+    """A pre-versioning profile must fail to validate, not silently read as current.
+
+    Copying .smoke_suite.json's `version: int = 1` default would make a file
+    with no version field validate as version 1, defeating the point of
+    adding the field.
+    """
+    with pytest.raises(ValidationError) as exc_info:
+        # Use cast(Any, ...) to avoid ty's type check for intentionally invalid inputs
+        ProfilingDataFile(**cast("Any", {"meta": {}, "tests": {}, "total_branches": []}))
+
+    assert "schema_version" in str(exc_info.value)
+
+
+def test_load_profiling_data_file_rejects_a_schema_version_mismatch_before_pydantic_runs() -> None:
+    """A stale schema_version must be reported as a mismatch, not a ValidationError.
+
+    Distinguishing the two is the entire point of load_profiling_data_file:
+    an old profile can also be missing fields Pydantic would report, but the
+    fix for both is the same ("reprofile"), and the mismatch is the more
+    accurate diagnosis.
+    """
+    raw = {"schema_version": PROFILE_SCHEMA_VERSION - 1, "meta": {}, "tests": {}, "total_branches": []}
+
+    with pytest.raises(ProfileSchemaMismatchError) as exc_info:
+        load_profiling_data_file(cast("Any", raw))
+
+    assert exc_info.value.found == PROFILE_SCHEMA_VERSION - 1
+    assert exc_info.value.expected == PROFILE_SCHEMA_VERSION
+
+
+def test_load_profiling_data_file_reports_a_missing_schema_version_as_a_mismatch() -> None:
+    """A profile predating the field entirely must also raise ProfileSchemaMismatchError, not ValidationError."""
+    raw = {"meta": {}, "tests": {}, "total_branches": []}
+
+    with pytest.raises(ProfileSchemaMismatchError) as exc_info:
+        load_profiling_data_file(cast("Any", raw))
+
+    assert exc_info.value.found is None
+    assert exc_info.value.expected == PROFILE_SCHEMA_VERSION

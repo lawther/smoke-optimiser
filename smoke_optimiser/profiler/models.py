@@ -1,10 +1,20 @@
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
 from pydantic import BaseModel, Field
 
 from smoke_optimiser.environment import MachineEnvironment
+
+PROFILE_SCHEMA_VERSION = 1
+"""Schema version this build writes to a profiling data file.
+
+Bumped whenever ProfilingDataFile's shape changes in a way that makes an
+older profile unreadable. A profile is a cache one instrumented run
+rebuilds, so there is no migration path -- a mismatch just tells the user
+to reprofile.
+"""
 
 
 @dataclass(frozen=True)
@@ -210,8 +220,16 @@ class ProfilingMetaModel(BaseModel):
 
 
 class ProfilingDataFile(BaseModel):
-    """Pydantic model for validating profiling data from JSON."""
+    """Pydantic model for validating profiling data from JSON.
 
+    schema_version is required with no default: a pre-versioning profile
+    must fail to validate rather than silently be read as the current
+    schema. Check it with load_profiling_data_file before constructing this
+    model directly, so a schema mismatch can be reported distinctly from a
+    corrupt or unreadable file.
+    """
+
+    schema_version: int
     meta: ProfilingMetaModel
     tests: dict[str, ProfilingOutcomeModel]
     total_branches: list[str]
@@ -253,3 +271,31 @@ class ProfilingDataFile(BaseModel):
             import_graph=self.import_graph.to_import_graph(),
             unattributable_branches=frozenset(self.unattributable_branches),
         )
+
+
+class ProfileSchemaMismatchError(Exception):
+    """A profile's schema_version does not match what this build writes.
+
+    Raised before Pydantic validation runs, so it can be reported to the
+    user distinctly from a corrupt or otherwise unreadable file: a schema
+    mismatch has one fix (reprofile), while a ValidationError could mean
+    anything.
+    """
+
+    def __init__(self, found: int | None, expected: int) -> None:
+        self.found = found
+        self.expected = expected
+        super().__init__(f"profile schema version {found!r} does not match expected {expected!r}")
+
+
+def load_profiling_data_file(raw: Mapping[str, Any]) -> ProfilingDataFile:
+    """Validate a raw profiling-data mapping into a ProfilingDataFile.
+
+    Checks schema_version before handing off to Pydantic: an old-schema
+    profile can fail ProfilingDataFile's field checks in ways that look
+    identical to genuine corruption, and the two need different messages.
+    """
+    found = raw.get("schema_version")
+    if found != PROFILE_SCHEMA_VERSION:
+        raise ProfileSchemaMismatchError(found=found, expected=PROFILE_SCHEMA_VERSION)
+    return ProfilingDataFile(**raw)

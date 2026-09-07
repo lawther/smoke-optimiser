@@ -9,13 +9,16 @@ from smoke_optimiser.config import FileConfig, OperationMode, ResolvedConfig, lo
 from smoke_optimiser.optimiser.filters import apply_filters
 from smoke_optimiser.optimiser.greedy import optimise
 from smoke_optimiser.profiler.models import (
+    PROFILE_SCHEMA_VERSION,
     ImportEdgeModel,
     ImportGraphModel,
     MachineModel,
+    ProfileSchemaMismatchError,
     ProfilingData,
     ProfilingDataFile,
     ProfilingMetaModel,
     ProfilingOutcomeModel,
+    load_profiling_data_file,
 )
 from smoke_optimiser.profiler.runner import run_profiling
 from smoke_optimiser.reports.smoke_suite import write_smoke_suite
@@ -81,6 +84,7 @@ def _save_profiling_data(profiling_data: ProfilingData, intermediate_file: Path)
         error_samples=list(graph.error_samples),
     )
     file_data = ProfilingDataFile(
+        schema_version=PROFILE_SCHEMA_VERSION,
         meta=meta_model,
         tests=test_models,
         total_branches=list(profiling_data.total_branches),
@@ -108,11 +112,27 @@ def _load_profiling_data(intermediate_file: Path) -> ProfilingData:
     try:
         with intermediate_file.open("rb") as f:
             raw = json.load(f)
-            return ProfilingDataFile(**raw).to_profiling_data()
-    except (OSError, json.JSONDecodeError, ValidationError) as e:
+    except (OSError, json.JSONDecodeError) as e:
         typer.secho(
-            f"❌ Error: Failed to parse profiling data ({intermediate_file}): {e}\n"
-            "If this profile was recorded by an older version, re-run the profiling phase to regenerate it.",
+            f"❌ Error: Failed to parse profiling data ({intermediate_file}): {e}",
+            fg=typer.colors.RED,
+            err=True,
+        )
+        raise typer.Exit(code=1) from None
+
+    try:
+        return load_profiling_data_file(raw).to_profiling_data()
+    except ProfileSchemaMismatchError as e:
+        typer.secho(
+            f"❌ Error: Profiling data ({intermediate_file}) has schema version {e.found!r}, but this build "
+            f"expects schema version {e.expected}. Re-run the profiling phase to regenerate it.",
+            fg=typer.colors.RED,
+            err=True,
+        )
+        raise typer.Exit(code=1) from None
+    except ValidationError as e:
+        typer.secho(
+            f"❌ Error: Failed to parse profiling data ({intermediate_file}): {e}",
             fg=typer.colors.RED,
             err=True,
         )

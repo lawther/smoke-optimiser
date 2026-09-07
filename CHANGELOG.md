@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### ⚠ BREAKING CHANGES
+
+* profiling data files now carry a required `schema_version` field. A profile written by an
+  earlier version has no such field and will be rejected on load with a message naming the
+  expected and found versions -- re-run the profiling phase to regenerate it.
+
 ## [0.2.0](https://github.com/lawther/smoke-optimiser/compare/v0.1.0...v0.2.0) (2026-04-30)
 
 

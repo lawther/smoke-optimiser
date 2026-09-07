@@ -10,7 +10,7 @@ from typer.testing import CliRunner
 from smoke_optimiser.cli import _load_profiling_data, _reject_parallel_durations, app
 from smoke_optimiser.config import OperationMode, ResolvedConfig
 from smoke_optimiser.environment import MachineEnvironment
-from smoke_optimiser.profiler.models import ImportGraph, ProfilingData, ProfilingMeta
+from smoke_optimiser.profiler.models import PROFILE_SCHEMA_VERSION, ImportGraph, ProfilingData, ProfilingMeta
 
 runner = CliRunner()
 
@@ -124,18 +124,51 @@ def test_cli_include_exclude(
     assert result.exit_code == EXIT_CODE_SUCCESS
 
 
-def test_a_profile_from_an_older_version_reports_an_error_not_a_traceback(tmp_path: Path) -> None:
-    """A profile missing fields added later must fail as a clean CLI error.
+def test_a_profile_with_a_current_schema_version_but_missing_fields_reports_a_corrupt_file_error(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A profile with the right schema_version but missing later-added fields must fail as a clean CLI error.
 
     ProfilingDataFile raises pydantic's ValidationError, which is neither an
     OSError nor a JSONDecodeError -- so before this was handled it escaped as
-    a raw traceback for every profile written by an earlier version.
+    a raw traceback. This must read as "failed to parse", not as a schema
+    version mismatch, since the schema_version here is correct.
     """
     profile = tmp_path / "profile.json"
-    profile.write_text(json.dumps({"meta": {}, "tests": {}, "total_branches": []}))
+    profile.write_text(
+        json.dumps({"schema_version": PROFILE_SCHEMA_VERSION, "meta": {}, "tests": {}, "total_branches": []})
+    )
 
     with pytest.raises(typer.Exit):
         _load_profiling_data(profile)
+
+    stderr = capsys.readouterr().err
+    assert "Failed to parse profiling data" in stderr
+    assert "schema version" not in stderr
+
+
+def test_a_profile_from_an_older_schema_version_reports_a_distinct_error(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A stale schema_version must be reported as a version mismatch, not a generic parse failure.
+
+    cli.py used to guess ('if this profile was recorded by an older version...') because it had
+    no way to tell an old profile from a corrupt one. The recorded schema_version removes the guess,
+    and the message must name both the found and expected versions.
+    """
+    profile = tmp_path / "profile.json"
+    profile.write_text(json.dumps({"schema_version": PROFILE_SCHEMA_VERSION - 1}))
+
+    with pytest.raises(typer.Exit):
+        _load_profiling_data(profile)
+
+    stderr = capsys.readouterr().err
+    assert str(PROFILE_SCHEMA_VERSION - 1) in stderr
+    assert str(PROFILE_SCHEMA_VERSION) in stderr
+    assert "reprofile" in stderr.lower() or "profiling phase" in stderr.lower()
+    assert "Failed to parse profiling data" not in stderr
 
 
 def _profile_recorded_with(workers: int) -> ProfilingData:
