@@ -142,8 +142,9 @@ rendered as "<file>: <clause>".
 def _describe(blind_spot: BlindSpot) -> str:
     """One blind spot as a line, naming the input it could not answer for."""
     if blind_spot.reason is BlindSpotReason.RESOLUTION_ERRORS:
+        plural = "" if blind_spot.resolution_errors == 1 else "s"
         return (
-            f"the import graph is missing {blind_spot.resolution_errors} edges the tracer could not "
+            f"the import graph is missing {blind_spot.resolution_errors} edge{plural} the tracer could not "
             "record, so every closure it reports may be short"
         )
     return f"{blind_spot.file}: {_EXPLANATIONS[blind_spot.reason]}"
@@ -152,7 +153,8 @@ def _describe(blind_spot: BlindSpot) -> str:
 def _report_refusal(selection: _Selection, config: DownwindConfig) -> None:
     """Print the blind spots, in the one order they are ever rendered in."""
     typer.secho(
-        f"⚠️ Could not answer for {len(selection.changed)} changed files, so the full suite runs:",
+        f"⚠️ {len(selection.blind_spots)} blind spots across {len(selection.changed)} changed files, "
+        "so the full suite runs:",
         fg=typer.colors.YELLOW,
         err=True,
     )

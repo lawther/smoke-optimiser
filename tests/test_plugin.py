@@ -414,7 +414,7 @@ def test_plugin_downwind_report_header_blind_spot(
     monkeypatch.setenv("PYTHONPATH", str(Path.cwd()))
     result = pytester.runpytest_subprocess("--downwind", f"--downwind-file-path={suite_file}")
     result.stdout.fnmatch_lines(
-        ["*smoke-optimiser: downwind selection from *downwind.json* could not answer for*running full suite*"],
+        ["*smoke-optimiser: downwind selection from *downwind.json* hit 1 blind spots across*running full suite*"],
     )
     result.stdout.no_fnmatch_line("*coverage*")
 

@@ -240,8 +240,9 @@ def pytest_report_header(config: pytest.Config) -> list[str]:
             if downwind.blind_spots:
                 reasons = ", ".join(_describe_blind_spot(b) for b in downwind.blind_spots)
                 lines.append(
-                    f"smoke-optimiser: downwind selection from {path} could not answer for "
-                    f"{changed} changed files, running full suite ({reasons})",
+                    f"smoke-optimiser: downwind selection from {path} hit "
+                    f"{len(downwind.blind_spots)} blind spots across {changed} changed files, "
+                    f"running full suite ({reasons})",
                 )
             else:
                 count = len(downwind.node_ids)
