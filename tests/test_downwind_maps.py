@@ -11,6 +11,7 @@ from smoke_optimiser.profiler.models import (
     ProfilingMeta,
     ProfilingOutcome,
 )
+from smoke_optimiser.profiler.scope import ProfileScope
 
 _MACHINE = MachineEnvironment(
     os=None,
@@ -59,6 +60,11 @@ def _profile(
         tests=tests,
         total_branches=frozenset(),
         measured_files=measured_files,
+        scope=ProfileScope(
+            coverage_roots=frozenset({"."}),
+            test_roots=frozenset({"."}),
+            test_file_patterns=("test_*.py",),
+        ),
         import_graph=ImportGraph(
             edges=edges,
             unattributed_modules=unattributed_modules,

@@ -6,8 +6,9 @@ from typing import Any, NamedTuple
 from pydantic import BaseModel, Field
 
 from smoke_optimiser.environment import MachineEnvironment
+from smoke_optimiser.profiler.scope import ProfileScope
 
-PROFILE_SCHEMA_VERSION = 1
+PROFILE_SCHEMA_VERSION = 2
 """Schema version this build writes to a profiling data file.
 
 Bumped whenever ProfilingDataFile's shape changes in a way that makes an
@@ -109,6 +110,11 @@ class ProfilingData:
             any test context -- module-level code running at import time. No
             selection of tests can ever cover them, so they cap the coverage
             the optimiser can reach.
+        scope: What this profile was captured over -- the coverage targets and
+            test paths the profiling run itself resolved. A file in scope is one
+            a regenerated profile would know about, which is what makes
+            comparing the tree against the maps meaningful rather than a
+            comparison every profile fails on its own non-Python files.
     """
 
     meta: ProfilingMeta
@@ -116,18 +122,51 @@ class ProfilingData:
     total_branches: frozenset[str]
     measured_files: frozenset[str]
     import_graph: ImportGraph
+    scope: ProfileScope
     unattributable_branches: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True)
 class SuiteRunResults:
-    """Per-test facts gathered by the pytest hook, keyed by node id."""
+    """Per-test facts gathered by the pytest hook, keyed by node id.
+
+    Attributes:
+        scope: The coverage targets and test paths the profiled pytest process
+            resolved. Read inside that process because that is the only place a
+            project's own addopts and testpaths have been applied.
+    """
 
     durations: dict[str, float]
     outcomes: dict[str, bool]
     markers: dict[str, frozenset[str]]
     xdist_workers: int
     import_graph: ImportGraph
+    scope: ProfileScope
+
+
+class ProfileScopeModel(BaseModel):
+    """Pydantic model for ProfileScope validation."""
+
+    coverage_roots: list[str]
+    test_roots: list[str]
+    test_file_patterns: list[str]
+
+    def to_profile_scope(self) -> ProfileScope:
+        """Convert to the internal frozen dataclass."""
+        return ProfileScope(
+            coverage_roots=frozenset(self.coverage_roots),
+            test_roots=frozenset(self.test_roots),
+            test_file_patterns=tuple(self.test_file_patterns),
+        )
+
+    @classmethod
+    def from_profile_scope(cls, scope: ProfileScope) -> "ProfileScopeModel":
+        """Build the model that writes ``scope`` to a file, ordered for a stable diff."""
+        return cls(
+            coverage_roots=sorted(scope.coverage_roots),
+            test_roots=sorted(scope.test_roots),
+            test_file_patterns=list(scope.test_file_patterns),
+        )
 
 
 class OutcomeRecordModel(BaseModel):
@@ -152,12 +191,16 @@ class OutcomesFileModel(BaseModel):
         collection_errors: Node ids pytest failed to collect. A run that cannot
             collect a file still measures coverage for everything else, so this
             is the only signal that the profiled suite is missing tests.
+        scope: The coverage targets and test paths this process resolved. Every
+            process writes them; a serial run and an xdist worker resolve the
+            same command line, so the runner unions them.
     """
 
     worker: str | None
     worker_count: int | None
     outcomes: dict[str, OutcomeRecordModel]
     collection_errors: list[str]
+    scope: ProfileScopeModel
 
 
 class ImportEdgeModel(BaseModel):
@@ -230,7 +273,8 @@ class ProfilingDataFile(BaseModel):
     must fail to validate rather than silently be read as the current
     schema. Check it with load_profiling_data_file before constructing this
     model directly, so a schema mismatch can be reported distinctly from a
-    corrupt or unreadable file.
+    corrupt or unreadable file, and so a scope naming nothing is caught
+    rather than read as a profile that knows about nothing.
     """
 
     schema_version: int
@@ -239,6 +283,7 @@ class ProfilingDataFile(BaseModel):
     total_branches: list[str]
     measured_files: list[str]
     import_graph: ImportGraphModel
+    scope: ProfileScopeModel
     unattributable_branches: list[str] = Field(default_factory=list)
 
     def to_profiling_data(self) -> ProfilingData:
@@ -273,6 +318,7 @@ class ProfilingDataFile(BaseModel):
             total_branches=frozenset(self.total_branches),
             measured_files=frozenset(self.measured_files),
             import_graph=self.import_graph.to_import_graph(),
+            scope=self.scope.to_profile_scope(),
             unattributable_branches=frozenset(self.unattributable_branches),
         )
 
@@ -292,14 +338,34 @@ class ProfileSchemaMismatchError(Exception):
         super().__init__(f"profile schema version {found!r} does not match expected {expected!r}")
 
 
+class ProfileScopeMissingError(Exception):
+    """A profile of the current schema records no scope roots.
+
+    The scope is what makes a comparison between the tree and the maps
+    meaningful, so a profile without one cannot say whether it has gone
+    stale. That is reported rather than treated as an empty scope: an empty
+    scope puts no file in scope, so nothing ever looks diverged and the
+    profile answers confidently forever.
+    """
+
+    def __init__(self, schema_version: int) -> None:
+        self.schema_version = schema_version
+        super().__init__(f"schema version {schema_version} profile records no scope roots")
+
+
 def load_profiling_data_file(raw: Mapping[str, Any]) -> ProfilingDataFile:
     """Validate a raw profiling-data mapping into a ProfilingDataFile.
 
     Checks schema_version before handing off to Pydantic: an old-schema
     profile can fail ProfilingDataFile's field checks in ways that look
     identical to genuine corruption, and the two need different messages.
+    A scope that names nothing gets a third message again, because the fix
+    is not the same as either.
     """
     found = raw.get("schema_version")
     if found != PROFILE_SCHEMA_VERSION:
         raise ProfileSchemaMismatchError(found=found, expected=PROFILE_SCHEMA_VERSION)
-    return ProfilingDataFile(**raw)
+    validated = ProfilingDataFile(**raw)
+    if validated.scope.to_profile_scope().is_empty:
+        raise ProfileScopeMissingError(schema_version=PROFILE_SCHEMA_VERSION)
+    return validated

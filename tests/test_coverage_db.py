@@ -18,6 +18,7 @@ from smoke_optimiser.profiler.coverage_db import (
     read_coverage_db,
 )
 from smoke_optimiser.profiler.models import ImportGraph, SuiteRunResults
+from smoke_optimiser.profiler.scope import ProfileScope
 
 TEST_POS = "tests/test_app.py::test_pos"
 TEST_NEG = "tests/test_app.py::test_neg"
@@ -243,6 +244,11 @@ def test_build_profiling_data_carries_outcomes_and_markers(tmp_path: Path, empty
         markers={TEST_POS: frozenset(["unit"]), TEST_NEG: frozenset()},
         xdist_workers=1,
         import_graph=empty_graph,
+        scope=ProfileScope(
+            coverage_roots=frozenset({"src"}),
+            test_roots=frozenset({"tests"}),
+            test_file_patterns=("test_*.py",),
+        ),
     )
 
     data = build_profiling_data(db_path, tmp_path, results)
@@ -269,6 +275,11 @@ def test_a_test_with_no_recorded_coverage_still_appears(tmp_path: Path, empty_gr
         markers={},
         xdist_workers=1,
         import_graph=empty_graph,
+        scope=ProfileScope(
+            coverage_roots=frozenset({"src"}),
+            test_roots=frozenset({"tests"}),
+            test_file_patterns=("test_*.py",),
+        ),
     )
 
     data = build_profiling_data(db_path, tmp_path, results)

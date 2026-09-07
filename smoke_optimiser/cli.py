@@ -14,6 +14,8 @@ from smoke_optimiser.profiler.models import (
     ImportGraphModel,
     MachineModel,
     ProfileSchemaMismatchError,
+    ProfileScopeMissingError,
+    ProfileScopeModel,
     ProfilingData,
     ProfilingDataFile,
     ProfilingMetaModel,
@@ -90,6 +92,7 @@ def _save_profiling_data(profiling_data: ProfilingData, intermediate_file: Path)
         total_branches=list(profiling_data.total_branches),
         measured_files=list(profiling_data.measured_files),
         import_graph=graph_model,
+        scope=ProfileScopeModel.from_profile_scope(profiling_data.scope),
         unattributable_branches=list(profiling_data.unattributable_branches),
     )
     intermediate_file.unlink(missing_ok=True)
@@ -126,6 +129,16 @@ def _load_profiling_data(intermediate_file: Path) -> ProfilingData:
         typer.secho(
             f"❌ Error: Profiling data ({intermediate_file}) has schema version {e.found!r}, but this build "
             f"expects schema version {e.expected}. Re-run the profiling phase to regenerate it.",
+            fg=typer.colors.RED,
+            err=True,
+        )
+        raise typer.Exit(code=1) from None
+    except ProfileScopeMissingError as e:
+        typer.secho(
+            f"❌ Error: Profiling data ({intermediate_file}) is schema version {e.schema_version} but records "
+            "no scope roots, so it cannot tell whether it has gone stale. Re-run the profiling phase; if the "
+            "message persists, no coverage target or test path resolved inside the repository -- check --cov "
+            "and pytest's testpaths.",
             fg=typer.colors.RED,
             err=True,
         )

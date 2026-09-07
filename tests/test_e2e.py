@@ -4,6 +4,10 @@ import subprocess
 import sys
 from pathlib import Path
 
+from smoke_optimiser.downwind.maps import DownwindMaps
+from smoke_optimiser.profiler.models import load_profiling_data_file
+from smoke_optimiser.profiler.scope import files_in_scope
+
 
 def test_end_to_end_flow(tmp_path: Path) -> None:
     """Test the full flow.
@@ -88,6 +92,10 @@ def test_setup_error(broken):
     # Verify the warning appeared in stderr (ANSI codes might be stripped by typer in non-tty)
     assert "⚠️ Warning: --src was not specified" in result.stderr
     assert "--src=src" in result.stderr
+    # This project configures no testpaths, so pytest collects from the repository
+    # root and the profile can only track files pytest itself would collect.
+    assert "no configured test paths" in result.stderr
+    assert 'testpaths = ["tests"]' in result.stderr
 
     smoke_suite_file = project_dir / ".smoke_suite.json"
     assert smoke_suite_file.exists()
@@ -151,6 +159,13 @@ def test_never_collected():
     assert False
 """,
     )
+
+
+def _git_ls_files(project_dir: Path) -> list[str]:
+    """Every tracked file, which is what the expiry check enumerates."""
+    # git comes from PATH and there is no user input in the arguments
+    listed = subprocess.run(["git", "ls-files"], cwd=project_dir, capture_output=True, text=True, check=True)  # noqa: S607
+    return listed.stdout.split()
 
 
 def _run_smoke_optimiser(project_dir: Path, *extra_args: str) -> subprocess.CompletedProcess[str]:
@@ -219,3 +234,102 @@ def test_that_fails():
 
     assert result.returncode == 0, f"smoke-optimiser failed: {result.stderr}\nSTDOUT: {result.stdout}"
     assert (project_dir / ".smoke_suite.json").exists()
+
+
+def _write_project_with_files_the_maps_cannot_know(project_dir: Path) -> None:
+    """A project holding one of everything the scope rule has to separate.
+
+    src/unused.py is measured but never imported, tests/helpers.py is test support
+    that no naming pattern would collect, and scripts/tool.py plus data.json are
+    tracked files no regeneration would ever teach the maps about.
+    """
+    project_dir.mkdir()
+    (project_dir / "pyproject.toml").write_text(
+        """
+[project]
+name = "my-project"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+""",
+    )
+    (project_dir / "data.json").write_text("{}")
+    (project_dir / "README.md").write_text("# my project\n")
+
+    scripts_dir = project_dir / "scripts"
+    scripts_dir.mkdir()
+    (scripts_dir / "tool.py").write_text("print('a manual script')\n")
+
+    src_dir = project_dir / "src"
+    src_dir.mkdir()
+    (src_dir / "__init__.py").touch()
+    (src_dir / "app.py").write_text(
+        """
+def add(a, b):
+    if a > 0:
+        return a + b
+    return b
+""",
+    )
+    (src_dir / "unused.py").write_text("UNUSED = 1\n")
+
+    tests_dir = project_dir / "tests"
+    tests_dir.mkdir()
+    (tests_dir / "__init__.py").touch()
+    (tests_dir / "helpers.py").write_text("def double(x):\n    return x * 2\n")
+    (tests_dir / "test_app.py").write_text(
+        """
+from src.app import add
+from tests.helpers import double
+
+def test_add():
+    assert add(1, 2) == 3
+
+def test_double():
+    assert double(2) == 4
+""",
+    )
+
+
+def _git(project_dir: Path, *args: str) -> None:
+    # git comes from PATH and the arguments are this test's own literals
+    subprocess.run(["git", *args], cwd=project_dir, check=True, capture_output=True)  # noqa: S603, S607  # noqa: S607
+
+
+def test_a_profile_regenerated_against_an_unchanged_tree_is_not_expired(tmp_path: Path) -> None:
+    """Expiry is divergence, so a tree that has not moved must not read as diverged.
+
+    The check itself is 'is any in-scope file unknown to the maps'. Asserting it
+    here, against a real profiling run rather than a hand-built profile, is what
+    catches a scope that names files no regeneration could reach -- a profile
+    born expired, which would take the full-suite path on every run while looking
+    perfectly healthy.
+    """
+    project_dir = tmp_path / "my_project"
+    _write_project_with_files_the_maps_cannot_know(project_dir)
+    _git(project_dir, "init")
+    _git(project_dir, "add", ".")
+    _git(project_dir, "-c", "user.email=t@example.com", "-c", "user.name=t", "commit", "-m", "initial")
+
+    for attempt in ("profile", "regenerate"):
+        result = _run_smoke_optimiser(project_dir, "--profile-only")
+        assert result.returncode == 0, f"{attempt} failed: {result.stderr}\nSTDOUT: {result.stdout}"
+
+        with (project_dir / ".smoke_profiling_data.json").open("rb") as f:
+            profile = load_profiling_data_file(json.load(f)).to_profiling_data()
+
+        tracked = _git_ls_files(project_dir)
+        in_scope = files_in_scope(tracked, profile.scope)
+        maps = DownwindMaps.from_profile(profile)
+
+        assert profile.scope.coverage_roots == frozenset({"src"})
+        assert profile.scope.test_roots == frozenset({"tests"})
+        # A file coverage measured but nothing imported, and test support code no
+        # collection pattern matches: both are in scope, so both must be known.
+        assert {"src/unused.py", "tests/helpers.py"} <= in_scope
+        assert [path for path in sorted(in_scope) if not maps.knows(path)] == [], f"expired after {attempt}"
+
+    # Tracked files no regeneration would teach the maps about must stay out of
+    # scope, or the profile is expired the moment it is written.
+    assert "scripts/tool.py" not in in_scope
+    assert "data.json" not in in_scope

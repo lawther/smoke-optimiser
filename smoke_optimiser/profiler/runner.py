@@ -5,6 +5,7 @@ import subprocess
 import sys
 import tempfile
 from collections import defaultdict
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import NamedTuple, NewType, NoReturn
@@ -24,6 +25,7 @@ from smoke_optimiser.profiler.models import (
     ProfilingMeta,
     SuiteRunResults,
 )
+from smoke_optimiser.profiler.scope import ProfileScope
 
 # An environment variable's value, named so the mapping the profiling subprocess
 # runs under says what it carries rather than being an anonymous dict of strings.
@@ -40,6 +42,7 @@ class IterationOutcomes(NamedTuple):
     outcomes: dict[str, OutcomeRecordModel]
     xdist_workers: int
     collection_errors: frozenset[str]
+    scope: ProfileScope
 
 
 # What each pytest exit code means for a profiling run. OK and TESTS_FAILED are absent
@@ -72,6 +75,7 @@ from pathlib import Path
 import pytest
 
 from smoke_optimiser.profiler.import_tracer import ImportTracer, write_graph
+from smoke_optimiser.profiler.scope import resolve_scope
 
 _TRACER = ImportTracer()
 _COLLECTION_ERRORS = []
@@ -126,10 +130,22 @@ def pytest_runtest_makereport(item, call):
 
 def pytest_unconfigure(config):
     _TRACER.uninstall()
+    root = Path(os.environ.get('SMOKE_PROJECT_ROOT', str(config.rootpath)))
     graph_file = os.environ.get('SMOKE_IMPORT_GRAPH_JSON')
     if graph_file:
-        root = Path(os.environ.get('SMOKE_PROJECT_ROOT', str(config.rootpath)))
         write_graph(_TRACER.snapshot(root, sys.modules), Path(_worker_path(graph_file)))
+
+    # Read here rather than from the command line the runner built: the project's
+    # own addopts and testpaths are applied by pytest inside this process and are
+    # invisible outside it, so this is the only place the scope actually measured
+    # can be observed.
+    scope = resolve_scope(
+        cov_sources=getattr(config.option, 'cov_source', None) or [],
+        args=config.args,
+        test_file_patterns=config.getini('python_files'),
+        invocation_dir=Path(str(config.invocation_params.dir)),
+        project_root=root,
+    )
 
     if hasattr(config, '_smoke_outcomes'):
         # Under pytest-xdist every worker runs this hook. They must not share one
@@ -151,6 +167,11 @@ def pytest_unconfigure(config):
             'worker_count': int(worker_count) if worker_count else None,
             'outcomes': config._smoke_outcomes,
             'collection_errors': _COLLECTION_ERRORS,
+            'scope': {
+                'coverage_roots': sorted(scope.coverage_roots),
+                'test_roots': sorted(scope.test_roots),
+                'test_file_patterns': list(scope.test_file_patterns),
+            },
         }
         with open(outcomes_file, 'w') as f:
             json.dump(payload, f)
@@ -218,6 +239,7 @@ def _read_iteration_outcomes(outcomes_json: Path) -> IterationOutcomes:
     merged: dict[str, OutcomeRecordModel] = {}
     workers = 1
     collection_errors: set[str] = set()
+    scopes: list[ProfileScope] = []
 
     for path in sorted(outcomes_json.parent.glob(f"{outcomes_json.stem}*{outcomes_json.suffix}")):
         try:
@@ -233,6 +255,7 @@ def _read_iteration_outcomes(outcomes_json: Path) -> IterationOutcomes:
 
         merged.update(written.outcomes)
         collection_errors.update(written.collection_errors)
+        scopes.append(written.scope.to_profile_scope())
         if written.worker_count:
             workers = max(workers, written.worker_count)
         path.unlink()
@@ -241,6 +264,50 @@ def _read_iteration_outcomes(outcomes_json: Path) -> IterationOutcomes:
         outcomes=merged,
         xdist_workers=workers,
         collection_errors=frozenset(collection_errors),
+        scope=_merge_scopes(scopes),
+    )
+
+
+def _merge_scopes(scopes: Sequence[ProfileScope]) -> ProfileScope:
+    """Union the scopes every process of one run reported.
+
+    A serial run reports one. Under pytest-xdist the controller and every worker
+    parse the same command line, so they agree -- unioning them rather than
+    picking one means a worker that somehow saw more is not silently discarded,
+    since a scope that is too narrow is the direction that under-selects.
+    """
+    return ProfileScope(
+        coverage_roots=frozenset().union(*(scope.coverage_roots for scope in scopes)) if scopes else frozenset(),
+        test_roots=frozenset().union(*(scope.test_roots for scope in scopes)) if scopes else frozenset(),
+        test_file_patterns=tuple(sorted({pattern for scope in scopes for pattern in scope.test_file_patterns})),
+    )
+
+
+def _warn_about_an_unbounded_test_scope(scope: ProfileScope) -> None:
+    """Say what a project loses by leaving pytest pointed at the repository root.
+
+    The profile still works, so this is not fatal -- but the guarantee it carries
+    is narrower than the user has any way of knowing, so the steps that widen it
+    are spelled out rather than hinted at.
+    """
+    if not scope.collects_from_whole_repository:
+        return
+    typer.secho(
+        "\u26a0\ufe0f Warning: pytest has no configured test paths, so the whole repository is in scope and "
+        "only files matching its test-file patterns can be tracked. New test support modules (fixtures, "
+        "factories, helpers) will not be noticed when the profile goes stale, and any test-named file "
+        "elsewhere in the tree -- a vendored package's suite, an example, a manual script -- makes every "
+        "downwind run fall back to the full suite.",
+        fg=typer.colors.YELLOW,
+        err=True,
+    )
+    typer.secho(
+        "\U0001f4a1 To fix:\n"
+        "  1. Create a tests/ directory at the repository root and move every test file into it.\n"
+        '  2. Add testpaths = ["tests"] under [tool.pytest.ini_options] in pyproject.toml.\n'
+        "  3. Re-run smoke-optimiser to regenerate the profile.",
+        fg=typer.colors.YELLOW,
+        err=True,
     )
 
 
@@ -394,6 +461,7 @@ def run_profiling(config: ResolvedConfig, project_root: Path) -> ProfilingData:
         final_markers: dict[str, frozenset[str]] = {}
         xdist_workers = 1
         graphs: list[ImportGraph] = []
+        scopes: list[ProfileScope] = []
 
         env = _profiling_env(temp_dir, project_root, outcomes_json, coverage_db, import_graph_json)
         pytest_cmd = _build_pytest_command(config, coveragerc)
@@ -432,6 +500,7 @@ def run_profiling(config: ResolvedConfig, project_root: Path) -> ProfilingData:
 
             xdist_workers = max(xdist_workers, result.outcomes.xdist_workers)
             graphs.append(result.import_graph)
+            scopes.append(result.outcomes.scope)
 
             for nodeid, record in result.outcomes.outcomes.items():
                 all_durations[nodeid].append(record.duration)
@@ -448,7 +517,9 @@ def run_profiling(config: ResolvedConfig, project_root: Path) -> ProfilingData:
             markers=final_markers,
             xdist_workers=xdist_workers,
             import_graph=merge_graphs(graphs),
+            scope=_merge_scopes(scopes),
         )
+        _warn_about_an_unbounded_test_scope(results.scope)
         try:
             data = build_profiling_data(coverage_db, project_root, results, config_file=coveragerc)
         except CoverageIngestError as exc:
@@ -471,5 +542,6 @@ def run_profiling(config: ResolvedConfig, project_root: Path) -> ProfilingData:
             total_branches=data.total_branches,
             measured_files=data.measured_files,
             import_graph=data.import_graph,
+            scope=data.scope,
             unattributable_branches=data.unattributable_branches,
         )

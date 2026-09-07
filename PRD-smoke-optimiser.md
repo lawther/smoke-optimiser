@@ -165,6 +165,9 @@ The profiling phase produces an intermediate representation (stored as JSON or e
 
 ```
 {
+  // bumped whenever the shape changes; a mismatch says "reprofile" rather than
+  // failing as a validation error
+  "schema_version": 2,
   "meta": {
     "timestamp": "...",
     "commit": "...",       // if git is available
@@ -198,9 +201,39 @@ The profiling phase produces an intermediate representation (stored as JSON or e
   // every file coverage measured, including files no test executed
   "measured_files": ["file.py", "constants.py", ...],
   // executed only at import time, under no test context, so unreachable by any selection
-  "unattributable_branches": ["file.py:3->8", ...]
+  "unattributable_branches": ["file.py:3->8", ...],
+  // what this run measured, so a later run can tell whether the codebase has
+  // grown past the profile
+  "scope": {
+    "coverage_roots": ["smoke_optimiser"],
+    "test_roots": ["tests"],
+    "test_file_patterns": ["test_*.py", "*_test.py"]
+  }
 }
 ```
+
+The recorded `scope` is what makes a profile able to say it has gone stale. A file
+beneath one of those roots is a file a regenerated profile would know about, so a
+file in scope that the profile has never seen means the codebase has moved on --
+whereas an unscoped comparison would find every README and data file missing and
+report every profile as stale from the moment it was written.
+
+The scope is resolved **inside the profiled pytest process** and recorded, never
+recomputed from configuration afterwards: a project's own `addopts` and `testpaths`
+are applied by pytest itself and are invisible to the process that launched it, so a
+recomputed scope can disagree with the run that produced the maps. A profile of the
+current schema that records no scope at all is a hard error naming the fix, not a
+profile treated as measuring nothing.
+
+Coverage roots and test roots are kept apart because they carry different
+precision. Coverage records every `.py` file beneath its roots, executed or not, so
+all of them are in scope. A test root is only as precise as the project made it:
+`testpaths = ["tests"]` names a directory whose every `.py` file is test code,
+including support modules no naming convention would match, while a project that
+configures nothing leaves pytest pointed at the repository root. In that one case
+scope narrows to the files pytest would actually collect, since otherwise a vendored
+package's suite or a manual `scripts/test_connection.py` would be permanently
+unknown and the profile permanently stale.
 
 ### 5.4 Machine Environment Capture
 

@@ -14,9 +14,11 @@ from smoke_optimiser.profiler.runner import (
     IterationOutcomes,
     OutcomesIngestError,
     _read_iteration_outcomes,
+    _warn_about_an_unbounded_test_scope,
     check_prerequisites,
     run_profiling,
 )
+from smoke_optimiser.profiler.scope import ProfileScope
 
 
 def test_check_prerequisites_success() -> None:
@@ -144,6 +146,23 @@ THREE_WORKERS = 3
 TWO_WORKERS = 2
 
 
+def _fake_pytest_config(project_root: Path, outcomes: dict[str, Any] | None = None) -> SimpleNamespace:
+    """Stand in for the pytest Config the hook is handed inside the subprocess.
+
+    Only the attributes the hook reads: the outcomes it accumulated, the resolved
+    --cov sources, the positional arguments after testpaths were applied, the
+    collection patterns, and where pytest was invoked from.
+    """
+    return SimpleNamespace(
+        _smoke_outcomes=outcomes if outcomes is not None else {},
+        rootpath=project_root,
+        args=["tests"],
+        option=SimpleNamespace(cov_source=["src"]),
+        getini=lambda name: ["test_*.py"] if name == "python_files" else [],
+        invocation_params=SimpleNamespace(dir=project_root),
+    )
+
+
 def _write_outcomes(
     path: Path,
     worker: str | None,
@@ -157,6 +176,7 @@ def _write_outcomes(
         "worker_count": worker_count,
         "outcomes": {node_id: {"passed": True, "duration": 0.5, "markers": ["unit"]} for node_id in node_ids},
         "collection_errors": collection_errors or [],
+        "scope": {"coverage_roots": ["src"], "test_roots": ["tests"], "test_file_patterns": ["test_*.py"]},
     }
     path.write_text(json.dumps(payload))
 
@@ -217,9 +237,9 @@ def test_the_profiling_hook_gives_each_xdist_worker_its_own_file(tmp_path: Path)
     outcomes_json = tmp_path / "outcomes.json"
 
     for worker in ("gw0", "gw1"):
-        config = SimpleNamespace(
-            _smoke_outcomes={f"test_{worker}": {"passed": True, "duration": 1.0, "markers": []}},
-            rootpath=tmp_path,
+        config = _fake_pytest_config(
+            tmp_path,
+            outcomes={f"test_{worker}": {"passed": True, "duration": 1.0, "markers": []}},
         )
         env = {
             "SMOKE_OUTCOMES_JSON": str(outcomes_json),
@@ -243,10 +263,7 @@ def test_the_profiling_hook_keeps_the_plain_filename_when_serial(tmp_path: Path)
     exec(PYTEST_HOOK_CODE, namespace)  # noqa: S102 - the hook is only ever a string, so it must be exec'd to be tested
 
     outcomes_json = tmp_path / "outcomes.json"
-    config = SimpleNamespace(
-        _smoke_outcomes={"test_a": {"passed": True, "duration": 1.0, "markers": []}},
-        rootpath=tmp_path,
-    )
+    config = _fake_pytest_config(tmp_path, outcomes={"test_a": {"passed": True, "duration": 1.0, "markers": []}})
     env = {"SMOKE_OUTCOMES_JSON": str(outcomes_json)}
     with patch.dict(os.environ, env, clear=False):
         # A serial run has no worker variables at all, so they must not leak in from
@@ -255,6 +272,7 @@ def test_the_profiling_hook_keeps_the_plain_filename_when_serial(tmp_path: Path)
         os.environ.pop("PYTEST_XDIST_WORKER", None)
         os.environ.pop("PYTEST_XDIST_WORKER_COUNT", None)
         os.environ.pop("SMOKE_IMPORT_GRAPH_JSON", None)
+        os.environ.pop("SMOKE_PROJECT_ROOT", None)
         namespace["pytest_unconfigure"](config)
 
     assert outcomes_json.exists()
@@ -451,7 +469,16 @@ def test_a_collection_error_is_fatal_even_when_pytest_exits_zero(
     smoke-optimiser sees ever mentions it. What the hook recorded is the only signal.
     """
     mock_run.side_effect = _pytest_exit_codes(0)
-    outcomes = IterationOutcomes(outcomes={}, xdist_workers=1, collection_errors=frozenset({"tests/test_broken.py"}))
+    outcomes = IterationOutcomes(
+        outcomes={},
+        xdist_workers=1,
+        collection_errors=frozenset({"tests/test_broken.py"}),
+        scope=ProfileScope(
+            coverage_roots=frozenset({"src"}),
+            test_roots=frozenset({"tests"}),
+            test_file_patterns=("test_*.py",),
+        ),
+    )
 
     with (
         patch("shutil.which", return_value="/usr/bin/pytest"),
@@ -473,13 +500,73 @@ def test_the_profiling_hook_records_files_it_could_not_collect(tmp_path: Path) -
     namespace["pytest_collectreport"](SimpleNamespace(failed=False, nodeid="tests/test_fine.py"))
 
     outcomes_json = tmp_path / "outcomes.json"
-    config = SimpleNamespace(_smoke_outcomes={}, rootpath=tmp_path)
+    (tmp_path / "src").mkdir()
+    (tmp_path / "tests").mkdir()
+    config = _fake_pytest_config(tmp_path)
     with patch.dict(os.environ, {"SMOKE_OUTCOMES_JSON": str(outcomes_json)}, clear=False):
         os.environ.pop("PYTEST_XDIST_WORKER", None)
         os.environ.pop("PYTEST_XDIST_WORKER_COUNT", None)
         # This test's own process may be a profiling run, whose graph file the exec'd
         # hook would otherwise write into.
         os.environ.pop("SMOKE_IMPORT_GRAPH_JSON", None)
+        os.environ.pop("SMOKE_PROJECT_ROOT", None)
         namespace["pytest_unconfigure"](config)
 
     assert _read_iteration_outcomes(outcomes_json).collection_errors == frozenset({"tests/test_broken.py"})
+
+
+def test_the_profiling_hook_records_the_scope_the_run_resolved(tmp_path: Path) -> None:
+    """The scope must come from the child process, where addopts have been applied.
+
+    The runner builds a command line that never mentions testpaths, and a project's
+    own addopts can add a --cov it never sees, so anything read outside this process
+    would disagree with what was actually measured.
+    """
+    namespace: dict[str, Any] = {}
+    exec(PYTEST_HOOK_CODE, namespace)  # noqa: S102 - the hook is only ever a string, so it must be exec'd to be tested
+
+    outcomes_json = tmp_path / "outcomes.json"
+    (tmp_path / "src").mkdir()
+    (tmp_path / "tests").mkdir()
+    config = _fake_pytest_config(tmp_path)
+    with patch.dict(os.environ, {"SMOKE_OUTCOMES_JSON": str(outcomes_json)}, clear=False):
+        os.environ.pop("PYTEST_XDIST_WORKER", None)
+        os.environ.pop("PYTEST_XDIST_WORKER_COUNT", None)
+        os.environ.pop("SMOKE_IMPORT_GRAPH_JSON", None)
+        os.environ.pop("SMOKE_PROJECT_ROOT", None)
+        namespace["pytest_unconfigure"](config)
+
+    scope = _read_iteration_outcomes(outcomes_json).scope
+    assert scope.coverage_roots == frozenset({"src"})
+    assert scope.test_roots == frozenset({"tests"})
+
+
+@pytest.mark.parametrize(
+    ("test_roots", "expect_warning"),
+    [(frozenset({"."}), True), (frozenset({"tests"}), False)],
+)
+def test_an_unbounded_test_scope_is_warned_about_with_the_steps_that_fix_it(
+    test_roots: frozenset[str],
+    expect_warning: bool,  # noqa: FBT001 - the parametrised expectation, not a mode switch
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A profile whose test root is the repository root carries a narrower guarantee.
+
+    It still works, so this is a warning rather than a refusal -- but the user has
+    no way to discover what they lost, and the steps that widen it are specific
+    enough to state outright.
+    """
+    scope = ProfileScope(
+        coverage_roots=frozenset({"src"}),
+        test_roots=test_roots,
+        test_file_patterns=("test_*.py",),
+    )
+
+    _warn_about_an_unbounded_test_scope(scope)
+
+    stderr = capsys.readouterr().err
+    assert ("no configured test paths" in stderr) is expect_warning
+    if expect_warning:
+        assert "Create a tests/ directory" in stderr
+        assert 'testpaths = ["tests"]' in stderr
+        assert "Re-run smoke-optimiser" in stderr

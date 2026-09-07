@@ -8,11 +8,13 @@ from smoke_optimiser.profiler.models import (
     PROFILE_SCHEMA_VERSION,
     ImportEdge,
     ProfileSchemaMismatchError,
+    ProfileScopeMissingError,
     ProfilingData,
     ProfilingDataFile,
     ProfilingOutcome,
     load_profiling_data_file,
 )
+from tests.conftest import RawProfileFactory
 
 
 def test_profiling_outcome_construction() -> None:
@@ -30,48 +32,8 @@ def test_profiling_outcome_construction() -> None:
         tr.passed = False  # ty: ignore[invalid-assignment] - verifying immutability
 
 
-def test_profiling_data_roundtrip() -> None:
-    raw_data = {
-        "schema_version": PROFILE_SCHEMA_VERSION,
-        "meta": {
-            "timestamp": "2026-03-02T10:30:00Z",
-            "commit": "abcdef",
-            "python_version": "3.12",
-            "coverage_version": "7.0",
-            "command": "smoke-optimiser",
-            "machine": {
-                "os": "Linux",
-                "os_version": "6.5",
-                "platform": "Ubuntu",
-                "architecture": "x86_64",
-                "cpu_model": "AMD",
-                "cpu_cores_physical": 16,
-                "cpu_cores_logical": 32,
-                "ram_total_mb": 65536,
-                "ram_available_mb": 58200,
-                "hostname": "ci-04",
-            },
-            "xdist_workers": 1,
-        },
-        "tests": {
-            "test_a": {
-                "test_id": "test_a",
-                "duration_s": 0.1,
-                "passed": True,
-                "branches_covered": ["file.py:10"],
-                "files_covered": ["file.py"],
-                "markers": ["smoke"],
-            },
-        },
-        "total_branches": ["file.py:10", "file.py:11"],
-        "measured_files": ["file.py", "other.py"],
-        "import_graph": {
-            "edges": [{"importer": "tests/test_app.py", "imported": "file.py"}],
-            "unattributed_modules": ["tests/test_app.py"],
-            "resolution_errors": 0,
-            "error_samples": [],
-        },
-    }
+def test_profiling_data_roundtrip(raw_profile: RawProfileFactory) -> None:
+    raw_data = raw_profile()
 
     model = ProfilingDataFile(**cast("Any", raw_data))
     data = model.to_profiling_data()
@@ -85,6 +47,8 @@ def test_profiling_data_roundtrip() -> None:
     assert data.total_branches == frozenset(["file.py:10", "file.py:11"])
     assert data.tests["test_a"].files_covered == frozenset(["file.py"])
     assert data.measured_files == frozenset(["file.py", "other.py"])
+    assert data.scope.coverage_roots == frozenset(["src"])
+    assert data.scope.test_roots == frozenset(["tests"])
 
 
 def test_a_profile_written_before_file_tracking_is_refused() -> None:
@@ -169,3 +133,33 @@ def test_load_profiling_data_file_reports_a_missing_schema_version_as_a_mismatch
 
     assert exc_info.value.found is None
     assert exc_info.value.expected == PROFILE_SCHEMA_VERSION
+
+
+def test_a_profile_recording_no_scope_is_refused_rather_than_read_as_knowing_nothing(
+    raw_profile: RawProfileFactory,
+) -> None:
+    """An empty scope puts no file in scope, so nothing ever looks diverged.
+
+    That is the failure mode with no symptom: the profile would answer
+    confidently forever, however far the codebase had moved on. It carries the
+    schema version so the message can say the file is current and still unusable,
+    rather than blaming a version mismatch that is not there.
+    """
+    raw = raw_profile()
+    raw["scope"] = {"coverage_roots": [], "test_roots": [], "test_file_patterns": ["test_*.py"]}
+
+    with pytest.raises(ProfileScopeMissingError) as exc_info:
+        load_profiling_data_file(cast("Any", raw))
+
+    assert exc_info.value.schema_version == PROFILE_SCHEMA_VERSION
+
+
+def test_a_profile_recording_no_scope_field_at_all_fails_validation(raw_profile: RawProfileFactory) -> None:
+    """The field is required with no default, like schema_version and for the same reason."""
+    raw = raw_profile()
+    del raw["scope"]
+
+    with pytest.raises(ValidationError) as exc_info:
+        load_profiling_data_file(cast("Any", raw))
+
+    assert "scope" in str(exc_info.value)

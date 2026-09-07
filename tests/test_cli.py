@@ -11,6 +11,8 @@ from smoke_optimiser.cli import _load_profiling_data, _reject_parallel_durations
 from smoke_optimiser.config import OperationMode, ResolvedConfig
 from smoke_optimiser.environment import MachineEnvironment
 from smoke_optimiser.profiler.models import PROFILE_SCHEMA_VERSION, ImportGraph, ProfilingData, ProfilingMeta
+from smoke_optimiser.profiler.scope import ProfileScope
+from tests.conftest import RawProfileFactory
 
 runner = CliRunner()
 
@@ -171,6 +173,32 @@ def test_a_profile_from_an_older_schema_version_reports_a_distinct_error(
     assert "Failed to parse profiling data" not in stderr
 
 
+def test_a_profile_recording_no_scope_reports_what_to_configure(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    raw_profile: RawProfileFactory,
+) -> None:
+    """A current-schema profile that cannot say what it measured needs its own message.
+
+    Reprofiling alone may not fix it -- if no coverage target and no test path
+    resolved inside the repository, the next profile records nothing again -- so
+    the message names the settings to check rather than only the command to run.
+    """
+    profile = tmp_path / "profile.json"
+    raw = raw_profile()
+    raw["scope"] = {"coverage_roots": [], "test_roots": [], "test_file_patterns": []}
+    profile.write_text(json.dumps(raw))
+
+    with pytest.raises(typer.Exit):
+        _load_profiling_data(profile)
+
+    stderr = capsys.readouterr().err
+    assert "no scope roots" in stderr
+    assert "--cov" in stderr
+    assert "testpaths" in stderr
+    assert "Failed to parse profiling data" not in stderr
+
+
 def _profile_recorded_with(workers: int) -> ProfilingData:
     """A minimal profile that claims to have been recorded with `workers` xdist workers."""
     meta = ProfilingMeta(
@@ -198,6 +226,11 @@ def _profile_recorded_with(workers: int) -> ProfilingData:
         tests={},
         total_branches=frozenset(),
         measured_files=frozenset(),
+        scope=ProfileScope(
+            coverage_roots=frozenset({"smoke_optimiser"}),
+            test_roots=frozenset({"tests"}),
+            test_file_patterns=("test_*.py",),
+        ),
         import_graph=ImportGraph(
             edges=frozenset(),
             unattributed_modules=frozenset(),

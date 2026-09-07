@@ -350,5 +350,6 @@ def build_profiling_data(
         total_branches=ingest.total_branches,
         measured_files=ingest.measured_files,
         import_graph=results.import_graph,
+        scope=results.scope,
         unattributable_branches=ingest.unattributable_branches,
     )
