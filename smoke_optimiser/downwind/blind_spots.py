@@ -28,6 +28,7 @@ class BlindSpotReason(StrEnum):
     UNATTRIBUTED_IMPORT = "unattributed_import"
     EXPIRED_PROFILE = "expired_profile"
     CHANGED_CONFTEST = "changed_conftest"
+    TERMINAL_DEAD_END = "terminal_dead_end"
     RESOLUTION_ERRORS = "resolution_errors"
 
 

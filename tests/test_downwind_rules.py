@@ -203,6 +203,141 @@ def test_fixture_mediated_reach_is_answered_by_coverage_where_the_closure_stops(
     assert answer == DownwindSelection(node_ids=frozenset({"tests/test_a.py::test_one"}))
 
 
+def test_a_terminal_conftest_falls_back_to_its_directory_when_coverage_never_measured_it() -> None:
+    # The configuration this rule exists for: --cov=src, so tests/conftest.py
+    # is in no files_covered at all and defines no test of its own. The
+    # closure of src/settings.py reaches the conftest and stops there, and
+    # both relations answer empty for it -- which before this rule meant a
+    # confident selection of NOTHING for a change that alters every fixture
+    # built from those constants.
+    maps = _maps(
+        tests={
+            "tests/test_a.py::test_one": frozenset({"src/a.py"}),
+            "tests/test_b.py::test_two": frozenset({"src/b.py"}),
+        },
+        measured_files=frozenset({"src/a.py", "src/b.py", "src/settings.py"}),
+        edges=frozenset(
+            {
+                ImportEdge(importer="tests/conftest.py", imported="src/settings.py"),
+                ImportEdge(importer="tests/test_a.py", imported="src/a.py"),
+                ImportEdge(importer="tests/test_b.py", imported="src/b.py"),
+            }
+        ),
+        unattributed_modules=frozenset({"tests/conftest.py", "tests/test_a.py", "tests/test_b.py"}),
+    )
+
+    answer = downwind_of(maps, _changed("src/settings.py"), frozenset())
+
+    assert answer == DownwindSelection(node_ids=frozenset({"tests/test_a.py::test_one", "tests/test_b.py::test_two"}))
+
+
+def test_a_terminal_conftest_selects_its_own_directory_and_no_test_outside_it() -> None:
+    # pytest's rule is directory scope, not the whole suite: a conftest in
+    # tests/sub/ cannot apply to tests/test_outside.py, so widening that far
+    # would be over-selection this rule does not need.
+    maps = _maps(
+        tests={
+            "tests/sub/test_in.py::test_one": frozenset(),
+            "tests/test_outside.py::test_two": frozenset(),
+        },
+        measured_files=frozenset({"src/settings.py"}),
+        edges=frozenset({ImportEdge(importer="tests/sub/conftest.py", imported="src/settings.py")}),
+        unattributed_modules=frozenset({"tests/sub/conftest.py", "tests/sub/test_in.py", "tests/test_outside.py"}),
+    )
+
+    answer = downwind_of(maps, _changed("src/settings.py"), frozenset())
+
+    assert answer == DownwindSelection(node_ids=frozenset({"tests/sub/test_in.py::test_one"}))
+
+
+def test_a_terminal_conftest_at_the_repository_root_selects_the_whole_suite() -> None:
+    # The root conftest governs every collected test, so its directory scope
+    # is the entire suite -- and that has to hold for a path with no "/" in
+    # it, where the directory is the repository rather than the empty string.
+    maps = _maps(
+        tests={
+            "tests/sub/test_in.py::test_one": frozenset(),
+            "tests/test_outside.py::test_two": frozenset(),
+        },
+        measured_files=frozenset({"src/settings.py"}),
+        edges=frozenset({ImportEdge(importer="conftest.py", imported="src/settings.py")}),
+        unattributed_modules=frozenset({"conftest.py", "tests/sub/test_in.py", "tests/test_outside.py"}),
+    )
+
+    answer = downwind_of(maps, _changed("src/settings.py"), frozenset())
+
+    assert answer == DownwindSelection(
+        node_ids=frozenset({"tests/sub/test_in.py::test_one", "tests/test_outside.py::test_two"})
+    )
+
+
+def test_a_conftest_coverage_did_measure_keeps_its_precise_answer() -> None:
+    # Under --cov=. the fixture bodies ran under the using test's setup
+    # context, so coverage names exactly the tests that used them. Falling
+    # back to directory scope here would throw that precision away and drag
+    # in test_b, which shares the directory but not the fixture.
+    maps = _maps(
+        tests={
+            "tests/test_a.py::test_one": frozenset({"tests/test_a.py", "tests/conftest.py", "src/fixtures.py"}),
+            "tests/test_b.py::test_two": frozenset({"tests/test_b.py"}),
+        },
+        measured_files=frozenset({"src/fixtures.py", "tests/conftest.py", "tests/test_a.py", "tests/test_b.py"}),
+        edges=frozenset({ImportEdge(importer="tests/conftest.py", imported="src/fixtures.py")}),
+        unattributed_modules=frozenset({"tests/conftest.py", "tests/test_a.py", "tests/test_b.py"}),
+    )
+
+    answer = downwind_of(maps, _changed("src/fixtures.py"), frozenset())
+
+    assert answer == DownwindSelection(node_ids=frozenset({"tests/test_a.py::test_one"}))
+
+
+def test_a_closure_terminating_at_a_barren_plugin_refuses_with_terminal_dead_end() -> None:
+    # Same hole, no directory rule to fall back on: pytest loaded src/plugin.py
+    # as an entry-point plugin before the tracer was installed, so nothing
+    # imports it, it defines no test, and coverage attributed it to none.
+    maps = _maps(
+        tests={"tests/test_a.py::test_one": frozenset({"src/a.py"})},
+        measured_files=frozenset({"src/a.py", "src/plugin.py", "src/helpers.py"}),
+        edges=frozenset(
+            {
+                ImportEdge(importer="src/plugin.py", imported="src/helpers.py"),
+                ImportEdge(importer="tests/test_a.py", imported="src/a.py"),
+            }
+        ),
+        unattributed_modules=frozenset({"src/plugin.py", "tests/test_a.py"}),
+    )
+
+    answer = downwind_of(maps, _changed("src/helpers.py"), frozenset())
+
+    assert answer == DownwindRefusal(
+        blind_spots=frozenset({BlindSpot(reason=BlindSpotReason.TERMINAL_DEAD_END, file="src/plugin.py")})
+    )
+
+
+def test_a_dead_end_down_one_branch_refuses_even_though_another_branch_answered() -> None:
+    # src/helpers.py reaches a perfectly answerable test module AND a barren
+    # plugin. Keeping the tests it could name would be a selection that
+    # silently omits whatever the plugin reaches, which is the whole failure
+    # mode -- so the dead end refuses for the file regardless.
+    maps = _maps(
+        tests={"tests/test_a.py::test_one": frozenset()},
+        measured_files=frozenset({"src/plugin.py", "src/helpers.py"}),
+        edges=frozenset(
+            {
+                ImportEdge(importer="src/plugin.py", imported="src/helpers.py"),
+                ImportEdge(importer="tests/test_a.py", imported="src/helpers.py"),
+            }
+        ),
+        unattributed_modules=frozenset({"src/plugin.py", "tests/test_a.py"}),
+    )
+
+    answer = downwind_of(maps, _changed("src/helpers.py"), frozenset())
+
+    assert answer == DownwindRefusal(
+        blind_spots=frozenset({BlindSpot(reason=BlindSpotReason.TERMINAL_DEAD_END, file="src/plugin.py")})
+    )
+
+
 def test_an_empty_changed_set_selects_nothing_rather_than_refusing() -> None:
     answer = downwind_of(_standard_maps(), frozenset(), _all_existing())
 

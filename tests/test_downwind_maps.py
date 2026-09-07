@@ -11,7 +11,7 @@ from smoke_optimiser.profiler.models import (
     ProfilingMeta,
     ProfilingOutcome,
 )
-from smoke_optimiser.profiler.scope import ProfileScope
+from smoke_optimiser.profiler.scope import WHOLE_REPOSITORY, ProfileScope
 
 _MACHINE = MachineEnvironment(
     os=None,
@@ -309,3 +309,62 @@ def test_a_test_module_is_known_even_when_nothing_else_in_the_profile_mentions_i
     assert maps.knows("tests/test_standalone.py")
     assert maps.tests_in_module("tests/test_standalone.py") == frozenset({"tests/test_standalone.py::test_one"})
     assert maps.dependents_of("tests/test_standalone.py") == frozenset()
+
+
+def _directory_scope_profile() -> ProfilingData:
+    """A suite spread across two directories, plus a source file with no tests."""
+    ids = (
+        "tests/sub/test_in.py::test_one",
+        "tests/sub/test_in.py::test_two",
+        "tests/test_outside.py::test_three",
+    )
+    return _profile(
+        tests={test_id: _outcome(test_id, frozenset()) for test_id in ids},
+        measured_files=frozenset({"src/a.py"}),
+    )
+
+
+def test_tests_at_or_below_a_directory_stops_at_that_directory() -> None:
+    maps = DownwindMaps.from_profile(_directory_scope_profile())
+
+    assert maps.tests_at_or_below("tests/sub") == frozenset(
+        {"tests/sub/test_in.py::test_one", "tests/sub/test_in.py::test_two"}
+    )
+
+
+def test_tests_at_or_below_the_repository_root_is_every_recorded_test() -> None:
+    # What a root conftest's directory scope comes to. WHOLE_REPOSITORY is a
+    # root like any other rather than a prefix that happens to match, so the
+    # rules need no special case for a conftest.py with no '/' in its path.
+    maps = DownwindMaps.from_profile(_directory_scope_profile())
+
+    assert maps.tests_at_or_below(WHOLE_REPOSITORY) == frozenset(
+        {
+            "tests/sub/test_in.py::test_one",
+            "tests/sub/test_in.py::test_two",
+            "tests/test_outside.py::test_three",
+        }
+    )
+
+
+def test_tests_at_or_below_a_directory_holding_no_tests_answers_empty() -> None:
+    # A directory is not a file the maps have an entry for, so the
+    # UnknownFileError the per-file lookups raise would be wrong here: "no
+    # test lives under src/" is a real answer, not a lookup miss.
+    maps = DownwindMaps.from_profile(_directory_scope_profile())
+
+    assert maps.tests_at_or_below("src") == frozenset()
+
+
+def test_tests_at_or_below_does_not_match_a_sibling_sharing_a_name_prefix() -> None:
+    # 'tests/sub' must not swallow 'tests/subtle': a bare string prefix test
+    # would, and would select tests pytest never applies the conftest to.
+    ids = ("tests/sub/test_in.py::test_one", "tests/subtle/test_other.py::test_two")
+    profile = _profile(
+        tests={test_id: _outcome(test_id, frozenset()) for test_id in ids},
+        measured_files=frozenset(),
+    )
+
+    maps = DownwindMaps.from_profile(profile)
+
+    assert maps.tests_at_or_below("tests/sub") == frozenset({"tests/sub/test_in.py::test_one"})

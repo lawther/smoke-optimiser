@@ -24,7 +24,17 @@ tests by both available relations:
   module imports the conftest, so the import closure stops there while
   coverage recorded every test that used its fixtures.
 
-Each half covers the other's blind spot, so the answer is their union.
+Each half covers the other's blind spot, so the answer is their union --
+except where BOTH are empty for a file the walk cannot continue past. A
+conftest.py defines no test, and under a ``--cov`` that measured only the
+package it is in no ``files_covered`` either, so a changed module whose only
+route to the suite is a conftest import reaches a file that turns into no
+node ids at all. That is a DEAD END: the walk stopped because nothing
+imports the file, not because the file leads nowhere. A dead end at a
+conftest.py falls back to pytest's own scoping rule, every test at or below
+its directory; a dead end anywhere else -- a pytest11 plugin belonging to
+the project, a module loaded through machinery the tracer cannot follow --
+has no such rule to fall back on and is a blind spot.
 
 REFUSALS ACCUMULATE. Every offending input contributes its own blind spot,
 so a developer sees everything they would have to fix to get a subset again
@@ -39,10 +49,10 @@ and nothing asks where the changed set or the existing files came from.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 from smoke_optimiser.downwind.blind_spots import BlindSpot, BlindSpotReason
-from smoke_optimiser.profiler.scope import CONFTEST
+from smoke_optimiser.profiler.scope import CONFTEST, WHOLE_REPOSITORY
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -128,13 +138,63 @@ def _blind_spot_reason(maps: DownwindMaps, path: str) -> BlindSpotReason | None:
     return None
 
 
-def _tests_downwind_of(maps: DownwindMaps, path: str) -> frozenset[str]:
-    """Every test the maps put downwind of one answerable changed file."""
+def _conftest_directory(path: str) -> str:
+    """The directory a conftest.py governs, as pytest scopes it.
+
+    A conftest at the repository root governs everything, which is
+    :data:`WHOLE_REPOSITORY` rather than the empty string so that the one
+    "at or below" predicate in :mod:`smoke_optimiser.profiler.scope` answers
+    for it like any other root.
+    """
+    directory, separator, _ = path.rpartition("/")
+    return directory if separator else WHOLE_REPOSITORY
+
+
+class _FileAnswer(NamedTuple):
+    """What one answerable changed file contributed: tests, and its dead ends.
+
+    Both, because walking the closure is where a dead end is discovered, and
+    a file can reach answerable tests down one branch while another branch
+    stops at something unanswerable. Returning only the tests would drop the
+    dead end silently, which is precisely the failure this rule exists to
+    catch.
+    """
+
+    node_ids: frozenset[str]
+    blind_spots: frozenset[BlindSpot]
+
+
+def _tests_downwind_of(maps: DownwindMaps, path: str) -> _FileAnswer:
+    """Every test the maps put downwind of one answerable changed file.
+
+    A reached file that yields no tests by either relation is only a problem
+    when the walk cannot continue past it either. An ordinary module in the
+    middle of the closure yields nothing and is still fine: something
+    imports it, so its own importers are already in the closure and will be
+    asked in their turn. Only an UNATTRIBUTED file is terminal -- nothing was
+    seen to import it, so there is nowhere further to walk -- and an
+    unattributed file that also yields no tests is a route to the suite that
+    ends in nothing.
+    """
     selected: set[str] = set()
+    dead_ends: set[BlindSpot] = set()
+
     for reached in maps.dependents_of(path) | {path}:
-        selected |= maps.tests_in_module(reached)
-        selected |= maps.tests_executing(reached)
-    return frozenset(selected)
+        tests = maps.tests_in_module(reached) | maps.tests_executing(reached)
+        if tests:
+            selected |= tests
+        elif not maps.is_unattributed(reached):
+            continue
+        elif _is_conftest(reached):
+            # so-017's rule, applied to a conftest that merely sits on the
+            # path rather than one that changed: pytest applies a conftest to
+            # every test collected at or below its directory, and that is
+            # answerable from the node ids whatever --cov measured.
+            selected |= maps.tests_at_or_below(_conftest_directory(reached))
+        else:
+            dead_ends.add(BlindSpot(reason=BlindSpotReason.TERMINAL_DEAD_END, file=reached))
+
+    return _FileAnswer(node_ids=frozenset(selected), blind_spots=frozenset(dead_ends))
 
 
 def _expiry_blind_spots(maps: DownwindMaps, existing_files: Iterable[str]) -> set[BlindSpot]:
@@ -181,7 +241,9 @@ def downwind_of(
     for path in {changed.path for changed in changed_files}:
         reason = _blind_spot_reason(maps, path)
         if reason is None:
-            node_ids |= _tests_downwind_of(maps, path)
+            answer = _tests_downwind_of(maps, path)
+            node_ids |= answer.node_ids
+            blind_spots |= answer.blind_spots
         else:
             blind_spots.add(BlindSpot(reason=reason, file=path))
 

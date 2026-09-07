@@ -47,6 +47,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from smoke_optimiser.profiler.scope import under_root
+
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
@@ -153,8 +155,8 @@ class DownwindMaps:
     """The inverted profile: file -> tests, file -> dependents, file -> its own tests.
 
     Built by :meth:`from_profile`; query with :meth:`knows`,
-    :meth:`tests_executing`, :meth:`dependents_of` and
-    :meth:`tests_in_module`. so-jr5.2's rules are
+    :meth:`tests_executing`, :meth:`dependents_of`,
+    :meth:`tests_in_module` and :meth:`tests_at_or_below`. so-jr5.2's rules are
     the only intended caller -- this class answers "what does the profile
     say", never "should this file force a full run". :meth:`is_unattributed`
     and :attr:`resolution_errors` keep to that split: they report where the
@@ -218,6 +220,29 @@ class DownwindMaps:
         if path not in self._known_files:
             raise UnknownFileError(path)
         return self._tests_in_module_by_file[path]
+
+    def tests_at_or_below(self, directory: str) -> frozenset[str]:
+        """Every test DEFINED in a file at or below ``directory``.
+
+        pytest's own scoping rule, asked of the profile: a conftest.py applies
+        to every test collected at or below the directory containing it, and a
+        node id's path is the file its test is defined in. Read off the node
+        ids rather than off coverage, so the answer holds under a ``--cov``
+        target that never measured the test tree -- which is the only
+        configuration that needs to ask.
+
+        ``directory`` is a repository-relative posix path, or
+        ``WHOLE_REPOSITORY`` for the root, where the answer is every test the
+        profile recorded. No :class:`UnknownFileError`: a directory is not a
+        file the maps have an entry for, and one holding no test the profile
+        saw is genuinely answered by the empty set.
+        """
+        return frozenset(
+            test_id
+            for path, tests in self._tests_in_module_by_file.items()
+            if under_root(path, directory)
+            for test_id in tests
+        )
 
     def is_unattributed(self, path: str) -> bool:
         """Was ``path`` loaded without the tracer seeing anything import it?

@@ -191,8 +191,14 @@ def resolve_scope(
     )
 
 
-def _under_root(path: str, root: str) -> bool:
-    """Is ``path`` at or beneath ``root``? Both repo-relative posix paths."""
+def under_root(path: str, root: str) -> bool:
+    """Is ``path`` at or beneath ``root``? Both repo-relative posix paths.
+
+    Public because the downwind rules ask the same question of a conftest's
+    directory as scope membership asks of a coverage root, and two spellings
+    of "at or below" that disagree about a trailing separator would put a
+    test in one answer and out of the other.
+    """
     if root == WHOLE_REPOSITORY:
         return True
     return path == root or path.startswith(f"{root}/")
@@ -208,12 +214,12 @@ def _in_scope(path: str, scope: ProfileScope) -> bool:
     """Would a profile regenerated under ``scope`` know about ``path``?"""
     if not path.endswith(".py"):
         return False
-    if any(_under_root(path, root) for root in scope.coverage_roots):
+    if any(under_root(path, root) for root in scope.coverage_roots):
         return True
     return any(
         root != WHOLE_REPOSITORY or _would_be_collected(path, scope.test_file_patterns)
         for root in scope.test_roots
-        if _under_root(path, root)
+        if under_root(path, root)
     )
 
 
