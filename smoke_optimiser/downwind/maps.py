@@ -40,6 +40,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from smoke_optimiser.profiler.models import ProfilingData
 
 
@@ -126,8 +128,8 @@ class DownwindMaps:
     import graph is blind, and leave what to do about it to the rules.
     """
 
-    _tests_by_file: dict[str, frozenset[str]]
-    _dependents_by_file: dict[str, frozenset[str]]
+    _tests_by_file: Mapping[str, frozenset[str]]
+    _dependents_by_file: Mapping[str, frozenset[str]]
     _known_files: frozenset[str]
     _unattributed_modules: frozenset[str]
     _resolution_errors: int
