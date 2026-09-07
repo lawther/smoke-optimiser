@@ -1,9 +1,10 @@
 """Schema for .downwind.json, the file --downwind reads under pytest.
 
 A downwind selection makes a categorical claim -- every test that has ever
-executed a changed file, plus every test whose module transitively imports
-one -- never a coverage bet, so it shares nothing with SmokeSuiteFile beyond
-the list of node ids. See so-uom.
+executed a changed file, every test whose module transitively imports one,
+and every test at or below a conftest.py the import closure terminates at --
+never a coverage bet, so it shares nothing with SmokeSuiteFile beyond the
+list of node ids. See so-uom.
 """
 
 import json
