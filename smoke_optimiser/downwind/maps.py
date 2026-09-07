@@ -7,7 +7,7 @@ without rescanning every test record for every changed file in a commit. This
 module builds that inversion once, from a loaded profile, as a pure function
 with no IO and no git.
 
-Two relations come out of a profile:
+Three relations come out of a profile:
 
 * file -> tests that executed it, inverted from ``files_covered``. A
   branchless file (constants, re-exports, model declarations) still executed
@@ -17,10 +17,18 @@ Two relations come out of a profile:
   ``ImportGraph.edges`` and closed over however many hops. This is the only
   relation that can answer for a file that only ever runs at import time,
   which coverage records under no test context at all.
+* file -> tests DEFINED in it, inverted from the node ids ``ProfilingData``
+  is keyed by. A dependent is a file and the answer is node ids, so
+  something has to cross that gap, and coverage cannot: whether a test
+  module appears in any ``files_covered`` depends entirely on the ``--cov``
+  target the run happened to use. Under ``--cov=mypackage`` no test executed
+  a test module, so the file -> tests relation is empty for every one of
+  them, and a changed import-time-only module would select nothing at all.
+  The node ids carry the relation regardless.
 
-Both maps are dense: every file the profile knows about, from
-``DownwindMaps.knows``, has an entry in both maps, empty where it has no
-tests or no dependents. Density means a lookup miss is never ambiguous
+All three maps are dense: every file the profile knows about, from
+``DownwindMaps.knows``, has an entry in each, empty where it has no tests,
+no dependents or no tests defined in it. Density means a lookup miss is never ambiguous
 between "known, but empty" and "never seen" -- the caller need not
 cross-reference a third set to tell them apart. Measured at the largest
 observed repo scale (271 files), that costs a few tens of kilobytes and a
@@ -59,14 +67,38 @@ def _known_files(profile: ProfilingData) -> frozenset[str]:
     """Every file the profile knows about at all.
 
     The union of everything coverage measured, whether or not any test
-    executed it, and every file the import graph mentions -- as an
-    importer, as something imported, or as a module loaded but
-    unattributable to any importer (test modules, conftest.py, plugins
-    pytest loaded before the tracer was installed).
+    executed it, every file the import graph mentions -- as an importer, as
+    something imported, or as a module loaded but unattributable to any
+    importer (test modules, conftest.py, plugins pytest loaded before the
+    tracer was installed) -- and every file a recorded test is defined in.
+
+    The last of those is rarely news, since a test module reaches the graph
+    as an importer of whatever it imports. It matters when a test module
+    imports nothing measured, and it keeps the node id map from being the
+    one relation whose keys the maps deny knowing.
     """
     graph = profile.import_graph
     graph_files = {edge.importer for edge in graph.edges} | {edge.imported for edge in graph.edges}
-    return profile.measured_files | graph_files | graph.unattributed_modules
+    defining_files = {_defining_file(test_id) for test_id in profile.tests}
+    return profile.measured_files | graph_files | graph.unattributed_modules | defining_files
+
+
+def _defining_file(test_id: str) -> str:
+    """The file a pytest node id names, which is everything before the first ``::``.
+
+    A node id is ``path::class::test[param]``, and a parametrised id can
+    carry a further ``::`` inside its brackets, so only the first separator
+    delimits the path.
+    """
+    return test_id.split("::", maxsplit=1)[0]
+
+
+def _tests_in_module_by_file(profile: ProfilingData, known_files: frozenset[str]) -> dict[str, frozenset[str]]:
+    """Invert the profile's node ids into file -> the tests DEFINED in it."""
+    defined: dict[str, set[str]] = {}
+    for test_id in profile.tests:
+        defined.setdefault(_defining_file(test_id), set()).add(test_id)
+    return {path: frozenset(defined.get(path, ())) for path in known_files}
 
 
 def _tests_by_file(profile: ProfilingData, known_files: frozenset[str]) -> dict[str, frozenset[str]]:
@@ -118,10 +150,11 @@ def _dependents_by_file(profile: ProfilingData, known_files: frozenset[str]) -> 
 
 @dataclass(frozen=True)
 class DownwindMaps:
-    """The file -> tests and file -> dependents maps, built once per profile.
+    """The inverted profile: file -> tests, file -> dependents, file -> its own tests.
 
     Built by :meth:`from_profile`; query with :meth:`knows`,
-    :meth:`tests_executing` and :meth:`dependents_of`. so-jr5.2's rules are
+    :meth:`tests_executing`, :meth:`dependents_of` and
+    :meth:`tests_in_module`. so-jr5.2's rules are
     the only intended caller -- this class answers "what does the profile
     say", never "should this file force a full run". :meth:`is_unattributed`
     and :attr:`resolution_errors` keep to that split: they report where the
@@ -130,18 +163,20 @@ class DownwindMaps:
 
     _tests_by_file: Mapping[str, frozenset[str]]
     _dependents_by_file: Mapping[str, frozenset[str]]
+    _tests_in_module_by_file: Mapping[str, frozenset[str]]
     _known_files: frozenset[str]
     _unattributed_modules: frozenset[str]
     _resolution_errors: int
 
     @classmethod
     def from_profile(cls, profile: ProfilingData) -> DownwindMaps:
-        """Build both maps from a loaded profile, once."""
+        """Build every map from a loaded profile, once."""
         known_files = _known_files(profile)
         graph = profile.import_graph
         return cls(
             _tests_by_file=_tests_by_file(profile, known_files),
             _dependents_by_file=_dependents_by_file(profile, known_files),
+            _tests_in_module_by_file=_tests_in_module_by_file(profile, known_files),
             _known_files=known_files,
             _unattributed_modules=graph.unattributed_modules,
             _resolution_errors=graph.resolution_errors,
@@ -168,6 +203,21 @@ class DownwindMaps:
         if path not in self._known_files:
             raise UnknownFileError(path)
         return self._dependents_by_file[path]
+
+    def tests_in_module(self, path: str) -> frozenset[str]:
+        """Tests DEFINED in ``path``, read off the node ids the profile is keyed by.
+
+        Empty for every file that is not a test module, and for a test
+        module whose tests the profiled run never recorded. Unlike
+        :meth:`tests_executing` this does not depend on what the run's
+        ``--cov`` target measured, which is what makes it able to answer for
+        a test module coverage never saw.
+
+        Raises :class:`UnknownFileError` if ``knows(path)`` is false.
+        """
+        if path not in self._known_files:
+            raise UnknownFileError(path)
+        return self._tests_in_module_by_file[path]
 
     def is_unattributed(self, path: str) -> bool:
         """Was ``path`` loaded without the tracer seeing anything import it?

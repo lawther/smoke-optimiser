@@ -233,3 +233,79 @@ def test_resolution_errors_survive_the_inversion_as_a_count() -> None:
 
     assert DownwindMaps.from_profile(degraded).resolution_errors == _SWALLOWED_EDGES
     assert DownwindMaps.from_profile(healthy).resolution_errors == 0
+
+
+def test_tests_in_module_answers_for_a_test_module_coverage_never_measured() -> None:
+    # The case tests_executing cannot answer at all. Under --cov=src the test
+    # modules are absent from every files_covered, so the file -> tests
+    # relation is empty for them; the node ids are the only record that
+    # tests/test_a.py is where these two tests live.
+    profile = _profile(
+        tests={
+            "tests/test_a.py::test_one": _outcome("tests/test_a.py::test_one", frozenset({"src/a.py"})),
+            "tests/test_a.py::test_two": _outcome("tests/test_a.py::test_two", frozenset({"src/a.py"})),
+            "tests/test_b.py::test_three": _outcome("tests/test_b.py::test_three", frozenset({"src/a.py"})),
+        },
+        measured_files=frozenset({"src/a.py"}),
+        edges=frozenset({ImportEdge(importer="tests/test_a.py", imported="src/a.py")}),
+        unattributed_modules=frozenset({"tests/test_a.py", "tests/test_b.py"}),
+    )
+
+    maps = DownwindMaps.from_profile(profile)
+
+    assert maps.tests_executing("tests/test_a.py") == frozenset()
+    assert maps.tests_in_module("tests/test_a.py") == frozenset(
+        {"tests/test_a.py::test_one", "tests/test_a.py::test_two"}
+    )
+    assert maps.tests_in_module("tests/test_b.py") == frozenset({"tests/test_b.py::test_three"})
+
+
+def test_a_file_defining_no_tests_is_empty_rather_than_unknown() -> None:
+    # The same known-but-empty / never-seen distinction the other two maps
+    # keep. Every source file and every conftest.py lands in the first case,
+    # and jr5.2's unattributed rule reads exactly that difference to tell a
+    # pytest-loaded test module from a module nothing was seen to import.
+    profile = _profile(
+        tests={"tests/test_a.py::test_one": _outcome("tests/test_a.py::test_one", frozenset({"src/a.py"}))},
+        measured_files=frozenset({"src/a.py"}),
+        unattributed_modules=frozenset({"conftest.py"}),
+    )
+
+    maps = DownwindMaps.from_profile(profile)
+
+    assert maps.tests_in_module("src/a.py") == frozenset()
+    assert maps.tests_in_module("conftest.py") == frozenset()
+    with pytest.raises(UnknownFileError):
+        maps.tests_in_module("src/never_seen.py")
+
+
+def test_a_parametrised_node_id_resolves_to_its_file_and_not_its_parameters() -> None:
+    # A parametrised id can carry '::' inside the brackets, so only the FIRST
+    # separator delimits the path. Splitting on the last one would file this
+    # test under a path that does not exist and silently lose it.
+    node_id = "tests/test_a.py::test_one[a::b]"
+    profile = _profile(
+        tests={node_id: _outcome(node_id, frozenset({"src/a.py"}))},
+        measured_files=frozenset({"src/a.py"}),
+    )
+
+    maps = DownwindMaps.from_profile(profile)
+
+    assert maps.tests_in_module("tests/test_a.py") == frozenset({node_id})
+
+
+def test_a_test_module_is_known_even_when_nothing_else_in_the_profile_mentions_it() -> None:
+    # A test module that imports nothing measured reaches neither
+    # measured_files nor the graph. Without its node ids in known_files the
+    # maps would deny knowing the very file they hold tests for, and jr5.2
+    # would refuse with UNKNOWN_PATH for a file it can answer perfectly.
+    profile = _profile(
+        tests={"tests/test_standalone.py::test_one": _outcome("tests/test_standalone.py::test_one", frozenset())},
+        measured_files=frozenset({"src/a.py"}),
+    )
+
+    maps = DownwindMaps.from_profile(profile)
+
+    assert maps.knows("tests/test_standalone.py")
+    assert maps.tests_in_module("tests/test_standalone.py") == frozenset({"tests/test_standalone.py::test_one"})
+    assert maps.dependents_of("tests/test_standalone.py") == frozenset()
