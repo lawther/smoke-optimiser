@@ -128,7 +128,24 @@ def _load_downwind_suite(config: pytest.Config) -> DownwindSuiteFile | None:
 
 
 def pytest_configure(config: pytest.Config) -> None:
-    """Register the plugin and load the smoke suite and/or downwind selection."""
+    """Register the plugin and load the smoke suite or downwind selection.
+
+    The two modes are mutually exclusive by design. --smoke is a coverage bet: a
+    static subset that makes no promise about what it skips. --downwind is
+    categorical: every test the profile says a change can reach. Running both
+    would filter to their intersection, a subset neither mode can justify, and
+    would quietly reduce downwind's full-suite blind-spot fallback to a smoke
+    subset. So the combination is refused rather than silently reinterpreted.
+    """
+    if config.getoption("--smoke") and config.getoption("--downwind"):
+        pytest.exit(
+            "smoke-optimiser: ❌ Error: --smoke and --downwind cannot be used together.\n"
+            "  --smoke runs a fixed high-coverage subset; --downwind runs every test your\n"
+            "  changes can reach. Running both selects only the tests in both, which keeps\n"
+            "  neither promise. Pick one.",
+            returncode=1,
+        )
+
     if config.getoption("--smoke"):
         suite = _load_smoke_suite(config)
         if suite:

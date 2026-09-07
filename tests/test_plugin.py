@@ -417,3 +417,43 @@ def test_plugin_downwind_report_header_blind_spot(
         ["*smoke-optimiser: downwind selection from *downwind.json* could not answer for*running full suite*"],
     )
     result.stdout.no_fnmatch_line("*coverage*")
+
+
+def test_plugin_smoke_and_downwind_together_is_refused(
+    pytester: pytest.Pytester,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Passing both flags must fail loudly rather than silently intersecting the two selections.
+
+    The smoke file path is deliberately absent while the downwind one is valid: if
+    the guard ran after the loaders we would see "smoke suite file not found"
+    instead, so this also pins the guard to the top of pytest_configure.
+    """
+    downwind_file = tmp_path / "downwind.json"
+    downwind_file.write_text(json.dumps(_downwind_data(["test_app.py::test_1"])))
+
+    pytester.makepyfile(
+        test_app="""
+        def test_1(): pass
+        def test_2(): pass
+        """,
+    )
+
+    monkeypatch.setenv("PYTHONPATH", str(Path.cwd()))
+    result = pytester.runpytest_subprocess(
+        "--smoke",
+        "--smoke-file-path=nonexistent.json",
+        "--downwind",
+        f"--downwind-file-path={downwind_file}",
+    )
+
+    assert result.ret == 1
+    result.stderr.fnmatch_lines(
+        ["*smoke-optimiser: ❌ Error: --smoke and --downwind cannot be used together.*"],
+    )
+    # The smoke file is deliberately absent: if the guard ran too late we would see
+    # the "smoke suite file not found" error instead of the mutual-exclusion one.
+    result.stderr.no_fnmatch_line("*smoke suite file not found*")
+    # Nothing may run: the refusal happens at configure time, before collection.
+    result.stdout.no_fnmatch_line("*passed*")
