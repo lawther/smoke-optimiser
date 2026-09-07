@@ -247,3 +247,48 @@ def test_a_serial_profile_is_ranked_without_complaint() -> None:
     config = _default_config(allow_parallel_durations=False)
 
     _reject_parallel_durations(config, _profile_recorded_with(1))
+
+
+def _resolved_config_from_a_run(mock_run: MagicMock) -> ResolvedConfig:
+    """Recover the config the CLI actually resolved, as handed to the profiler."""
+    config = mock_run.call_args.args[0]
+    assert isinstance(config, ResolvedConfig)
+    return config
+
+
+@patch("smoke_optimiser.cli.run_profiling")
+@patch("smoke_optimiser.cli.optimise", new=MagicMock())
+@patch("smoke_optimiser.cli.write_smoke_suite", new=MagicMock())
+@patch("smoke_optimiser.cli.format_summary", new=MagicMock())
+def test_a_boolean_set_in_pyproject_survives_a_run_that_does_not_mention_it(
+    mock_run: MagicMock,
+    tmp_path: Path,
+) -> None:
+    """End to end: the file setting reaches the profiler when no flag contradicts it."""
+    (tmp_path / "pyproject.toml").write_text("[tool.smoke_optimiser]\nallow_ordered = true\n")
+    mock_run.return_value = MagicMock(tests={}, total_branches=frozenset(), meta=MagicMock(xdist_workers=1))
+
+    with patch("pathlib.Path.cwd", return_value=tmp_path):
+        result = runner.invoke(app, [])
+
+    assert result.exit_code == EXIT_CODE_SUCCESS
+    assert _resolved_config_from_a_run(mock_run).allow_ordered is True
+
+
+@patch("smoke_optimiser.cli.run_profiling")
+@patch("smoke_optimiser.cli.optimise", new=MagicMock())
+@patch("smoke_optimiser.cli.write_smoke_suite", new=MagicMock())
+@patch("smoke_optimiser.cli.format_summary", new=MagicMock())
+def test_the_negative_form_of_a_flag_turns_off_a_setting_the_file_turned_on(
+    mock_run: MagicMock,
+    tmp_path: Path,
+) -> None:
+    """The command line wins over pyproject.toml in both directions, not just one."""
+    (tmp_path / "pyproject.toml").write_text("[tool.smoke_optimiser]\nallow_ordered = true\n")
+    mock_run.return_value = MagicMock(tests={}, total_branches=frozenset(), meta=MagicMock(xdist_workers=1))
+
+    with patch("pathlib.Path.cwd", return_value=tmp_path):
+        result = runner.invoke(app, ["--no-allow-ordered"])
+
+    assert result.exit_code == EXIT_CODE_SUCCESS
+    assert _resolved_config_from_a_run(mock_run).allow_ordered is False

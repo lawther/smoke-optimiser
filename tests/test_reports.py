@@ -43,9 +43,9 @@ def test_build_repro_command() -> None:
     assert "--exclude=@pytest.mark.slow" in cmd
     assert "--pytest-args=--timeout=30" in cmd
     assert "--output-json=.smoke_suite.json" in cmd
-    # allow_ordered is off in this config, and the flag has no negative form, so the
-    # reproducing command must simply leave it out.
-    assert "allow-ordered" not in cmd
+    # allow_ordered is off in this config, and the flag has a negative form, so the
+    # reproducing command must say so outright rather than stay silent about it.
+    assert "--no-allow-ordered" in cmd
     assert "--src=src" in cmd
 
 
@@ -72,10 +72,13 @@ def test_build_repro_command_empty_lists() -> None:
 def test_repro_command_completeness_against_help() -> None:
     """Introspect --help output and ensure all non-flag arguments are in repro.
 
-    Flags are booleans defaulting to False.
+    Boolean flags are tri-state and default to None, so --help lists both halves of
+    each pair; the repro command must name exactly one half of every pair.
     """
     runner = CliRunner()
-    result = runner.invoke(app, ["--help"])
+    # Rich wraps the help table to the terminal width, and a wrapped option name is
+    # scraped as a truncated one ("--allow-parallel-du"), so ask for a wide terminal.
+    result = runner.invoke(app, ["--help"], env={"COLUMNS": "200"})
     assert result.exit_code == 0
 
     # 1. Find all options (lines starting with --)
@@ -110,16 +113,21 @@ def test_repro_command_completeness_against_help() -> None:
     )
     cmd = build_repro_command(config)
 
-    # Boolean flags carry no value and exist only in their positive form, so the config
-    # above turns every one of them on and the command must then name each of them.
+    # Boolean flags carry no value and come as a --x/--no-x pair. --help lists both
+    # halves, so the negative halves are folded into their positive partner rather
+    # than demanded separately: a command naming both would be self-contradictory.
     boolean_flags = {"allow-ordered", "allow-parallel-durations"}
+    required_options = [opt for opt in required_options if opt.removeprefix("no-") not in boolean_flags]
 
     for opt in required_options:
-        if opt in boolean_flags:
-            assert f"--{opt}" in cmd, f"Option --{opt} missing from canonical repro command"
-        else:
-            # Check if "--opt=" is in the command
-            assert f"--{opt}=" in cmd, f"Option --{opt} missing from canonical repro command"
+        # Check if "--opt=" is in the command
+        assert f"--{opt}=" in cmd, f"Option --{opt} missing from canonical repro command"
+
+    # The config above turns every boolean on, so each pair must appear in its
+    # positive form and its negative form must be absent.
+    for flag in boolean_flags:
+        assert f"--{flag}" in cmd, f"Option --{flag} missing from canonical repro command"
+        assert f"--no-{flag}" not in cmd, f"Option --no-{flag} contradicts --{flag} in repro command"
 
 
 def test_smoke_suite_roundtrip(tmp_path: Path) -> None:

@@ -32,17 +32,15 @@ def build_repro_command(config: ResolvedConfig) -> str:
     parts.append(f"--pytest-args={shlex.quote(config.pytest_args)}")
     parts.append(f"--output-json={shlex.quote(str(config.output_json))}")
 
-    # Boolean flags exist only in their positive form, so the reproducing command
-    # omits them when off rather than emitting a --no- variant the CLI rejects.
-    if config.allow_ordered:
-        parts.append("--allow-ordered")
+    # Booleans have a negative form, so the command names them either way rather
+    # than leaving an off setting to be inferred from the flag's absence.
+    parts.append("--allow-ordered" if config.allow_ordered else "--no-allow-ordered")
 
     src_val = config.cov_source
     parts.append(f"--src={shlex.quote(src_val)}")
 
     parts.append(f"--iterations={config.iterations}")
 
-    if config.allow_parallel_durations:
-        parts.append("--allow-parallel-durations")
+    parts.append("--allow-parallel-durations" if config.allow_parallel_durations else "--no-allow-parallel-durations")
 
     return " ".join(parts)

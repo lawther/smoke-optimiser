@@ -90,3 +90,25 @@ def test_resolve_config_merge(tmp_path: Path) -> None:
     # CLI None does not override file
     resolved = resolve_config(file_config, {"time_cap": None}, tmp_path)
     assert resolved.time_cap == CUSTOM_TIME_CAP
+
+
+def test_a_boolean_left_off_the_command_line_does_not_clobber_the_file(tmp_path: Path) -> None:
+    """A flag the user never typed arrives as None, so the file's value survives.
+
+    This is the regression this tri-state exists for: while the flags defaulted to
+    False, every run overrode a pyproject.toml `allow_ordered = true` back to False
+    and the setting was silently inert.
+    """
+    file_config = FileConfig(allow_ordered=True, allow_parallel_durations=True)
+    resolved = resolve_config(file_config, {"allow_ordered": None, "allow_parallel_durations": None}, tmp_path)
+    assert resolved.allow_ordered is True
+    assert resolved.allow_parallel_durations is True
+
+
+def test_a_boolean_given_on_the_command_line_beats_the_file_in_both_directions(tmp_path: Path) -> None:
+    """The negative form is the whole reason the flags are tri-state rather than `flag or None`."""
+    resolved = resolve_config(FileConfig(allow_ordered=True), {"allow_ordered": False}, tmp_path)
+    assert resolved.allow_ordered is False
+
+    resolved = resolve_config(FileConfig(allow_ordered=False), {"allow_ordered": True}, tmp_path)
+    assert resolved.allow_ordered is True

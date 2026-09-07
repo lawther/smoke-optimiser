@@ -280,12 +280,12 @@ def main(  # noqa: PLR0913 # special case for this function since Typer works th
         typer.Option("--output-json", help="Path for the smoke suite definition file."),
     ] = None,
     allow_ordered: Annotated[
-        bool,
+        bool | None,
         typer.Option(
-            "--allow-ordered",
+            "--allow-ordered/--no-allow-ordered",
             help="Suppress error when pytest-randomly is not installed.",
         ),
-    ] = False,
+    ] = None,
     src: Annotated[
         str | None,
         typer.Option("--src", help="Source directory/package for coverage instrumentation."),
@@ -295,13 +295,13 @@ def main(  # noqa: PLR0913 # special case for this function since Typer works th
         typer.Option("--iterations", help="Number of times to run the suite to average timing."),
     ] = None,
     allow_parallel_durations: Annotated[
-        bool,
+        bool | None,
         typer.Option(
-            "--allow-parallel-durations",
+            "--allow-parallel-durations/--no-allow-parallel-durations",
             help="Build a smoke suite from a profile recorded with pytest-xdist, whose durations "
             "were measured under contention.",
         ),
-    ] = False,
+    ] = None,
 ) -> None:
     """smoke-optimiser: Identify a minimal, high-value smoke test suite."""
     _validate_option_combinations(
@@ -328,7 +328,7 @@ def main(  # noqa: PLR0913 # special case for this function since Typer works th
         "allow_ordered": allow_ordered,
         "cov_source": src,
         "iterations": iterations,
-        "allow_parallel_durations": allow_parallel_durations or None,
+        "allow_parallel_durations": allow_parallel_durations,
     }
 
     project_root = Path.cwd()

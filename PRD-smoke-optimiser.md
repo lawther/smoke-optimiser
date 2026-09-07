@@ -124,7 +124,7 @@ Configuration is resolved in this order (later wins):
 | `exclude_mandatory` | `--exclude` | `list[str]` | `[]` | Tests or pytest markers (e.g. `@pytest.mark.slow`) that **must not** be in the smoke suite. |
 | `pytest_args` | `--pytest-args` | `str` | `""` | Extra arguments forwarded to pytest during profiling. |
 | `output_json` | `--output-json` | `path` | `./.smoke_suite.json` | Path for the smoke suite definition file. |
-| `allow_ordered` | `--allow-ordered` | `bool` | `false` | Suppress the warning/error when `pytest-randomly` is not installed. |
+| `allow_ordered` | `--allow-ordered` / `--no-allow-ordered` | `bool` | `false` | Suppress the warning/error when `pytest-randomly` is not installed. |
 | — | `--profile-only` | `flag` | `false` | Run only the profiling phase. |
 | — | `--optimise-only` | `flag` | `false` | Run only the optimisation phase. |
 | `smoke_file_path` | `--smoke-file-path` | `path` | `./.smoke_suite.json` | (pytest plugin) Location of the smoke suite file. |

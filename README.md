@@ -73,7 +73,8 @@ uv run smoke-optimiser --include="tests/test_auth.py" --exclude="@pytest.mark.sl
 | `--output-json` | Path for the generated smoke suite definition file. | `.smoke_suite.json` |
 | `--profile-only` | Run only the profiling phase and save intermediate data. | `False` |
 | `--optimise-only` | Run only the optimisation phase using existing profile data. | `False` |
-| `--allow-ordered` | Suppress warning when `pytest-randomly` is not installed. | `False` |
+| `--allow-ordered` / `--no-allow-ordered` | Suppress warning when `pytest-randomly` is not installed. | `False` |
+| `--allow-parallel-durations` / `--no-allow-parallel-durations` | Rank a profile whose durations were recorded under `pytest-xdist` contention. | `False` |
 
 ### `pytest` (Plugin)
 
