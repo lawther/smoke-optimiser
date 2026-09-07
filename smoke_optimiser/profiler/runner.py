@@ -266,7 +266,10 @@ def _fatal_exit_message(returncode: int) -> str:
             f"pytest exited with code {returncode}, which is not one it defines -- it was most likely "
             "killed or it crashed. The suite it profiled is incomplete."
         )
-    return f"{FATAL_EXIT_CODES[exit_code]} (exit code {int(exit_code)}). The suite it profiled is incomplete."
+    # .get, not [], so an exit code a later pytest adds is reported rather than raising
+    # a KeyError out of the very code whose job is to explain what went wrong.
+    meaning = FATAL_EXIT_CODES.get(exit_code, f"pytest exited with {exit_code.name}")
+    return f"{meaning} (exit code {int(exit_code)}). The suite it profiled is incomplete."
 
 
 def _read_iteration_graph(import_graph_json: Path) -> ImportGraph:
