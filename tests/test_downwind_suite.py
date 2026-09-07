@@ -73,6 +73,45 @@ def test_downwind_suite_resolution_errors_blind_spot_has_no_file(tmp_path: Path)
     assert loaded.blind_spots[0].resolution_errors == RESOLUTION_ERROR_COUNT
 
 
+def test_blind_spot_model_rejects_file_with_resolution_errors_reason() -> None:
+    with pytest.raises(ValidationError):
+        BlindSpotModel(
+            reason=BlindSpotReason.RESOLUTION_ERRORS,
+            file="smoke_optimiser/new_module.py",
+            resolution_errors=RESOLUTION_ERROR_COUNT,
+        )
+
+
+def test_blind_spot_model_rejects_missing_file_for_non_resolution_errors_reason() -> None:
+    with pytest.raises(ValidationError):
+        BlindSpotModel(reason=BlindSpotReason.UNKNOWN_PATH)
+
+
+def test_blind_spot_model_rejects_resolution_errors_count_for_other_reasons() -> None:
+    with pytest.raises(ValidationError):
+        BlindSpotModel(
+            reason=BlindSpotReason.UNKNOWN_PATH,
+            file="smoke_optimiser/new_module.py",
+            resolution_errors=RESOLUTION_ERROR_COUNT,
+        )
+
+
+def test_blind_spot_model_rejects_missing_resolution_errors_count() -> None:
+    with pytest.raises(ValidationError):
+        BlindSpotModel(reason=BlindSpotReason.RESOLUTION_ERRORS)
+
+
+def test_downwind_suite_file_rejects_node_ids_and_blind_spots_both_populated() -> None:
+    with pytest.raises(ValidationError):
+        DownwindSuiteFile(
+            generated_at=datetime(2026, 9, 7, 9, 0, 0, tzinfo=UTC),
+            changed_files=["smoke_optimiser/new_module.py"],
+            node_ids=["tests/test_downwind_maps.py::test_knows"],
+            profile=_profile_identity(),
+            blind_spots=[BlindSpotModel(reason=BlindSpotReason.UNKNOWN_PATH, file="smoke_optimiser/new_module.py")],
+        )
+
+
 def test_downwind_suite_rejects_unknown_reason(tmp_path: Path) -> None:
     output_file = tmp_path / ".downwind.json"
     output_file.write_text(

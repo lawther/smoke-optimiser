@@ -11,7 +11,7 @@ from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 
 class BlindSpotReason(StrEnum):
@@ -43,6 +43,17 @@ class BlindSpotModel(BaseModel):
     file: str | None = None
     resolution_errors: int | None = None
 
+    @model_validator(mode="after")
+    def _check_reason_matches_fields(self) -> "BlindSpotModel":
+        is_resolution_errors = self.reason == BlindSpotReason.RESOLUTION_ERRORS
+        if (self.file is None) != is_resolution_errors:
+            file_message = "file must be set iff reason is not RESOLUTION_ERRORS"
+            raise ValueError(file_message)
+        if (self.resolution_errors is None) == is_resolution_errors:
+            resolution_errors_message = "resolution_errors must be set iff reason is RESOLUTION_ERRORS"
+            raise ValueError(resolution_errors_message)
+        return self
+
 
 class ProfileIdentityModel(BaseModel):
     """Identifies the profiling run a downwind selection was computed against.
@@ -67,6 +78,13 @@ class DownwindSuiteFile(BaseModel):
     node_ids: list[str]
     profile: ProfileIdentityModel
     blind_spots: list[BlindSpotModel] = []
+
+    @model_validator(mode="after")
+    def _check_node_ids_and_blind_spots_not_both_populated(self) -> "DownwindSuiteFile":
+        if self.node_ids and self.blind_spots:
+            message = "node_ids and blind_spots must not both be non-empty"
+            raise ValueError(message)
+        return self
 
 
 def write_downwind_suite(suite: DownwindSuiteFile, output_path: Path) -> None:
