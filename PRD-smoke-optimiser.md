@@ -125,6 +125,7 @@ Configuration is resolved in this order (later wins):
 | `pytest_args` | `--pytest-args` | `str` | `""` | Extra arguments forwarded to pytest during profiling. |
 | `output_json` | `--output-json` | `path` | `./.smoke_suite.json` | Path for the smoke suite definition file. |
 | `allow_ordered` | `--allow-ordered` / `--no-allow-ordered` | `bool` | `false` | Suppress the warning/error when `pytest-randomly` is not installed. |
+| `allow_parallel_durations` | `--allow-parallel-durations` / `--no-allow-parallel-durations` | `bool` | `false` | Build a smoke suite from a profile recorded with `pytest-xdist`, whose durations were measured under contention. |
 | — | `--profile-only` | `flag` | `false` | Run only the profiling phase. |
 | — | `--optimise-only` | `flag` | `false` | Run only the optimisation phase. |
 | `smoke_file_path` | `--smoke-file-path` | `path` | `./.smoke_suite.json` | (pytest plugin) Location of the smoke suite file. |
