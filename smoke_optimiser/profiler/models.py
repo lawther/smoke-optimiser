@@ -149,11 +149,15 @@ class OutcomesFileModel(BaseModel):
             run was serial.
         worker_count: PYTEST_XDIST_WORKER_COUNT as seen by the writing process,
             None when the run was serial.
+        collection_errors: Node ids pytest failed to collect. A run that cannot
+            collect a file still measures coverage for everything else, so this
+            is the only signal that the profiled suite is missing tests.
     """
 
     worker: str | None
     worker_count: int | None
     outcomes: dict[str, OutcomeRecordModel]
+    collection_errors: list[str]
 
 
 class ImportEdgeModel(BaseModel):

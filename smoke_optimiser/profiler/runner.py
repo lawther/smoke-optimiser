@@ -7,8 +7,9 @@ import tempfile
 from collections import defaultdict
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import NamedTuple, NewType
+from typing import NamedTuple, NewType, NoReturn
 
+import pytest
 import typer
 from pydantic import ValidationError
 
@@ -38,6 +39,27 @@ class IterationOutcomes(NamedTuple):
 
     outcomes: dict[str, OutcomeRecordModel]
     xdist_workers: int
+    collection_errors: frozenset[str]
+
+
+# What each pytest exit code means for a profiling run. OK and TESTS_FAILED are absent
+# because both leave a complete suite behind: a failing test is still a profiled test.
+FATAL_EXIT_CODES: dict[pytest.ExitCode, str] = {
+    pytest.ExitCode.INTERRUPTED: "pytest was interrupted before it finished the suite",
+    pytest.ExitCode.INTERNAL_ERROR: "pytest hit an internal error",
+    pytest.ExitCode.USAGE_ERROR: "pytest rejected its command line",
+    pytest.ExitCode.NO_TESTS_COLLECTED: "pytest collected no tests",
+}
+
+USABLE_EXIT_CODES = frozenset({pytest.ExitCode.OK, pytest.ExitCode.TESTS_FAILED})
+
+
+class IterationResult(NamedTuple):
+    """Everything one profiling iteration left behind, including how pytest exited."""
+
+    returncode: int
+    outcomes: IterationOutcomes
+    import_graph: ImportGraph
 
 
 # Minimal inline pytest plugin to capture exact node IDs, durations, outcomes, and markers
@@ -52,6 +74,7 @@ import pytest
 from smoke_optimiser.profiler.import_tracer import ImportTracer, write_graph
 
 _TRACER = ImportTracer()
+_COLLECTION_ERRORS = []
 
 
 def _worker_path(path):
@@ -69,6 +92,15 @@ def pytest_configure(config):
     # this is early enough to see them. Imports made before now -- pytest's own start-up
     # and this plugin's -- are missed, and none of those are project files.
     _TRACER.install()
+
+def pytest_collectreport(report):
+    if report.failed:
+        # A file that will not import contributes no tests and no coverage, yet the
+        # rest of the run proceeds normally under --continue-on-collection-errors and
+        # exits 1 -- indistinguishable from ordinary test failures. Recording it here
+        # is what lets the runner tell the two apart.
+        _COLLECTION_ERRORS.append(report.nodeid or 'the test session root')
+
 
 @pytest.hookimpl(hookwrapper=True)
 def pytest_runtest_makereport(item, call):
@@ -118,6 +150,7 @@ def pytest_unconfigure(config):
             'worker': worker,
             'worker_count': int(worker_count) if worker_count else None,
             'outcomes': config._smoke_outcomes,
+            'collection_errors': _COLLECTION_ERRORS,
         }
         with open(outcomes_file, 'w') as f:
             json.dump(payload, f)
@@ -184,6 +217,7 @@ def _read_iteration_outcomes(outcomes_json: Path) -> IterationOutcomes:
     """
     merged: dict[str, OutcomeRecordModel] = {}
     workers = 1
+    collection_errors: set[str] = set()
 
     for path in sorted(outcomes_json.parent.glob(f"{outcomes_json.stem}*{outcomes_json.suffix}")):
         try:
@@ -198,11 +232,41 @@ def _read_iteration_outcomes(outcomes_json: Path) -> IterationOutcomes:
             raise OutcomesIngestError(msg) from exc
 
         merged.update(written.outcomes)
+        collection_errors.update(written.collection_errors)
         if written.worker_count:
             workers = max(workers, written.worker_count)
         path.unlink()
 
-    return IterationOutcomes(outcomes=merged, xdist_workers=workers)
+    return IterationOutcomes(
+        outcomes=merged,
+        xdist_workers=workers,
+        collection_errors=frozenset(collection_errors),
+    )
+
+
+def _collection_error_message(collection_errors: frozenset[str]) -> str:
+    """Explain why a run that pytest was content to finish cannot be profiled."""
+    listed = "\n".join(f"  {node_id}" for node_id in sorted(collection_errors))
+    counted = "1 file" if len(collection_errors) == 1 else f"{len(collection_errors)} files"
+    pronoun = "it" if len(collection_errors) == 1 else "them"
+    return (
+        f"pytest could not collect {counted}:\n"
+        f"{listed}\n"
+        f"No test in {pronoun} ran, so the smoke suite would be selected from a suite that is quietly "
+        "smaller than the real one. Fix the collection errors and profile again."
+    )
+
+
+def _fatal_exit_message(returncode: int) -> str:
+    """Explain a pytest exit code that leaves the suite only partly profiled."""
+    try:
+        exit_code = pytest.ExitCode(returncode)
+    except ValueError:
+        return (
+            f"pytest exited with code {returncode}, which is not one it defines -- it was most likely "
+            "killed or it crashed. The suite it profiled is incomplete."
+        )
+    return f"{FATAL_EXIT_CODES[exit_code]} (exit code {int(exit_code)}). The suite it profiled is incomplete."
 
 
 def _read_iteration_graph(import_graph_json: Path) -> ImportGraph:
@@ -248,6 +312,64 @@ def _profiling_env(
     return env
 
 
+def _fail(message: str) -> NoReturn:
+    """Report a fatal profiling problem and stop, rather than emit a partial profile."""
+    typer.secho(f"\u274c Error: {message}", fg=typer.colors.RED, err=True)
+    sys.exit(1)
+
+
+def _build_pytest_command(config: ResolvedConfig, coveragerc: Path) -> list[str]:
+    """Build the pytest command line one profiling iteration runs."""
+    pytest_cmd = [
+        sys.executable,
+        "-m",
+        "pytest",
+        "-p",
+        "_smoke_hook",
+        f"--cov-config={coveragerc}",
+        "--cov-branch",
+        "--cov-context=test",
+    ]
+
+    has_cov_source = False
+    if config.pytest_args:
+        args = shlex.split(config.pytest_args)
+        pytest_cmd.extend(args)
+        # Only --cov itself sets what is measured; --cov-report and friends do not.
+        has_cov_source = any(arg == "--cov" or arg.startswith("--cov=") for arg in args)
+
+    if not has_cov_source:
+        pytest_cmd.append(f"--cov={config.cov_source}")
+
+    return pytest_cmd
+
+
+def _run_iteration(
+    pytest_cmd: list[str],
+    project_root: Path,
+    env: dict[str, EnvVarValue],
+    outcomes_json: Path,
+    import_graph_json: Path,
+) -> IterationResult:
+    """Run the suite once and collect everything that iteration left behind."""
+    # the command is built from sys.executable and user-provided args in a local CLI tool
+    run = subprocess.run(pytest_cmd, cwd=project_root, check=False, env=env)  # noqa: S603
+
+    # The files are read whatever the exit code, both to leave the temp directory clean
+    # for the next iteration and because the outcomes file is what carries the
+    # collection errors -- which need reporting however pytest chose to exit.
+    try:
+        outcomes = _read_iteration_outcomes(outcomes_json)
+    except OutcomesIngestError as exc:
+        _fail(str(exc))
+    try:
+        import_graph = _read_iteration_graph(import_graph_json)
+    except ImportGraphIngestError as exc:
+        _fail(str(exc))
+
+    return IterationResult(returncode=run.returncode, outcomes=outcomes, import_graph=import_graph)
+
+
 def run_profiling(config: ResolvedConfig, project_root: Path) -> ProfilingData:
     """Run the test suite under coverage instrumentation and collect results."""
     check_prerequisites(config)
@@ -271,49 +393,44 @@ def run_profiling(config: ResolvedConfig, project_root: Path) -> ProfilingData:
         graphs: list[ImportGraph] = []
 
         env = _profiling_env(temp_dir, project_root, outcomes_json, coverage_db, import_graph_json)
+        pytest_cmd = _build_pytest_command(config, coveragerc)
 
         for i in range(config.iterations):
             if config.iterations > 1:
-                typer.secho(f"  🔄 Iteration {i + 1}/{config.iterations}...", fg=typer.colors.CYAN)
+                typer.secho(f"  \U0001f504 Iteration {i + 1}/{config.iterations}...", fg=typer.colors.CYAN)
 
-            pytest_cmd = [
-                sys.executable,
-                "-m",
-                "pytest",
-                "-p",
-                "_smoke_hook",
-                f"--cov-config={coveragerc}",
-                "--cov-branch",
-                "--cov-context=test",
-            ]
+            result = _run_iteration(pytest_cmd, project_root, env, outcomes_json, import_graph_json)
 
-            has_cov_source = False
-            if config.pytest_args:
-                args = shlex.split(config.pytest_args)
-                pytest_cmd.extend(args)
-                # Only --cov itself sets what is measured; --cov-report and friends do not.
-                has_cov_source = any(arg == "--cov" or arg.startswith("--cov=") for arg in args)
+            if result.outcomes.collection_errors:
+                # Fatal however many iterations have already run: the same files fail to
+                # collect every time, so no amount of accumulated coverage makes up for
+                # the tests that were never collected at all.
+                _fail(_collection_error_message(result.outcomes.collection_errors))
 
-            if not has_cov_source:
-                pytest_cmd.append(f"--cov={config.cov_source}")
+            if result.returncode not in USABLE_EXIT_CODES:
+                reason = _fatal_exit_message(result.returncode)
+                # Every iteration that does not complete leaves the loop here, so i is
+                # exactly the number of iterations that did complete.
+                if i == 0:
+                    _fail(reason)
+                # Coverage accumulates into one database across iterations, so the work
+                # the earlier ones did is intact and still worth a profile. This
+                # iteration's durations are not: tests it never reached would be
+                # averaged over fewer samples than the rest, so its outcomes and import
+                # graph are dropped whole.
+                plural = "" if i == 1 else "s"
+                typer.secho(
+                    f"\u26a0\ufe0f Warning: iteration {i + 1}/{config.iterations} did not finish -- {reason} "
+                    f"Profiling continues from the {i} iteration{plural} that did.",
+                    fg=typer.colors.YELLOW,
+                    err=True,
+                )
+                break
 
-            # the command is built from sys.executable and user-provided args in a local CLI tool
-            subprocess.run(pytest_cmd, cwd=project_root, check=False, env=env)  # noqa: S603
+            xdist_workers = max(xdist_workers, result.outcomes.xdist_workers)
+            graphs.append(result.import_graph)
 
-            # Load outcomes from this run
-            try:
-                iteration = _read_iteration_outcomes(outcomes_json)
-            except OutcomesIngestError as exc:
-                typer.secho(f"\u274c Error: {exc}", fg=typer.colors.RED, err=True)
-                sys.exit(1)
-            xdist_workers = max(xdist_workers, iteration.xdist_workers)
-            try:
-                graphs.append(_read_iteration_graph(import_graph_json))
-            except ImportGraphIngestError as exc:
-                typer.secho(f"\u274c Error: {exc}", fg=typer.colors.RED, err=True)
-                sys.exit(1)
-
-            for nodeid, record in iteration.outcomes.items():
+            for nodeid, record in result.outcomes.outcomes.items():
                 all_durations[nodeid].append(record.duration)
                 # Use the last run's outcome/markers (should be consistent)
                 final_outcomes[nodeid] = record.passed
@@ -332,8 +449,7 @@ def run_profiling(config: ResolvedConfig, project_root: Path) -> ProfilingData:
         try:
             data = build_profiling_data(coverage_db, project_root, results, config_file=coveragerc)
         except CoverageIngestError as exc:
-            typer.secho(f"\u274c Error: {exc}", fg=typer.colors.RED, err=True)
-            sys.exit(1)
+            _fail(str(exc))
 
         # Fill in the missing metadata
         final_meta = ProfilingMeta(

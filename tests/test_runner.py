@@ -1,5 +1,6 @@
 import json
 import os
+from collections.abc import Callable
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -10,6 +11,7 @@ import pytest
 from smoke_optimiser.config import OperationMode, ResolvedConfig
 from smoke_optimiser.profiler.runner import (
     PYTEST_HOOK_CODE,
+    IterationOutcomes,
     OutcomesIngestError,
     _read_iteration_outcomes,
     check_prerequisites,
@@ -142,12 +144,19 @@ THREE_WORKERS = 3
 TWO_WORKERS = 2
 
 
-def _write_outcomes(path: Path, worker: str | None, worker_count: int | None, node_ids: list[str]) -> None:
+def _write_outcomes(
+    path: Path,
+    worker: str | None,
+    worker_count: int | None,
+    node_ids: list[str],
+    collection_errors: list[str] | None = None,
+) -> None:
     """Write one outcomes file in the shape the profiling hook produces."""
     payload = {
         "worker": worker,
         "worker_count": worker_count,
         "outcomes": {node_id: {"passed": True, "duration": 0.5, "markers": ["unit"]} for node_id in node_ids},
+        "collection_errors": collection_errors or [],
     }
     path.write_text(json.dumps(payload))
 
@@ -292,3 +301,185 @@ def test_an_outer_xdist_worker_does_not_leak_into_the_profiled_run(
     for child_env in pytest_envs:
         assert "PYTEST_XDIST_WORKER" not in child_env
         assert "PYTEST_XDIST_WORKER_COUNT" not in child_env
+
+
+INTERRUPTED = 2
+NO_TESTS_COLLECTED = 5
+KILLED_BY_SIGNAL = 137
+THREE_ITERATIONS = 3
+PYTEST_LAUNCHES = 2
+
+
+def _profiling_config(iterations: int = 1) -> ResolvedConfig:
+    """A configuration for a profiling run, with only what a test cares about spelled out."""
+    return ResolvedConfig(
+        mode=OperationMode.FULL,
+        time_cap=15.0,
+        target_cov=100.0,
+        include_mandatory=[],
+        exclude_mandatory=[],
+        pytest_args="",
+        output_json=Path(".json"),
+        allow_ordered=True,
+        cov_source=".",
+        iterations=iterations,
+        allow_parallel_durations=False,
+    )
+
+
+def _pytest_exit_codes(*codes: int) -> Callable[..., MagicMock]:
+    """A subprocess.run stand-in giving each pytest launch the next exit code.
+
+    subprocess.run also serves the git commit lookup, which must not eat one of the
+    codes, so the pytest calls are picked out by their command line.
+    """
+    remaining = list(codes)
+
+    def run(cmd: list[str], **_kwargs: object) -> MagicMock:
+        if "pytest" in cmd:
+            return MagicMock(returncode=remaining.pop(0), stdout="")
+        return MagicMock(returncode=0, stdout="")
+
+    return run
+
+
+@patch("subprocess.run")
+@patch("smoke_optimiser.profiler.runner.build_profiling_data")
+def test_a_pytest_run_that_did_not_finish_produces_no_profile(
+    mock_ingest: MagicMock,
+    mock_run: MagicMock,
+    tmp_path: Path,
+) -> None:
+    """Exit code 2 means pytest stopped early, so the suite it measured is a subset.
+
+    The return code used to be discarded entirely, and profiling proceeded on whatever
+    coverage the abandoned run had already written -- a smoke suite that under-selects
+    with nothing to say it did.
+    """
+    mock_run.side_effect = _pytest_exit_codes(INTERRUPTED)
+
+    with patch("shutil.which", return_value="/usr/bin/pytest"), pytest.raises(SystemExit):
+        run_profiling(_profiling_config(), tmp_path)
+
+    mock_ingest.assert_not_called()
+
+
+@patch("subprocess.run")
+@patch("smoke_optimiser.profiler.runner.build_profiling_data")
+def test_collecting_no_tests_says_so_rather_than_blaming_the_database(
+    mock_ingest: MagicMock,
+    mock_run: MagicMock,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Exit 5 was caught only by luck downstream, as a missing coverage database."""
+    mock_run.side_effect = _pytest_exit_codes(NO_TESTS_COLLECTED)
+
+    with patch("shutil.which", return_value="/usr/bin/pytest"), pytest.raises(SystemExit):
+        run_profiling(_profiling_config(), tmp_path)
+
+    assert "collected no tests" in capsys.readouterr().err
+    mock_ingest.assert_not_called()
+
+
+@patch("subprocess.run")
+@patch("smoke_optimiser.profiler.runner.build_profiling_data")
+def test_an_exit_code_pytest_does_not_define_is_still_fatal(
+    mock_ingest: MagicMock,
+    mock_run: MagicMock,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A killed pytest reports its signal, which is in no exit code table."""
+    mock_run.side_effect = _pytest_exit_codes(KILLED_BY_SIGNAL)
+
+    with patch("shutil.which", return_value="/usr/bin/pytest"), pytest.raises(SystemExit):
+        run_profiling(_profiling_config(), tmp_path)
+
+    assert str(KILLED_BY_SIGNAL) in capsys.readouterr().err
+    mock_ingest.assert_not_called()
+
+
+@patch("subprocess.run")
+@patch("smoke_optimiser.profiler.runner.build_profiling_data")
+def test_failing_tests_do_not_stop_the_run(mock_ingest: MagicMock, mock_run: MagicMock, tmp_path: Path) -> None:
+    """Exit code 1 is the ordinary outcome of a suite with failures, which is profiled."""
+    mock_run.side_effect = _pytest_exit_codes(1)
+
+    with patch("shutil.which", return_value="/usr/bin/pytest"):
+        run_profiling(_profiling_config(), tmp_path)
+
+    mock_ingest.assert_called_once()
+
+
+@patch("subprocess.run")
+@patch("smoke_optimiser.profiler.runner.build_profiling_data")
+def test_a_later_iteration_that_did_not_finish_keeps_the_earlier_ones(
+    mock_ingest: MagicMock,
+    mock_run: MagicMock,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Coverage accumulates into one database, so the completed iterations still stand.
+
+    Only the abandoned iteration's durations are unusable, since the tests it never
+    reached would otherwise be averaged over fewer samples than the rest.
+    """
+    mock_run.side_effect = _pytest_exit_codes(0, INTERRUPTED)
+
+    with patch("shutil.which", return_value="/usr/bin/pytest"):
+        run_profiling(_profiling_config(iterations=THREE_ITERATIONS), tmp_path)
+
+    # The third iteration is never launched: the run stops at the one that failed.
+    assert len([call for call in mock_run.call_args_list if "pytest" in call.args[0]]) == PYTEST_LAUNCHES
+    assert "did not finish" in capsys.readouterr().err
+    mock_ingest.assert_called_once()
+
+
+@patch("subprocess.run")
+@patch("smoke_optimiser.profiler.runner.build_profiling_data")
+def test_a_collection_error_is_fatal_even_when_pytest_exits_zero(
+    mock_ingest: MagicMock,
+    mock_run: MagicMock,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The exit code cannot be trusted to reveal a collection error.
+
+    --continue-on-collection-errors turns one into exit 1, indistinguishable from
+    ordinary test failures, and a project can set it in its own addopts where no flag
+    smoke-optimiser sees ever mentions it. What the hook recorded is the only signal.
+    """
+    mock_run.side_effect = _pytest_exit_codes(0)
+    outcomes = IterationOutcomes(outcomes={}, xdist_workers=1, collection_errors=frozenset({"tests/test_broken.py"}))
+
+    with (
+        patch("shutil.which", return_value="/usr/bin/pytest"),
+        patch("smoke_optimiser.profiler.runner._read_iteration_outcomes", return_value=outcomes),
+        pytest.raises(SystemExit),
+    ):
+        run_profiling(_profiling_config(), tmp_path)
+
+    assert "tests/test_broken.py" in capsys.readouterr().err
+    mock_ingest.assert_not_called()
+
+
+def test_the_profiling_hook_records_files_it_could_not_collect(tmp_path: Path) -> None:
+    """Exercise the hook source itself, since it only ever runs in a subprocess."""
+    namespace: dict[str, Any] = {}
+    exec(PYTEST_HOOK_CODE, namespace)  # noqa: S102 - the hook is only ever a string, so it must be exec'd to be tested
+
+    namespace["pytest_collectreport"](SimpleNamespace(failed=True, nodeid="tests/test_broken.py"))
+    namespace["pytest_collectreport"](SimpleNamespace(failed=False, nodeid="tests/test_fine.py"))
+
+    outcomes_json = tmp_path / "outcomes.json"
+    config = SimpleNamespace(_smoke_outcomes={}, rootpath=tmp_path)
+    with patch.dict(os.environ, {"SMOKE_OUTCOMES_JSON": str(outcomes_json)}, clear=False):
+        os.environ.pop("PYTEST_XDIST_WORKER", None)
+        os.environ.pop("PYTEST_XDIST_WORKER_COUNT", None)
+        # This test's own process may be a profiling run, whose graph file the exec'd
+        # hook would otherwise write into.
+        os.environ.pop("SMOKE_IMPORT_GRAPH_JSON", None)
+        namespace["pytest_unconfigure"](config)
+
+    assert _read_iteration_outcomes(outcomes_json).collection_errors == frozenset({"tests/test_broken.py"})
