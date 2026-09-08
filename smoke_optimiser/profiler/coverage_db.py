@@ -235,6 +235,17 @@ def _test_id_from_context(context: str) -> str:
 
 
 def _verify_contexts(context_test_ids: set[str], test_durations: dict[str, float]) -> None:
+    """Stop the run when coverage was measured for something no test reported.
+
+    Raising is the point: coverage that cannot be attributed to a test is
+    coverage the optimiser cannot rank, so carrying on would record a profile
+    thinner than the run that produced it and quietly shrink the smoke suite.
+
+    What we cannot do from here is say which condition produced it. Several do,
+    they want different responses, and nothing reaching this function tells them
+    apart -- so the message names them all rather than asserting one and sending
+    the reader after the wrong fix. Distinguishing them is so-n6b.45.
+    """
     unknown = sorted(context_test_ids - set(test_durations))
     if not unknown:
         return
@@ -245,9 +256,17 @@ def _verify_contexts(context_test_ids: set[str], test_durations: dict[str, float
     msg = (
         f"{counted} no test that pytest collected in this run:\n"
         f"{shown}{more}\n"
-        "Their coverage cannot be attributed to a test, which would silently shrink the smoke suite. "
-        "This usually means the coverage database is stale, or was combined across different runs; "
-        "remove it and profile again."
+        "That coverage cannot be attributed to a test, which would silently shrink the smoke suite, so this "
+        "run has stopped rather than record a profile thinner than what it measured.\n"
+        "Any of these produces it, and they are fixed differently:\n"
+        "  - A test process killed part-way through: a pytest-timeout kill, an OOM kill, or a crashing C "
+        "extension. Its coverage was flushed but no outcome was ever recorded for it. Profiling again "
+        "reproduces this whenever the cause is deterministic, so look first for a test named above that "
+        "did not finish.\n"
+        "  - An iteration abandoned part-way under --iterations, in a suite whose test ids differ between "
+        "iterations. The iterations that completed are unaffected.\n"
+        "  - A coverage database left over from an earlier run, or combined across runs. This is the one "
+        "that removing the database and profiling again fixes."
     )
     raise CoverageIngestError(msg)
 

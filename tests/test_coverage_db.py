@@ -223,6 +223,32 @@ def test_context_matching_no_collected_test_fails_loudly(tmp_path: Path) -> None
     assert TEST_NEG in str(exc_info.value)
 
 
+def test_an_unattributable_context_names_every_cause_rather_than_asserting_one(tmp_path: Path) -> None:
+    """The symptom has several causes and the reader has to be told which fix is theirs.
+
+    Nothing at this point in ingest can tell a killed test from a stale
+    database (so-n6b.45), so the message must not pick one. The failure this
+    guards against is the message quietly reverting to a single confident
+    diagnosis, which is what it used to do -- it blamed a stale database and
+    told the reader to delete it, advice that reproduces the failure when the
+    real cause was a deterministic timeout.
+    """
+    db_path = _standard_db(tmp_path)
+
+    with pytest.raises(CoverageIngestError) as exc_info:
+        read_coverage_db(db_path, tmp_path, {TEST_POS: 0.1})
+
+    message = str(exc_info.value)
+    assert TEST_NEG in message, "the unattributable context must be named"
+    # Each cause has to be recognisable to someone who is living it.
+    assert "killed" in message, "a killed test process must be offered as a cause"
+    assert "--iterations" in message, "an abandoned iteration must be offered as a cause"
+    assert "combined across runs" in message, "a stale or combined database must be offered as a cause"
+    # The old advice, now attached to the one cause it actually fixes rather
+    # than to the error as a whole.
+    assert "usually means" not in message, "the message must not assert one cause over the others"
+
+
 def test_missing_database_fails_loudly(tmp_path: Path) -> None:
     with pytest.raises(CoverageIngestError, match="No coverage database"):
         read_coverage_db(tmp_path / "absent", tmp_path, {})
