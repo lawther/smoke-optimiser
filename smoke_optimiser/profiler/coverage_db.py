@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import NamedTuple
 
 import coverage
+import typer
 from coverage.exceptions import NoSource, NotPython
 from coverage.python import PythonFileReporter
 
@@ -58,6 +59,9 @@ NO_CONTEXT = ""
 
 # How many unattributable contexts to name before summarising the rest.
 MAX_UNKNOWN_CONTEXTS_SHOWN = 10
+
+# How many non-Python measured files to name before summarising the rest.
+MAX_UNPARSEABLE_FILES_SHOWN = 10
 
 
 class CoverageIngestError(RuntimeError):
@@ -202,6 +206,28 @@ def _build_file_branches(reporter: PythonFileReporter, relative_path: str, raw_a
     return FileBranches(all_branch_ids=all_branch_ids, raw_to_branch_ids=raw_to_branch_ids)
 
 
+def _file_branches_or_raise(
+    reporter: PythonFileReporter, absolute_path: str, relative_path: str, raw_arcs: set[Arc]
+) -> FileBranches | None:
+    """Build one file's branches, or ``None`` if it turned out not to be Python source.
+
+    Missing source is fatal (see ``NoSource`` below) because it means real branch data went missing.
+    A file that was never Python is a different case entirely -- see ``_warn_about_unparseable_files``.
+    """
+    try:
+        return _build_file_branches(reporter, relative_path, raw_arcs)
+    except NoSource as exc:
+        msg = (
+            f"The coverage database refers to {absolute_path}, but its source is no longer readable: {exc}\n"
+            "Branch data cannot be derived without the source, and guessing would misreport coverage. "
+            "This usually means the file was moved or removed while profiling was running, or that the "
+            "coverage database is left over from an earlier state of the tree; profile again."
+        )
+        raise CoverageIngestError(msg) from exc
+    except NotPython:
+        return None
+
+
 def _test_id_from_context(context: str) -> str:
     """Strip the phase suffix, so setup/call/teardown coverage lands on one test."""
     return context.rsplit(CONTEXT_PHASE_SEPARATOR, maxsplit=1)[0]
@@ -223,6 +249,27 @@ def _verify_contexts(context_test_ids: set[str], test_durations: dict[str, float
         "remove it and profile again."
     )
     raise CoverageIngestError(msg)
+
+
+def _warn_about_unparseable_files(unparseable_files: list[str]) -> None:
+    """Say which measured files were not Python, without failing the profile over them.
+
+    A templating engine (Jinja2 is the common case) compiles templates to bytecode and points the
+    code object's filename at the original template, so its own tracebacks read naturally --
+    coverage.py then treats the template as a Python source file it measured. It never contained
+    Python branches to begin with, so there is nothing lost by recording it as measured but
+    branchless rather than failing the whole profile over it.
+    """
+    shown = "\n".join(f"  {path}" for path in sorted(unparseable_files)[:MAX_UNPARSEABLE_FILES_SHOWN])
+    hidden = len(unparseable_files) - MAX_UNPARSEABLE_FILES_SHOWN
+    more = f"\n  ... and {hidden} more" if hidden > 0 else ""
+    counted = "1 measured file is" if len(unparseable_files) == 1 else f"{len(unparseable_files)} measured files are"
+    typer.secho(
+        f"⚠️ Warning: {counted} not Python source, most likely templates a templating engine compiled under "
+        f"their own filename. Treating them as measured but branchless:\n{shown}{more}",
+        fg=typer.colors.YELLOW,
+        err=True,
+    )
 
 
 def _relative_path(path: Path, project_root: Path) -> str:
@@ -261,36 +308,21 @@ def read_coverage_db(
         branches_by_file: dict[int, FileBranches] = {}
         relative_paths: dict[int, str] = {}
         total_branches: set[str] = set()
+        unparseable_files: list[str] = []
         for file_id, absolute_path in measured_files.items():
             reporter = PythonFileReporter(absolute_path, cov)
             relative_path = _relative_path(Path(absolute_path), project_root)
             relative_paths[file_id] = relative_path
-            try:
-                branches = _build_file_branches(reporter, relative_path, raw_arcs_by_file.get(file_id, set()))
-            except NoSource as exc:
-                msg = (
-                    f"The coverage database refers to {absolute_path}, but its source is no longer readable: {exc}\n"
-                    "Branch data cannot be derived without the source, and guessing would misreport coverage. "
-                    "This usually means the file was moved or removed while profiling was running, or that the "
-                    "coverage database is left over from an earlier state of the tree; profile again."
-                )
-                raise CoverageIngestError(msg) from exc
-            except NotPython as exc:
-                msg = (
-                    f"The coverage database recorded {absolute_path} as measured, but it cannot be parsed as "
-                    f"Python: {exc}\n"
-                    "This usually means a templating engine (Jinja2 is the common case) compiled the file to "
-                    "bytecode and pointed the code object's filename at the original template, so its own "
-                    "tracebacks read naturally -- coverage.py then treats the template as a Python source file "
-                    "it measured, and fails when it tries to parse it as one.\n"
-                    "Exclude it from coverage so it is never counted as a source file, then profile again. "
-                    "Add this to pyproject.toml:\n\n"
-                    "[tool.coverage.run]\n"
-                    f'omit = ["{relative_path}"]\n'
-                )
-                raise CoverageIngestError(msg) from exc
+            raw_arcs = raw_arcs_by_file.get(file_id, set())
+            branches = _file_branches_or_raise(reporter, absolute_path, relative_path, raw_arcs)
+            if branches is None:
+                unparseable_files.append(relative_path)
+                branches = FileBranches(all_branch_ids=frozenset(), raw_to_branch_ids={})
             branches_by_file[file_id] = branches
             total_branches |= branches.all_branch_ids
+
+        if unparseable_files:
+            _warn_about_unparseable_files(unparseable_files)
 
         context_test_ids = {
             ctx_id: _test_id_from_context(name) for ctx_id, name in context_names.items() if name != NO_CONTEXT

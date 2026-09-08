@@ -236,20 +236,30 @@ def test_missing_source_fails_loudly(tmp_path: Path) -> None:
         read_coverage_db(db_path, tmp_path, _durations())
 
 
-def test_a_measured_file_that_is_not_python_fails_loudly(tmp_path: Path) -> None:
+def test_a_measured_file_that_is_not_python_is_treated_as_branchless(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """A Jinja2 template compiled with its own filename can end up "measured".
 
     Jinja2 points a compiled template's code object at the template's own
     path so its tracebacks read naturally, which makes coverage.py think it
-    measured a Python file. Parsing it as Python then fails.
+    measured a Python file. It never contained Python branches to begin
+    with, so ingest treats it as measured but branchless rather than
+    failing the whole profile over it, and warns instead.
     """
     template = tmp_path / "dashboard.html"
     template.write_text("<h1>{{ title }}</h1>\n")
     db_path = tmp_path / ".coverage"
     _write_db(db_path, {f"{TEST_POS}|run": {str(template): {(-1, 1), (1, -1)}}})
 
-    with pytest.raises(CoverageIngestError, match=r'omit = \["dashboard\.html"\]'):
-        read_coverage_db(db_path, tmp_path, _durations())
+    ingest = read_coverage_db(db_path, tmp_path, _durations())
+
+    assert "dashboard.html" in ingest.measured_files
+    assert ingest.total_branches == frozenset()
+    assert "dashboard.html" in ingest.tests_files[TEST_POS]
+    stderr = capsys.readouterr().err
+    assert "dashboard.html" in stderr
+    assert "not Python source" in stderr
 
 
 def test_build_profiling_data_carries_outcomes_and_markers(tmp_path: Path, empty_graph: ImportGraph) -> None:
