@@ -117,9 +117,14 @@ def load_profile(profile_path: Path) -> ProfilingData:
     try:
         return load_profiling_data_file(raw).to_profiling_data()
     except ProfileSchemaMismatchError as e:
+        rerun = (
+            f" Re-run this command to regenerate it:\n\n  {e.command}\n"
+            if e.command
+            else " Re-run the profiling phase to regenerate it."
+        )
         typer.secho(
             f"❌ Error: Profiling data ({profile_path}) has schema version {e.found!r}, but this build "
-            f"expects schema version {e.expected}. Re-run the profiling phase to regenerate it.",
+            f"expects schema version {e.expected}.{rerun}",
             fg=typer.colors.RED,
             err=True,
         )

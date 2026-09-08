@@ -185,6 +185,34 @@ def test_a_profile_from_an_older_schema_version_reports_a_distinct_error(
     assert "Failed to parse profiling data" not in stderr
 
 
+def test_a_profile_from_an_older_schema_version_suggests_the_command_that_wrote_it(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """When the stale profile recorded the command that produced it, the error hands it straight back.
+
+    meta.command survives a schema bump untouched, so it can be read from the raw
+    JSON even though the rest of the file fails validation. Printing it back turns
+    "re-run the profiling phase" into a command the user can paste, rather than
+    making them reconstruct the flags themselves.
+    """
+    profile = tmp_path / "profile.json"
+    profile.write_text(
+        json.dumps(
+            {
+                "schema_version": PROFILE_SCHEMA_VERSION - 1,
+                "meta": {"command": "smoke-optimiser smoke --cov=smoke_optimiser"},
+            }
+        )
+    )
+
+    with pytest.raises(typer.Exit):
+        load_profile(profile)
+
+    stderr = capsys.readouterr().err
+    assert "smoke-optimiser smoke --cov=smoke_optimiser" in stderr
+
+
 def test_a_profile_recording_no_scope_reports_what_to_configure(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],

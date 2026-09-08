@@ -457,11 +457,21 @@ class ProfileSchemaMismatchError(Exception):
     user distinctly from a corrupt or otherwise unreadable file: a schema
     mismatch has one fix (reprofile), while a ValidationError could mean
     anything.
+
+    Attributes:
+        command: The command that produced the stale profile, read straight
+            from the raw JSON rather than through Pydantic -- schema
+            validation is exactly what this file has already failed, so the
+            field is recovered on a best-effort basis and is None whenever
+            the mismatched file predates recording it, or was corrupt there
+            too. When present, it lets the error message hand the user a
+            ready-to-run fix instead of just naming the problem.
     """
 
-    def __init__(self, found: int | None, expected: int) -> None:
+    def __init__(self, found: int | None, expected: int, command: str | None = None) -> None:
         self.found = found
         self.expected = expected
+        self.command = command
         super().__init__(f"profile schema version {found!r} does not match expected {expected!r}")
 
 
@@ -491,7 +501,13 @@ def load_profiling_data_file(raw: Mapping[str, Any]) -> ProfilingDataFile:
     """
     found = raw.get("schema_version")
     if found != PROFILE_SCHEMA_VERSION:
-        raise ProfileSchemaMismatchError(found=found, expected=PROFILE_SCHEMA_VERSION)
+        meta = raw.get("meta")
+        command = meta.get("command") if isinstance(meta, Mapping) else None
+        raise ProfileSchemaMismatchError(
+            found=found,
+            expected=PROFILE_SCHEMA_VERSION,
+            command=command if isinstance(command, str) else None,
+        )
     validated = ProfilingDataFile(**raw)
     if validated.scope.to_profile_scope().is_empty:
         raise ProfileScopeMissingError(schema_version=PROFILE_SCHEMA_VERSION)

@@ -135,6 +135,31 @@ def test_load_profiling_data_file_reports_a_missing_schema_version_as_a_mismatch
     assert exc_info.value.expected == PROFILE_SCHEMA_VERSION
 
 
+def test_load_profiling_data_file_recovers_the_command_from_a_mismatched_schema() -> None:
+    """The error should carry meta.command even though the rest of the file never reaches Pydantic."""
+    raw = {
+        "schema_version": PROFILE_SCHEMA_VERSION - 1,
+        "meta": {"command": "smoke-optimiser smoke"},
+        "tests": {},
+        "total_branches": [],
+    }
+
+    with pytest.raises(ProfileSchemaMismatchError) as exc_info:
+        load_profiling_data_file(cast("Any", raw))
+
+    assert exc_info.value.command == "smoke-optimiser smoke"
+
+
+def test_load_profiling_data_file_leaves_command_none_when_meta_cannot_say() -> None:
+    """A profile predating meta.command, or missing meta entirely, must not crash recovering it."""
+    raw = {"schema_version": PROFILE_SCHEMA_VERSION - 1, "meta": {}, "tests": {}, "total_branches": []}
+
+    with pytest.raises(ProfileSchemaMismatchError) as exc_info:
+        load_profiling_data_file(cast("Any", raw))
+
+    assert exc_info.value.command is None
+
+
 def test_a_profile_recording_no_scope_is_refused_rather_than_read_as_knowing_nothing(
     raw_profile: RawProfileFactory,
 ) -> None:
