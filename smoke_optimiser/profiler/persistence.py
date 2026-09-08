@@ -89,9 +89,14 @@ def save_profile(profiling_data: ProfilingData, profile_path: Path) -> None:
         reads=ReadObservationsModel.from_read_observations(profiling_data.reads),
         present_files=list(profiling_data.present_files),
     )
-    profile_path.unlink(missing_ok=True)
-    with profile_path.open("w") as f:
+    # Written beside the target and moved into place, because the runs most
+    # likely to be killed are the long ones, and a write killed part-way must
+    # not take the previous profile with it. os.replace is atomic, so the path
+    # is never absent or half-written.
+    staged = profile_path.with_name(profile_path.name + ".tmp")
+    with staged.open("w") as f:
         json.dump(file_data.model_dump(mode="json"), f)
+    staged.replace(profile_path)
     typer.secho(f"💾 Profiling data saved to {profile_path}", fg=typer.colors.GREEN)
 
 
