@@ -8,13 +8,19 @@ shape of map it is about.
 """
 
 from datetime import UTC, datetime
+from typing import NamedTuple
 
 import pytest
 
 from smoke_optimiser.downwind.blind_spots import BlindSpot, BlindSpotReason, in_report_order
 from smoke_optimiser.downwind.changes import ChangedFile, ChangeKind
+from smoke_optimiser.downwind.environment_files import DEFAULT_ENVIRONMENT_FILES
 from smoke_optimiser.downwind.maps import DownwindMaps
-from smoke_optimiser.downwind.rules import DownwindRefusal, DownwindSelection, downwind_of
+from smoke_optimiser.downwind.rules import (
+    DownwindRefusal,
+    DownwindSelection,
+    downwind_of,
+)
 from smoke_optimiser.environment import MachineEnvironment
 from smoke_optimiser.profiler.models import (
     ImportEdge,
@@ -22,6 +28,7 @@ from smoke_optimiser.profiler.models import (
     ProfilingData,
     ProfilingMeta,
     ProfilingOutcome,
+    ReadObservations,
 )
 from smoke_optimiser.profiler.scope import ProfileScope
 
@@ -51,7 +58,12 @@ _META = ProfilingMeta(
 _SWALLOWED_EDGES = 3
 
 
-def _outcome(test_id: str, files_covered: frozenset[str]) -> ProfilingOutcome:
+def _outcome(
+    test_id: str,
+    files_covered: frozenset[str],
+    files_read: frozenset[str] = frozenset(),
+    directories_listed: frozenset[str] = frozenset(),
+) -> ProfilingOutcome:
     return ProfilingOutcome(
         test_id=test_id,
         duration_s=0.1,
@@ -59,20 +71,51 @@ def _outcome(test_id: str, files_covered: frozenset[str]) -> ProfilingOutcome:
         branches_covered=frozenset(),
         files_covered=files_covered,
         markers=frozenset(),
+        files_read=files_read,
+        directories_listed=directories_listed,
     )
 
 
-def _maps(
+class _ReadFacts(NamedTuple):
+    """Everything the read map contributes to a hand-built profile.
+
+    One group because they are one map: the per-test halves, what it could not
+    attribute, its denominator and how far it can be trusted. A test that sets
+    one of them almost always sets another, and the rules read them together.
+    """
+
+    reads: dict[str, frozenset[str]] = {}  # noqa: RUF012 - a NamedTuple default is never shared mutable state
+    listings: dict[str, frozenset[str]] = {}  # noqa: RUF012 - as above
+    unattributed_reads: frozenset[str] = frozenset()
+    present_files: frozenset[str] = frozenset()
+    read_errors: int = 0
+
+
+_NO_READS = _ReadFacts()
+"""The read map a test that is not about reads works over: an empty one."""
+
+
+def _maps(  # noqa: PLR0913 - one parameter per independent map fact; grouping them further would
+    # mean a test could no longer state the single fact it is about
     tests: dict[str, frozenset[str]],
     measured_files: frozenset[str],
     edges: frozenset[ImportEdge] = frozenset(),
     unattributed_modules: frozenset[str] = frozenset(),
     resolution_errors: int = 0,
+    read_facts: _ReadFacts = _NO_READS,
 ) -> DownwindMaps:
     """Maps over a profile described as node id -> the files that test executed."""
     profile = ProfilingData(
         meta=_META,
-        tests={test_id: _outcome(test_id, files) for test_id, files in tests.items()},
+        tests={
+            test_id: _outcome(
+                test_id,
+                files,
+                files_read=read_facts.reads.get(test_id, frozenset()),
+                directories_listed=read_facts.listings.get(test_id, frozenset()),
+            )
+            for test_id, files in tests.items()
+        },
         total_branches=frozenset(),
         measured_files=measured_files,
         scope=ProfileScope(
@@ -86,6 +129,12 @@ def _maps(
             resolution_errors=resolution_errors,
             error_samples=(),
         ),
+        reads=ReadObservations(
+            unattributed_reads=read_facts.unattributed_reads,
+            recording_errors=read_facts.read_errors,
+            error_samples=(),
+        ),
+        present_files=read_facts.present_files,
     )
     return DownwindMaps.from_profile(profile)
 
@@ -113,6 +162,7 @@ _STANDARD_EDGES = frozenset(
     }
 )
 _STANDARD_UNATTRIBUTED = frozenset({"tests/test_a.py", "tests/test_b.py"})
+_SWALLOWED_READS = 4
 
 
 def _standard_maps(
@@ -120,6 +170,7 @@ def _standard_maps(
     measured_files: frozenset[str] = _STANDARD_MEASURED,
     unattributed_modules: frozenset[str] = _STANDARD_UNATTRIBUTED,
     resolution_errors: int = 0,
+    read_facts: _ReadFacts = _NO_READS,
 ) -> DownwindMaps:
     return _maps(
         tests=_STANDARD_TESTS,
@@ -127,6 +178,7 @@ def _standard_maps(
         edges=_STANDARD_EDGES,
         unattributed_modules=unattributed_modules,
         resolution_errors=resolution_errors,
+        read_facts=read_facts,
     )
 
 
@@ -136,7 +188,7 @@ def _all_existing() -> frozenset[str]:
 
 
 def test_a_changed_source_file_selects_the_tests_that_executed_it() -> None:
-    answer = downwind_of(_standard_maps(), _changed("src/a.py"), _all_existing())
+    answer = downwind_of(_standard_maps(), _changed("src/a.py"), _all_existing(), DEFAULT_ENVIRONMENT_FILES)
 
     assert answer == DownwindSelection(node_ids=frozenset({"tests/test_a.py::test_one", "tests/test_a.py::test_two"}))
 
@@ -147,7 +199,7 @@ def test_a_changed_import_time_only_file_selects_the_tests_whose_module_imports_
     # reaches src/a.py and then tests/test_a.py, and the node ids say which
     # tests live there -- which matters because a --cov=src profile measured
     # no test module, so tests_executing() is empty for all of them.
-    answer = downwind_of(_standard_maps(), _changed("src/declarations.py"), _all_existing())
+    answer = downwind_of(_standard_maps(), _changed("src/declarations.py"), _all_existing(), DEFAULT_ENVIRONMENT_FILES)
 
     assert answer == DownwindSelection(node_ids=frozenset({"tests/test_a.py::test_one", "tests/test_a.py::test_two"}))
 
@@ -156,7 +208,7 @@ def test_a_changed_test_file_selects_the_tests_in_that_file() -> None:
     # tests/test_a.py is unattributed -- pytest loaded it and nothing imports
     # it -- but it defines tests, which is WHY nothing imports it. Refusing
     # here would cost a full suite for the commonest edit there is.
-    answer = downwind_of(_standard_maps(), _changed("tests/test_a.py"), _all_existing())
+    answer = downwind_of(_standard_maps(), _changed("tests/test_a.py"), _all_existing(), DEFAULT_ENVIRONMENT_FILES)
 
     assert answer == DownwindSelection(node_ids=frozenset({"tests/test_a.py::test_one", "tests/test_a.py::test_two"}))
 
@@ -179,7 +231,7 @@ def test_a_test_module_that_others_import_is_answered_through_the_closure() -> N
         unattributed_modules=frozenset({"tests/test_a.py", "tests/test_b.py"}),
     )
 
-    answer = downwind_of(maps, _changed("tests/helpers.py"), frozenset())
+    answer = downwind_of(maps, _changed("tests/helpers.py"), frozenset(), DEFAULT_ENVIRONMENT_FILES)
 
     assert answer == DownwindSelection(node_ids=frozenset({"tests/test_a.py::test_one", "tests/test_b.py::test_two"}))
 
@@ -198,7 +250,7 @@ def test_fixture_mediated_reach_is_answered_by_coverage_where_the_closure_stops(
         unattributed_modules=frozenset({"tests/conftest.py", "tests/test_a.py"}),
     )
 
-    answer = downwind_of(maps, _changed("src/fixtures.py"), frozenset())
+    answer = downwind_of(maps, _changed("src/fixtures.py"), frozenset(), DEFAULT_ENVIRONMENT_FILES)
 
     assert answer == DownwindSelection(node_ids=frozenset({"tests/test_a.py::test_one"}))
 
@@ -226,7 +278,7 @@ def test_a_terminal_conftest_falls_back_to_its_directory_when_coverage_never_mea
         unattributed_modules=frozenset({"tests/conftest.py", "tests/test_a.py", "tests/test_b.py"}),
     )
 
-    answer = downwind_of(maps, _changed("src/settings.py"), frozenset())
+    answer = downwind_of(maps, _changed("src/settings.py"), frozenset(), DEFAULT_ENVIRONMENT_FILES)
 
     assert answer == DownwindSelection(node_ids=frozenset({"tests/test_a.py::test_one", "tests/test_b.py::test_two"}))
 
@@ -245,7 +297,7 @@ def test_a_terminal_conftest_selects_its_own_directory_and_no_test_outside_it() 
         unattributed_modules=frozenset({"tests/sub/conftest.py", "tests/sub/test_in.py", "tests/test_outside.py"}),
     )
 
-    answer = downwind_of(maps, _changed("src/settings.py"), frozenset())
+    answer = downwind_of(maps, _changed("src/settings.py"), frozenset(), DEFAULT_ENVIRONMENT_FILES)
 
     assert answer == DownwindSelection(node_ids=frozenset({"tests/sub/test_in.py::test_one"}))
 
@@ -264,7 +316,7 @@ def test_a_terminal_conftest_at_the_repository_root_selects_the_whole_suite() ->
         unattributed_modules=frozenset({"conftest.py", "tests/sub/test_in.py", "tests/test_outside.py"}),
     )
 
-    answer = downwind_of(maps, _changed("src/settings.py"), frozenset())
+    answer = downwind_of(maps, _changed("src/settings.py"), frozenset(), DEFAULT_ENVIRONMENT_FILES)
 
     assert answer == DownwindSelection(
         node_ids=frozenset({"tests/sub/test_in.py::test_one", "tests/test_outside.py::test_two"})
@@ -286,7 +338,7 @@ def test_a_conftest_coverage_did_measure_keeps_its_precise_answer() -> None:
         unattributed_modules=frozenset({"tests/conftest.py", "tests/test_a.py", "tests/test_b.py"}),
     )
 
-    answer = downwind_of(maps, _changed("src/fixtures.py"), frozenset())
+    answer = downwind_of(maps, _changed("src/fixtures.py"), frozenset(), DEFAULT_ENVIRONMENT_FILES)
 
     assert answer == DownwindSelection(node_ids=frozenset({"tests/test_a.py::test_one"}))
 
@@ -307,7 +359,7 @@ def test_a_closure_terminating_at_a_barren_plugin_refuses_with_terminal_dead_end
         unattributed_modules=frozenset({"src/plugin.py", "tests/test_a.py"}),
     )
 
-    answer = downwind_of(maps, _changed("src/helpers.py"), frozenset())
+    answer = downwind_of(maps, _changed("src/helpers.py"), frozenset(), DEFAULT_ENVIRONMENT_FILES)
 
     assert answer == DownwindRefusal(
         blind_spots=frozenset({BlindSpot(reason=BlindSpotReason.TERMINAL_DEAD_END, file="src/plugin.py")})
@@ -331,7 +383,7 @@ def test_a_dead_end_down_one_branch_refuses_even_though_another_branch_answered(
         unattributed_modules=frozenset({"src/plugin.py", "tests/test_a.py"}),
     )
 
-    answer = downwind_of(maps, _changed("src/helpers.py"), frozenset())
+    answer = downwind_of(maps, _changed("src/helpers.py"), frozenset(), DEFAULT_ENVIRONMENT_FILES)
 
     assert answer == DownwindRefusal(
         blind_spots=frozenset({BlindSpot(reason=BlindSpotReason.TERMINAL_DEAD_END, file="src/plugin.py")})
@@ -339,34 +391,35 @@ def test_a_dead_end_down_one_branch_refuses_even_though_another_branch_answered(
 
 
 def test_an_empty_changed_set_selects_nothing_rather_than_refusing() -> None:
-    answer = downwind_of(_standard_maps(), frozenset(), _all_existing())
+    answer = downwind_of(_standard_maps(), frozenset(), _all_existing(), DEFAULT_ENVIRONMENT_FILES)
 
     assert answer == DownwindSelection(node_ids=frozenset())
 
 
 def test_a_changed_path_the_maps_never_saw_refuses_with_unknown_path() -> None:
-    answer = downwind_of(_standard_maps(), _changed("src/brand_new.py"), _all_existing())
+    answer = downwind_of(_standard_maps(), _changed("src/brand_new.py"), _all_existing(), DEFAULT_ENVIRONMENT_FILES)
 
     assert answer == DownwindRefusal(
         blind_spots=frozenset({BlindSpot(reason=BlindSpotReason.UNKNOWN_PATH, file="src/brand_new.py")})
     )
 
 
-def test_a_changed_non_python_path_refuses_with_non_python_file() -> None:
-    # Also absent from the maps, so rule order is what decides this reason:
-    # absence tells us nothing about a data file, which is a different fact
-    # from a Python file we have never measured.
-    answer = downwind_of(_standard_maps(), _changed("config/settings.yaml"), _all_existing())
+def test_a_changed_data_file_no_test_read_selects_nothing_rather_than_refusing() -> None:
+    # The one place absence is evidence. The file was there while the suite
+    # ran, the tracer watched every open, and nothing opened it -- so an empty
+    # answer is measured rather than assumed, and refusing would spend a full
+    # suite on a file provably nothing reads.
+    maps = _standard_maps(read_facts=_ReadFacts(present_files=frozenset({"config/settings.yaml"})))
 
-    assert answer == DownwindRefusal(
-        blind_spots=frozenset({BlindSpot(reason=BlindSpotReason.NON_PYTHON_FILE, file="config/settings.yaml")})
-    )
+    answer = downwind_of(maps, _changed("config/settings.yaml"), _all_existing(), DEFAULT_ENVIRONMENT_FILES)
+
+    assert answer == DownwindSelection(node_ids=frozenset())
 
 
 def test_a_changed_conftest_refuses_with_changed_conftest() -> None:
     maps = _standard_maps(unattributed_modules=frozenset({"tests/test_a.py", "tests/test_b.py", "tests/conftest.py"}))
 
-    answer = downwind_of(maps, _changed("tests/conftest.py"), _all_existing())
+    answer = downwind_of(maps, _changed("tests/conftest.py"), _all_existing(), DEFAULT_ENVIRONMENT_FILES)
 
     assert answer == DownwindRefusal(
         blind_spots=frozenset({BlindSpot(reason=BlindSpotReason.CHANGED_CONFTEST, file="tests/conftest.py")})
@@ -382,7 +435,7 @@ def test_a_changed_unattributed_module_with_no_tests_refuses() -> None:
         measured_files=frozenset({"src/a.py", "src/b.py", "src/declarations.py", "src/plugin.py"}),
     )
 
-    answer = downwind_of(maps, _changed("src/plugin.py"), _all_existing())
+    answer = downwind_of(maps, _changed("src/plugin.py"), _all_existing(), DEFAULT_ENVIRONMENT_FILES)
 
     assert answer == DownwindRefusal(
         blind_spots=frozenset({BlindSpot(reason=BlindSpotReason.UNATTRIBUTED_IMPORT, file="src/plugin.py")})
@@ -399,7 +452,7 @@ def test_a_file_answerable_by_coverage_but_unattributed_refuses_rather_than_answ
         unattributed_modules=frozenset({"src/plugin.py"}),
     )
 
-    answer = downwind_of(maps, _changed("src/plugin.py"), frozenset())
+    answer = downwind_of(maps, _changed("src/plugin.py"), frozenset(), DEFAULT_ENVIRONMENT_FILES)
 
     assert answer == DownwindRefusal(
         blind_spots=frozenset({BlindSpot(reason=BlindSpotReason.UNATTRIBUTED_IMPORT, file="src/plugin.py")})
@@ -413,7 +466,7 @@ def test_any_resolution_errors_refuse_and_name_the_count() -> None:
     # answer for src/a.py.
     maps = _standard_maps(resolution_errors=_SWALLOWED_EDGES)
 
-    answer = downwind_of(maps, _changed("src/a.py"), _all_existing())
+    answer = downwind_of(maps, _changed("src/a.py"), _all_existing(), DEFAULT_ENVIRONMENT_FILES)
 
     assert answer == DownwindRefusal(
         blind_spots=frozenset({BlindSpot(reason=BlindSpotReason.RESOLUTION_ERRORS, resolution_errors=_SWALLOWED_EDGES)})
@@ -429,6 +482,7 @@ def test_a_file_that_exists_but_the_maps_never_saw_expires_the_profile() -> None
         _standard_maps(),
         _changed("src/a.py"),
         _all_existing() | {"tests/test_theirs.py"},
+        DEFAULT_ENVIRONMENT_FILES,
     )
 
     assert answer == DownwindRefusal(
@@ -445,6 +499,7 @@ def test_a_newly_added_file_reports_both_unknown_path_and_expired_profile() -> N
         _standard_maps(),
         _changed("src/brand_new.py"),
         _all_existing() | {"src/brand_new.py"},
+        DEFAULT_ENVIRONMENT_FILES,
     )
 
     assert answer == DownwindRefusal(
@@ -461,18 +516,22 @@ def test_every_offending_input_contributes_its_own_blind_spot() -> None:
     # Accumulation, in a fixed order: changed paths sorted, then the whole
     # graph, then the diverged tree sorted. One run tells the developer
     # everything they would have to fix.
-    maps = _standard_maps(resolution_errors=_SWALLOWED_EDGES)
+    maps = _standard_maps(
+        resolution_errors=_SWALLOWED_EDGES,
+        read_facts=_ReadFacts(unattributed_reads=frozenset({"config/settings.yaml"})),
+    )
 
     answer = downwind_of(
         maps,
         _changed("config/settings.yaml", "src/brand_new.py", "src/a.py"),
         _all_existing() | {"tests/test_theirs.py"},
+        DEFAULT_ENVIRONMENT_FILES,
     )
 
     assert answer == DownwindRefusal(
         blind_spots=frozenset(
             {
-                BlindSpot(reason=BlindSpotReason.NON_PYTHON_FILE, file="config/settings.yaml"),
+                BlindSpot(reason=BlindSpotReason.UNATTRIBUTED_READ, file="config/settings.yaml"),
                 BlindSpot(reason=BlindSpotReason.UNKNOWN_PATH, file="src/brand_new.py"),
                 BlindSpot(reason=BlindSpotReason.RESOLUTION_ERRORS, resolution_errors=_SWALLOWED_EDGES),
                 BlindSpot(reason=BlindSpotReason.EXPIRED_PROFILE, file="tests/test_theirs.py"),
@@ -485,7 +544,9 @@ def test_one_answerable_file_does_not_rescue_a_refusal_caused_by_another() -> No
     # The rules answer for the whole change or not at all: node ids selected
     # for src/a.py are discarded, because a refusal that also carried a test
     # list would be a caller's invitation to run that list instead.
-    answer = downwind_of(_standard_maps(), _changed("src/a.py", "src/brand_new.py"), _all_existing())
+    answer = downwind_of(
+        _standard_maps(), _changed("src/a.py", "src/brand_new.py"), _all_existing(), DEFAULT_ENVIRONMENT_FILES
+    )
 
     assert isinstance(answer, DownwindRefusal)
     assert not hasattr(answer, "node_ids")
@@ -497,7 +558,7 @@ def test_a_deleted_file_is_looked_up_exactly_like_any_other_change() -> None:
     # time the rules run there is no file left to ask.
     deleted = frozenset({ChangedFile(path="src/a.py", kind=ChangeKind.DELETED)})
 
-    answer = downwind_of(_standard_maps(), deleted, _all_existing() - {"src/a.py"})
+    answer = downwind_of(_standard_maps(), deleted, _all_existing() - {"src/a.py"}, DEFAULT_ENVIRONMENT_FILES)
 
     assert answer == DownwindSelection(node_ids=frozenset({"tests/test_a.py::test_one", "tests/test_a.py::test_two"}))
 
@@ -513,7 +574,7 @@ def test_one_path_reported_under_two_kinds_yields_one_blind_spot() -> None:
         }
     )
 
-    answer = downwind_of(_standard_maps(), twice, _all_existing())
+    answer = downwind_of(_standard_maps(), twice, _all_existing(), DEFAULT_ENVIRONMENT_FILES)
 
     assert answer == DownwindRefusal(
         blind_spots=frozenset({BlindSpot(reason=BlindSpotReason.UNKNOWN_PATH, file="src/brand_new.py")})
@@ -568,3 +629,159 @@ def test_blind_spots_are_reported_in_one_order_whatever_order_they_were_found_in
         BlindSpot(reason=BlindSpotReason.UNKNOWN_PATH, file="src/brand_new.py"),
     ]
     assert in_report_order(spots) == in_report_order(reversed(in_report_order(spots)))
+
+
+# --- The read map: what a changed non-Python path selects -------------------
+#
+# These are the rules that replaced NON_PYTHON_FILE. The Python relations can
+# say nothing at all about a data file, so before the read map every one of
+# these inputs was a full-suite run.
+
+_READING_TESTS = {
+    "tests/test_a.py::test_one": frozenset({"fixtures/rates.yaml"}),
+    "tests/test_a.py::test_two": frozenset(),
+    "tests/test_b.py::test_three": frozenset({"golden/report.txt"}),
+}
+_GLOBBING_TESTS = {"tests/test_b.py::test_three": frozenset({"fixtures"})}
+_PRESENT = frozenset({"fixtures/rates.yaml", "golden/report.txt", "docs/guide.md", "README.md"})
+
+
+def _read_maps(
+    *,
+    unattributed_reads: frozenset[str] = frozenset(),
+    read_errors: int = 0,
+) -> DownwindMaps:
+    """Standard maps with a read map over them, for the non-Python rules."""
+    return _standard_maps(
+        read_facts=_ReadFacts(
+            reads=_READING_TESTS,
+            listings=_GLOBBING_TESTS,
+            present_files=_PRESENT,
+            unattributed_reads=unattributed_reads,
+            read_errors=read_errors,
+        )
+    )
+
+
+def test_a_changed_data_file_selects_the_tests_that_read_it() -> None:
+    # test_one opened it; test_three globbed the directory holding it, so it
+    # is selected by rule 3's listers rather than by having opened the file.
+    answer = downwind_of(_read_maps(), _changed("fixtures/rates.yaml"), _all_existing(), DEFAULT_ENVIRONMENT_FILES)
+
+    assert answer == DownwindSelection(node_ids=frozenset({"tests/test_a.py::test_one", "tests/test_b.py::test_three"}))
+
+
+def test_a_changed_data_file_selects_the_tests_that_listed_its_directory() -> None:
+    """A deletion changes what a glob returns even for a file nothing opened.
+
+    No rule reads ChangeKind, so the listers are unioned in for every change to
+    a file in a listed directory rather than only for deletions.
+    """
+    answer = downwind_of(_read_maps(), _changed("golden/report.txt"), _all_existing(), DEFAULT_ENVIRONMENT_FILES)
+
+    assert answer == DownwindSelection(node_ids=frozenset({"tests/test_b.py::test_three"}))
+
+
+def test_a_changed_doc_nothing_read_selects_nothing() -> None:
+    """The headline case, and the one the whole read map exists for."""
+    answer = downwind_of(_read_maps(), _changed("docs/guide.md"), _all_existing(), DEFAULT_ENVIRONMENT_FILES)
+
+    assert answer == DownwindSelection(node_ids=frozenset())
+
+
+def test_a_new_file_in_a_globbed_directory_selects_the_globbing_tests() -> None:
+    """It was not there to be read, so the directory answers for it.
+
+    A test that globs fixtures/*.yaml never names the file it opens, so the
+    read map alone would report nothing for a fixture added since the profile
+    -- which is the silent under-selection the listing map exists to prevent.
+    """
+    answer = downwind_of(_read_maps(), _changed("fixtures/added.yaml"), _all_existing(), DEFAULT_ENVIRONMENT_FILES)
+
+    assert answer == DownwindSelection(node_ids=frozenset({"tests/test_a.py::test_one", "tests/test_b.py::test_three"}))
+
+
+def test_a_new_file_beside_files_tests_read_selects_those_tests() -> None:
+    """Bounded over-selection, not a full suite.
+
+    Nothing lists golden/, but a test reads a file in it, so a new file there
+    inherits the directory's readers -- which is what answers for a config
+    that already names a file added later.
+    """
+    answer = downwind_of(_read_maps(), _changed("golden/added.txt"), _all_existing(), DEFAULT_ENVIRONMENT_FILES)
+
+    assert answer == DownwindSelection(node_ids=frozenset({"tests/test_b.py::test_three"}))
+
+
+def test_a_new_file_in_a_directory_nothing_ever_touched_selects_nothing() -> None:
+    """Adding a doc must not cost a full suite.
+
+    Nothing read a file in docs/ and nothing listed it, and that is a measured
+    fact about the directory, which a file added to it inherits.
+    """
+    answer = downwind_of(_read_maps(), _changed("docs/added.md"), _all_existing(), DEFAULT_ENVIRONMENT_FILES)
+
+    assert answer == DownwindSelection(node_ids=frozenset())
+
+
+def test_a_file_read_outside_any_test_refuses() -> None:
+    """Something depends on it and no test can be named as the dependant."""
+    maps = _read_maps(unattributed_reads=frozenset({"config/settings.yaml"}))
+
+    answer = downwind_of(maps, _changed("config/settings.yaml"), _all_existing(), DEFAULT_ENVIRONMENT_FILES)
+
+    assert answer == DownwindRefusal(
+        blind_spots=frozenset({BlindSpot(reason=BlindSpotReason.UNATTRIBUTED_READ, file="config/settings.yaml")})
+    )
+
+
+@pytest.mark.parametrize("path", ["uv.lock", "pyproject.toml", "Dockerfile", "deploy/Dockerfile.web"])
+def test_an_environment_defining_file_refuses_whatever_the_read_map_says(path: str) -> None:
+    """Nothing opens a lockfile while the suite runs, yet it moves every test.
+
+    The read map would answer "measured as unread" and select nothing, which is
+    measured and wrong -- so these run ahead of it.
+    """
+    answer = downwind_of(_read_maps(), _changed(path), _all_existing(), DEFAULT_ENVIRONMENT_FILES)
+
+    assert answer == DownwindRefusal(
+        blind_spots=frozenset({BlindSpot(reason=BlindSpotReason.ENVIRONMENT_FILE, file=path)})
+    )
+
+
+def test_a_project_can_add_its_own_environment_defining_paths() -> None:
+    answer = downwind_of(
+        _read_maps(),
+        _changed("deploy/cluster.tf"),
+        _all_existing(),
+        [*DEFAULT_ENVIRONMENT_FILES, "deploy/*.tf"],
+    )
+
+    assert answer == DownwindRefusal(
+        blind_spots=frozenset({BlindSpot(reason=BlindSpotReason.ENVIRONMENT_FILE, file="deploy/cluster.tf")})
+    )
+
+
+def test_swallowed_reads_refuse_when_a_data_file_changed() -> None:
+    """A lost read can only shorten an answer the read map gave."""
+    maps = _read_maps(read_errors=_SWALLOWED_READS)
+
+    answer = downwind_of(maps, _changed("fixtures/rates.yaml"), _all_existing(), DEFAULT_ENVIRONMENT_FILES)
+
+    assert answer == DownwindRefusal(
+        blind_spots=frozenset({BlindSpot(reason=BlindSpotReason.READ_ERRORS, read_errors=_SWALLOWED_READS)})
+    )
+
+
+def test_swallowed_reads_do_not_refuse_for_a_python_only_change() -> None:
+    """Unlike the import graph's equivalent, which is unconditional.
+
+    No Python answer draws on the read map, so refusing for a pure-Python
+    commit would spend a full suite on doubt that cannot apply to anything in
+    it.
+    """
+    maps = _read_maps(read_errors=_SWALLOWED_READS)
+
+    answer = downwind_of(maps, _changed("src/a.py"), _all_existing(), DEFAULT_ENVIRONMENT_FILES)
+
+    assert answer == DownwindSelection(node_ids=frozenset({"tests/test_a.py::test_one", "tests/test_a.py::test_two"}))

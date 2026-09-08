@@ -13,23 +13,23 @@ from pathlib import Path
 
 from pydantic import BaseModel, model_validator
 
-from smoke_optimiser.downwind.blind_spots import BlindSpot, BlindSpotReason
+from smoke_optimiser.downwind.blind_spots import WHOLE_MAP_REASONS, BlindSpot, BlindSpotReason
 
 
 class BlindSpotModel(BaseModel):
     """The serialised form of one :class:`BlindSpot`.
 
-    file is None only for RESOLUTION_ERRORS, the one reason that is a
-    property of the whole import graph rather than of any single changed
-    file. resolution_errors is populated only for that same reason, carrying
-    the count jr5.2's refusal is required to name. The invariant is validated
-    here as well as on the dataclass, because a file on disk is outside data
-    however it was written.
+    file is None only for the whole-map reasons, which are a property of a
+    recorder rather than of any single changed file; each of those carries a
+    count instead, saying how incomplete its map is. The invariant is
+    validated here as well as on the dataclass, because a file on disk is
+    outside data however it was written.
     """
 
     reason: BlindSpotReason
     file: str | None = None
     resolution_errors: int | None = None
+    read_errors: int | None = None
 
     @classmethod
     def from_blind_spot(cls, blind_spot: BlindSpot) -> "BlindSpotModel":
@@ -38,17 +38,20 @@ class BlindSpotModel(BaseModel):
             reason=blind_spot.reason,
             file=blind_spot.file,
             resolution_errors=blind_spot.resolution_errors,
+            read_errors=blind_spot.read_errors,
         )
 
     @model_validator(mode="after")
     def _check_reason_matches_fields(self) -> "BlindSpotModel":
-        is_resolution_errors = self.reason == BlindSpotReason.RESOLUTION_ERRORS
-        if (self.file is None) != is_resolution_errors:
-            file_message = "file must be set iff reason is not RESOLUTION_ERRORS"
+        if (self.file is None) != (self.reason in WHOLE_MAP_REASONS):
+            file_message = "file must be set iff the reason is not a whole-map reason"
             raise ValueError(file_message)
-        if (self.resolution_errors is None) == is_resolution_errors:
+        if (self.resolution_errors is None) == (self.reason == BlindSpotReason.RESOLUTION_ERRORS):
             resolution_errors_message = "resolution_errors must be set iff reason is RESOLUTION_ERRORS"
             raise ValueError(resolution_errors_message)
+        if (self.read_errors is None) == (self.reason == BlindSpotReason.READ_ERRORS):
+            read_errors_message = "read_errors must be set iff reason is READ_ERRORS"
+            raise ValueError(read_errors_message)
         return self
 
 
@@ -66,9 +69,17 @@ class ProfileIdentityModel(BaseModel):
 
 
 class DownwindSuiteFile(BaseModel):
-    """Schema for .downwind.json."""
+    """Schema for .downwind.json.
 
-    version: int = 1
+    Version 2 introduced the read map's vocabulary: a changed non-Python path
+    is now answered rather than refused, so NON_PYTHON_FILE is gone and
+    UNATTRIBUTED_READ, ENVIRONMENT_FILE and READ_ERRORS take its place. A
+    version 1 file names a reason this build has no word for, so it is
+    refused by version rather than failing enum validation with nothing
+    actionable to say.
+    """
+
+    version: int = 2
     generated_at: datetime
     generator_version: str = "0.1.0"
     changed_files: list[str]

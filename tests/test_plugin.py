@@ -3,6 +3,11 @@ from pathlib import Path
 
 import pytest
 
+from smoke_optimiser.reports.downwind_suite import DownwindSuiteFile
+
+DOWNWIND_SUITE_VERSION = DownwindSuiteFile.model_fields["version"].default
+"""The version this build writes, read off the model so the two cannot drift."""
+
 
 def test_plugin_options_registered(pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch) -> None:
     # Ensure smoke_optimiser is importable by subprocess
@@ -265,7 +270,7 @@ def test_plugin_report_header(pytester: pytest.Pytester, tmp_path: Path, monkeyp
 
 def _downwind_data(node_ids: list[str], blind_spots: list[dict] | None = None) -> dict:
     return {
-        "version": 1,
+        "version": DOWNWIND_SUITE_VERSION,
         "generated_at": "2026-09-07T09:00:00Z",
         "changed_files": ["smoke_optimiser/downwind/maps.py"],
         "node_ids": node_ids,

@@ -124,8 +124,13 @@ def _report_wrong_directory(invocation_dir: Path, repo_root: Path) -> None:
 
 _EXPLANATIONS: dict[BlindSpotReason, str] = {
     BlindSpotReason.UNKNOWN_PATH: "the profile has never seen this file, so nothing is known to reach it",
-    BlindSpotReason.NON_PYTHON_FILE: "not a Python file, and the maps only record Python execution",
     BlindSpotReason.UNATTRIBUTED_IMPORT: "nothing was seen to import this, so its dependents are unknown",
+    BlindSpotReason.UNATTRIBUTED_READ: (
+        "read while the suite was starting up rather than by any test, so what depends on it is unknown"
+    ),
+    BlindSpotReason.ENVIRONMENT_FILE: (
+        "defines the environment every test runs in, which no map can measure the reach of"
+    ),
     BlindSpotReason.EXPIRED_PROFILE: "exists now but is absent from the profile, which is therefore out of date",
     BlindSpotReason.CHANGED_CONFTEST: "a changed conftest.py can affect any test it applies to",
     BlindSpotReason.TERMINAL_DEAD_END: "reached by the change, but it leads to no test and nothing imports it",
@@ -134,8 +139,8 @@ _EXPLANATIONS: dict[BlindSpotReason, str] = {
 
 When the tool declines to select, the reason IS the product: a bare enum
 value would leave them with a slow run and no idea what to do about it.
-RESOLUTION_ERRORS is absent because it names no file and so cannot be
-rendered as "<file>: <clause>".
+RESOLUTION_ERRORS and READ_ERRORS are absent because they name no file and so
+cannot be rendered as "<file>: <clause>".
 """
 
 
@@ -146,6 +151,12 @@ def _describe(blind_spot: BlindSpot) -> str:
         return (
             f"the import graph is missing {blind_spot.resolution_errors} edge{plural} the tracer could not "
             "record, so every closure it reports may be short"
+        )
+    if blind_spot.reason is BlindSpotReason.READ_ERRORS:
+        plural = "" if blind_spot.read_errors == 1 else "s"
+        return (
+            f"the file read map is missing {blind_spot.read_errors} read{plural} the tracer could not "
+            "record, so what a changed data file reaches may be under-reported"
         )
     return f"{blind_spot.file}: {_EXPLANATIONS[blind_spot.reason]}"
 
@@ -236,7 +247,7 @@ def _select(profile: ProfilingData, repo_root: Path, config: DownwindConfig) -> 
     # compare the maps against files they could never have contained.
     existing = files_in_scope(tracked_files(repo_root), profile.scope)
 
-    answer = downwind_of(maps, changed, existing)
+    answer = downwind_of(maps, changed, existing, config.environment_files)
     refused = isinstance(answer, DownwindRefusal)
     return _Selection(
         node_ids=frozenset() if refused else answer.node_ids,

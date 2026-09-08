@@ -1,11 +1,13 @@
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import Any
 
 import typer
 from pydantic import BaseModel, Field, ValidationError
+
+from smoke_optimiser.downwind.environment_files import DEFAULT_ENVIRONMENT_FILES
 
 
 class OperationMode(Enum):
@@ -33,6 +35,7 @@ class FileConfig(BaseModel):
     profile_path: Path = Field(default=Path("./.smoke_profiling_data.json"))
     downwind_file_path: Path = Field(default=Path("./.downwind.json"))
     downwind_pytest_args: str = Field(default="")
+    extra_environment_files: list[str] = Field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -73,11 +76,21 @@ class DownwindConfig:
         pytest_args: Extra arguments for the selective run. Deliberately not
             ResolvedConfig.pytest_args, which carries the profiling run's
             coverage flags -- forwarding those would instrument every commit.
+        environment_files: Patterns naming the paths that define the
+            environment the suite runs in, which force the full suite whatever
+            the maps say. The shipped defaults plus whatever the project added,
+            already combined -- the config key is spelled
+            ``extra_environment_files`` precisely so that setting it cannot
+            silently drop a default and with it the full-suite guard on a
+            lockfile. Configurable at all, where a list of paths to IGNORE
+            would not be, because every entry can only ADD a full-suite run: a
+            wrong one costs time rather than correctness.
     """
 
     profile_path: Path
     downwind_file_path: Path
     pytest_args: str
+    environment_files: list[str] = field(default_factory=lambda: list(DEFAULT_ENVIRONMENT_FILES))
 
 
 class ProjectMetadata(BaseModel):
@@ -176,6 +189,7 @@ def resolve_downwind_config(
         profile_path=resolved.profile_path,
         downwind_file_path=resolved.downwind_file_path,
         pytest_args=resolved.downwind_pytest_args,
+        environment_files=[*DEFAULT_ENVIRONMENT_FILES, *resolved.extra_environment_files],
     )
 
 

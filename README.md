@@ -113,6 +113,35 @@ since it can also mean the profile is missing a route to the suite.
 With no profile at all it runs the full suite and prints the command to record one. A profile that
 exists but cannot be read is an error, not a silent full-suite run.
 
+#### Data files
+
+Profiling records which files each test opens and which directories it globs, so a changed data
+file is answered rather than assumed about. A changed fixture selects the tests that read it; a
+changed README that nothing read selects nothing; a *new* file selects whatever the profile
+measured about the directory holding it — the tests that glob it, and the tests that read its
+neighbours — so adding a doc under `docs/` costs nothing while adding a fixture beside ones tests
+use selects those tests.
+
+Two things still force the full suite: a file read while the suite was starting up rather than by
+any test, since nothing can be named as depending on it; and a file that defines the environment
+every test runs in. Nothing opens a lockfile while the suite runs, so measurement would wrongly
+report it as depended on by nothing:
+
+```toml
+[tool.smoke_optimiser]
+extra_environment_files = ["deploy/*.tf", "ansible/*.yml"]
+```
+
+The shipped defaults already cover `uv.lock`, `poetry.lock`, `Pipfile.lock`, `requirements*.txt`,
+`pyproject.toml`, `setup.py`, `setup.cfg`, `tox.ini`, `pytest.ini`, `.python-version`, `Dockerfile*`
+and `docker-compose*`. The key is *extra* rather than a replacement so that naming your own cannot
+silently drop the guard on a lockfile.
+
+Patterns are matched against the repository-relative path and against the bare filename, so
+`uv.lock` catches one at any depth while `deploy/*.tf` catches only those. An entry can only ever
+add a full-suite run, which is why this is safe to configure where a list of paths to *ignore*
+would not be: a wrong entry costs time rather than correctness.
+
 ### `pytest` (Plugin)
 
 | Argument | Description | Default |

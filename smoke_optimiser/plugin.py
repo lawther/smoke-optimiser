@@ -13,7 +13,7 @@ from smoke_optimiser.reports.downwind_suite import (
 from smoke_optimiser.reports.smoke_suite import SmokeSuiteFile, read_smoke_suite
 
 SUPPORTED_VERSIONS: frozenset[int] = frozenset({1})
-SUPPORTED_DOWNWIND_VERSIONS: frozenset[int] = frozenset({1})
+SUPPORTED_DOWNWIND_VERSIONS: frozenset[int] = frozenset({2})
 
 # Cache for the loaded smoke suite
 _smoke_suite_key = pytest.StashKey[SmokeSuiteFile]()
@@ -258,4 +258,6 @@ def _describe_blind_spot(blind_spot: BlindSpotModel) -> str:
     """Render one BlindSpotModel as a short human-readable clause."""
     if blind_spot.reason is BlindSpotReason.RESOLUTION_ERRORS:
         return f"{blind_spot.reason.value}: {blind_spot.resolution_errors}"
+    if blind_spot.reason is BlindSpotReason.READ_ERRORS:
+        return f"{blind_spot.reason.value}: {blind_spot.read_errors}"
     return f"{blind_spot.reason.value}: {blind_spot.file}"

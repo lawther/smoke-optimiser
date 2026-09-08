@@ -36,6 +36,13 @@ its directory; a dead end anywhere else -- a pytest11 plugin belonging to
 the project, a module loaded through machinery the tracer cannot follow --
 has no such rule to fall back on and is a blind spot.
 
+A changed NON-PYTHON path is answered from the read map instead, by a ladder
+of its own that :func:`_read_answer` documents. That path used to be an
+unconditional refusal, and it is the one place in this module where absence is
+allowed to count as evidence: a file the profiling run measured as unread
+selects nothing rather than everything. :mod:`smoke_optimiser.downwind.blind_spots`
+states what warrants that and what bounds it.
+
 REFUSALS ACCUMULATE. Every offending input contributes its own blind spot,
 so a developer sees everything they would have to fix to get a subset again
 rather than fixing one cause, re-running, and meeting the next. The outcome
@@ -52,10 +59,11 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, NamedTuple
 
 from smoke_optimiser.downwind.blind_spots import BlindSpot, BlindSpotReason
+from smoke_optimiser.downwind.environment_files import is_environment_file
 from smoke_optimiser.profiler.scope import CONFTEST, WHOLE_REPOSITORY
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Iterable, Sequence
 
     from smoke_optimiser.downwind.changes import ChangedFile
     from smoke_optimiser.downwind.maps import DownwindMaps
@@ -108,20 +116,19 @@ def _is_conftest(path: str) -> bool:
 def _blind_spot_reason(maps: DownwindMaps, path: str) -> BlindSpotReason | None:
     """Which rule refuses for this changed path, if any. First match wins.
 
+    Only Python paths reach here. A non-Python path is answered from the read
+    map by :func:`_read_answer` instead, which has refusals of its own.
+
     The order is explicit rather than an accident of evaluation, because
     several rules match the same path and the reason is as much the product
     as the refusal is:
 
-    * non-Python before unknown-path, since a non-Python file is also absent
-      from the maps and the specific reason is the one so-n6b.4 replaces;
     * unknown-path before everything that queries the maps, all of which
       raise :class:`UnknownFileError` for a path they have never seen;
     * conftest before unattributed, since a changed conftest.py is almost
       always unattributed as well, and so-017 replaces the conftest reason
       rather than that one.
     """
-    if not path.endswith(PYTHON_SUFFIX):
-        return BlindSpotReason.NON_PYTHON_FILE
     if not maps.knows(path):
         return BlindSpotReason.UNKNOWN_PATH
     if _is_conftest(path):
@@ -197,6 +204,60 @@ def _tests_downwind_of(maps: DownwindMaps, path: str) -> _FileAnswer:
     return _FileAnswer(node_ids=frozenset(selected), blind_spots=frozenset(dead_ends))
 
 
+def _parent_directory(path: str) -> str:
+    """The directory holding ``path``, spelled as the read map spells directories."""
+    directory, separator, _ = path.rpartition("/")
+    return directory if separator else WHOLE_REPOSITORY
+
+
+def _read_answer(maps: DownwindMaps, path: str, environment_files: Sequence[str]) -> _FileAnswer:
+    """What the read map says about one changed non-Python path.
+
+    Four rules, in this order, and the order is what makes the map useful
+    rather than merely safe:
+
+    1. An ENVIRONMENT-DEFINING path refuses outright. Nothing opens a lockfile
+       while the suite runs, so the map would answer "nothing depends on this"
+       for a file that changes the behaviour of every test.
+    2. A path read OUTSIDE any test refuses. Something depends on it and no
+       test can be named as the dependant, so the map cannot answer.
+    3. A path PRESENT when the profile was taken is answered by the tests that
+       read it, plus the tests that listed its directory. Empty is a real
+       answer here, and the only place in this module where absence is
+       evidence: the tracer watched every open for the whole suite, and the
+       file was there to be opened. The listers are unioned in because no rule
+       reads ``ChangeKind``, and DELETING a file changes what a listing returns
+       even when nothing ever opened it.
+    4. A NEW path has no measurement of its own, so it inherits what was
+       measured about the directory holding it: the tests that list that
+       directory, which is how a glob discovers a file nobody names, and the
+       tests that read its siblings. A directory nothing ever read or listed
+       yields nothing -- a new file under docs/ selects nothing, exactly as a
+       changed one does -- and that is a measured fact about the directory, not
+       an assumption about the file.
+
+    Returns a :class:`_FileAnswer` like the Python walk does, so both kinds of
+    changed path contribute tests and refusals through the same channel.
+    """
+    if is_environment_file(path, environment_files):
+        return _FileAnswer(
+            node_ids=frozenset(),
+            blind_spots=frozenset({BlindSpot(reason=BlindSpotReason.ENVIRONMENT_FILE, file=path)}),
+        )
+    if maps.is_unattributed_read(path):
+        return _FileAnswer(
+            node_ids=frozenset(),
+            blind_spots=frozenset({BlindSpot(reason=BlindSpotReason.UNATTRIBUTED_READ, file=path)}),
+        )
+
+    directory = _parent_directory(path)
+    if maps.was_present(path):
+        selected = maps.tests_reading(path) | maps.tests_listing(directory)
+    else:
+        selected = maps.tests_listing(directory) | maps.tests_reading_in(directory)
+    return _FileAnswer(node_ids=selected, blind_spots=frozenset())
+
+
 def _expiry_blind_spots(maps: DownwindMaps, existing_files: Iterable[str]) -> set[BlindSpot]:
     """One blind spot per file that exists now and the maps have never seen.
 
@@ -212,6 +273,7 @@ def downwind_of(
     maps: DownwindMaps,
     changed_files: frozenset[ChangedFile],
     existing_files: frozenset[str],
+    environment_files: Sequence[str],
 ) -> DownwindAnswer:
     """The tests downwind of ``changed_files``, or a refusal naming the blind spots.
 
@@ -226,6 +288,9 @@ def downwind_of(
         existing_files: The tracked files that exist in the working tree now,
             already narrowed to the scope the profile was captured under. A
             file here that the maps do not know is what expires the profile.
+        environment_files: Patterns naming paths that define the environment
+            the whole suite runs in, which refuse regardless of what any map
+            says about them.
 
     A path that is both a changed file the maps have never seen and a file
     that expires the profile reports BOTH reasons. Each is independently
@@ -238,7 +303,17 @@ def downwind_of(
 
     # Paths rather than ChangedFile: no rule reads the kind, and taking the
     # set of them deduplicates a path git reported under two kinds at once.
-    for path in {changed.path for changed in changed_files}:
+    changed_paths = {changed.path for changed in changed_files}
+    for path in changed_paths:
+        if not path.endswith(PYTHON_SUFFIX):
+            # Answered from the read map rather than refused. This is the one
+            # kind of changed path the Python relations were never able to say
+            # anything about at all.
+            answer = _read_answer(maps, path, environment_files)
+            node_ids |= answer.node_ids
+            blind_spots |= answer.blind_spots
+            continue
+
         reason = _blind_spot_reason(maps, path)
         if reason is None:
             answer = _tests_downwind_of(maps, path)
@@ -253,6 +328,14 @@ def downwind_of(
         # which closure it shortened. so-n6b.2 localises the doubt to the
         # importer; until then the whole graph is untrustworthy.
         blind_spots.add(BlindSpot(reason=BlindSpotReason.RESOLUTION_ERRORS, resolution_errors=maps.resolution_errors))
+
+    if maps.read_errors and any(not path.endswith(PYTHON_SUFFIX) for path in changed_paths):
+        # Gated on a non-Python path having actually changed, unlike the import
+        # graph's equivalent above. A lost read can only shorten an answer drawn
+        # from the read map, and no Python path draws one -- so refusing for a
+        # pure-Python commit would spend a full suite on doubt that cannot apply
+        # to anything in it.
+        blind_spots.add(BlindSpot(reason=BlindSpotReason.READ_ERRORS, read_errors=maps.read_errors))
 
     blind_spots |= _expiry_blind_spots(maps, existing_files)
 

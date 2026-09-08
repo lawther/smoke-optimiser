@@ -7,7 +7,7 @@ without rescanning every test record for every changed file in a commit. This
 module builds that inversion once, from a loaded profile, as a pure function
 with no IO and no git.
 
-Three relations come out of a profile:
+Six relations come out of a profile. Three of them answer for Python:
 
 * file -> tests that executed it, inverted from ``files_covered``. A
   branchless file (constants, re-exports, model declarations) still executed
@@ -26,7 +26,33 @@ Three relations come out of a profile:
   them, and a changed import-time-only module would select nothing at all.
   The node ids carry the relation regardless.
 
-All three maps are dense: every file the profile knows about, from
+Three more answer for everything else, which the Python relations cannot see
+at all:
+
+* file -> tests that READ it, inverted from ``files_read``. The only relation
+  a data file has to a test, since coverage and the import graph both describe
+  Python execution and a YAML fixture takes part in neither.
+* directory -> tests that LISTED it, inverted from ``directories_listed``. A
+  test that globs a directory never names the file it opens, so this is what
+  answers for a file added since the profile was taken.
+* directory -> tests that read a file directly in it, regrouped from
+  ``files_read``. A file the profile never saw has no measurement of its own
+  and inherits what was measured about the directory holding it -- and a
+  directory nothing ever read is a measured fact in its own right, which is
+  what lets a new file under ``docs/`` select nothing rather than everything.
+
+The last of those is DERIVED rather than stored, exactly as the import closure
+is. It is a regrouping of ``files_read``, and a second copy of it in the
+profile could only ever disagree with the first.
+
+The read relations are SPARSE where the Python ones are dense. A data file is
+not a file the profile "knows" in :meth:`DownwindMaps.knows`'s sense, so there
+is no key set to fill and no ambiguity to protect against: an empty answer is
+answered with the empty set rather than an error. Whether that emptiness is
+MEASURED -- the file was there and nothing opened it -- is a separate question,
+which :meth:`DownwindMaps.was_present` answers from the profile's denominator.
+
+The three Python maps are dense: every file the profile knows about, from
 ``DownwindMaps.knows``, has an entry in each, empty where it has no tests,
 no dependents or no tests defined in it. Density means a lookup miss is never ambiguous
 between "known, but empty" and "never seen" -- the caller need not
@@ -34,12 +60,13 @@ cross-reference a third set to tell them apart. Measured at the largest
 observed repo scale (271 files), that costs a few tens of kilobytes and a
 few microseconds of build time, once per profile.
 
-Two facts about the import graph's own trustworthiness ride along with the
-maps: which files the graph could not attribute an importer to, and how many
-edges it failed to record. Neither is a relation, but both qualify the
-answers the relations give, and the rules that read them read nothing else --
-so they live here rather than making the caller carry the raw profile
-alongside the maps and keep the two in step.
+Facts about each recorder's own trustworthiness ride along with the maps:
+which files the import graph could not attribute an importer to, how many
+edges it failed to record, which files were read outside any test, and how
+many reads went missing. None is a relation, but each qualifies the answers
+the relations give, and the rules that read them read nothing else -- so they
+live here rather than making the caller carry the raw profile alongside the
+maps and keep the two in step.
 """
 
 from __future__ import annotations
@@ -47,7 +74,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from smoke_optimiser.profiler.scope import under_root
+from smoke_optimiser.profiler.scope import WHOLE_REPOSITORY, under_root
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -112,6 +139,61 @@ def _tests_by_file(profile: ProfilingData, known_files: frozenset[str]) -> dict[
     return {path: frozenset(covering.get(path, ())) for path in known_files}
 
 
+def _parent_directory(path: str) -> str:
+    """The directory holding ``path``, as the read map spells directories.
+
+    A file at the top level of the repository is held by
+    :data:`WHOLE_REPOSITORY`, the same name the tracer records when a test
+    lists the root, so one spelling answers for both.
+    """
+    directory, separator, _ = path.rpartition("/")
+    return directory if separator else WHOLE_REPOSITORY
+
+
+def _tests_reading_file(profile: ProfilingData) -> dict[str, frozenset[str]]:
+    """Invert ``files_read`` into file -> the tests that opened it.
+
+    Sparse, unlike the Python maps: the keys are data files, which are not
+    files the profile "knows" in the :meth:`DownwindMaps.knows` sense, so
+    there is no dense key set to fill and a miss is answered with the empty
+    set rather than an error.
+    """
+    reading: dict[str, set[str]] = {}
+    for outcome in profile.tests.values():
+        for path in outcome.files_read:
+            reading.setdefault(path, set()).add(outcome.test_id)
+    return {path: frozenset(tests) for path, tests in reading.items()}
+
+
+def _tests_listing_directory(profile: ProfilingData) -> dict[str, frozenset[str]]:
+    """Invert ``directories_listed`` into directory -> the tests that listed it."""
+    listing: dict[str, set[str]] = {}
+    for outcome in profile.tests.values():
+        for directory in outcome.directories_listed:
+            listing.setdefault(directory, set()).add(outcome.test_id)
+    return {directory: frozenset(tests) for directory, tests in listing.items()}
+
+
+def _tests_reading_in_directory(profile: ProfilingData) -> dict[str, frozenset[str]]:
+    """Directory -> every test that read a file directly in it.
+
+    This is what answers for a file the profile never saw. A file added after
+    the run has no measurement of its own, so it inherits what was measured
+    about the directory holding it -- and a directory nothing ever read is a
+    measured fact in its own right, which is what lets a new doc under docs/
+    select nothing rather than everything.
+
+    Derived here rather than stored, exactly as the dependents closure is: it
+    is a regrouping of ``files_read``, and a second copy in the profile could
+    only ever disagree with the first.
+    """
+    reading: dict[str, set[str]] = {}
+    for outcome in profile.tests.values():
+        for path in outcome.files_read:
+            reading.setdefault(_parent_directory(path), set()).add(outcome.test_id)
+    return {directory: frozenset(tests) for directory, tests in reading.items()}
+
+
 def _direct_dependents(profile: ProfilingData) -> dict[str, set[str]]:
     """One hop only: file -> the files that directly import it."""
     dependents: dict[str, set[str]] = {}
@@ -169,6 +251,12 @@ class DownwindMaps:
     _known_files: frozenset[str]
     _unattributed_modules: frozenset[str]
     _resolution_errors: int
+    _tests_reading_file: Mapping[str, frozenset[str]]
+    _tests_listing_directory: Mapping[str, frozenset[str]]
+    _tests_reading_in_directory: Mapping[str, frozenset[str]]
+    _unattributed_reads: frozenset[str]
+    _present_files: frozenset[str]
+    _read_errors: int
 
     @classmethod
     def from_profile(cls, profile: ProfilingData) -> DownwindMaps:
@@ -182,6 +270,12 @@ class DownwindMaps:
             _known_files=known_files,
             _unattributed_modules=graph.unattributed_modules,
             _resolution_errors=graph.resolution_errors,
+            _tests_reading_file=_tests_reading_file(profile),
+            _tests_listing_directory=_tests_listing_directory(profile),
+            _tests_reading_in_directory=_tests_reading_in_directory(profile),
+            _unattributed_reads=profile.reads.unattributed_reads,
+            _present_files=profile.present_files,
+            _read_errors=profile.reads.recording_errors,
         )
 
     def knows(self, path: str) -> bool:
@@ -260,6 +354,61 @@ class DownwindMaps:
         if path not in self._known_files:
             raise UnknownFileError(path)
         return path in self._unattributed_modules
+
+    def tests_reading(self, path: str) -> frozenset[str]:
+        """Tests whose ``files_read`` included ``path``.
+
+        No :class:`UnknownFileError`: a data file is not a file the maps
+        "know" in the Python sense, and the empty set is a real answer for one
+        the tracer watched and no test opened. Whether that emptiness is
+        MEASURED or merely unobserved is :meth:`was_present`'s question, not
+        this one's.
+        """
+        return self._tests_reading_file.get(path, frozenset())
+
+    def tests_listing(self, directory: str) -> frozenset[str]:
+        """Tests that listed or globbed ``directory``.
+
+        The relation that answers for a file a test never names: a glob
+        discovers whatever is in the directory at the time, including files
+        added since the profile was taken.
+        """
+        return self._tests_listing_directory.get(directory, frozenset())
+
+    def tests_reading_in(self, directory: str) -> frozenset[str]:
+        """Tests that read any file directly in ``directory``.
+
+        Empty means nothing the profile saw ever touched this directory, which
+        is what makes a new file in it answerable with "nothing" rather than
+        with the full suite.
+        """
+        return self._tests_reading_in_directory.get(directory, frozenset())
+
+    def was_present(self, path: str) -> bool:
+        """Did this file exist when the profile was taken?
+
+        The read map's denominator. Without it, "no test read this file" and
+        "this file was not there to be read" are the same observation, and
+        only the first of them can warrant selecting nothing.
+        """
+        return path in self._present_files
+
+    def is_unattributed_read(self, path: str) -> bool:
+        """Was ``path`` read outside any test -- at import or collection time?
+
+        True means the read map cannot answer for it: something depends on the
+        file, and no test can be named as the dependant.
+        """
+        return path in self._unattributed_reads
+
+    @property
+    def read_errors(self) -> int:
+        """How many reads the tracer failed to record and swallowed.
+
+        Each one is a MISSING read of unknown identity, so any non-zero count
+        makes every answer drawn from the read map a possible under-estimate.
+        """
+        return self._read_errors
 
     @property
     def resolution_errors(self) -> int:

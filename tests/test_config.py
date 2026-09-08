@@ -8,7 +8,9 @@ from smoke_optimiser.config import (
     OperationMode,
     load_file_config,
     resolve_config,
+    resolve_downwind_config,
 )
+from smoke_optimiser.downwind.environment_files import DEFAULT_ENVIRONMENT_FILES
 
 DEFAULT_TIME_CAP = 15.0
 DEFAULT_TARGET_COV = 100.0
@@ -112,3 +114,26 @@ def test_a_boolean_given_on_the_command_line_beats_the_file_in_both_directions(t
 
     resolved = resolve_config(FileConfig(allow_ordered=False), {"allow_ordered": True}, tmp_path)
     assert resolved.allow_ordered is True
+
+
+def test_a_project_extends_the_environment_carve_out_rather_than_replacing_it(tmp_path: Path) -> None:
+    """Naming your own must not silently drop the guard on a lockfile.
+
+    A replacing key would let 'extra_environment_files = ["deploy/*.tf"]' turn
+    a changed uv.lock from a full-suite run into a selection -- exactly the
+    silent under-selection every other rule here is built to prevent.
+    """
+    (tmp_path / "pyproject.toml").write_text('[tool.smoke_optimiser]\nextra_environment_files = ["deploy/*.tf"]\n')
+
+    config = resolve_downwind_config(load_file_config(tmp_path), {})
+
+    assert "deploy/*.tf" in config.environment_files
+    assert "uv.lock" in config.environment_files
+
+
+def test_the_carve_out_defaults_to_the_shipped_list(tmp_path: Path) -> None:
+    (tmp_path / "pyproject.toml").write_text("[tool.smoke_optimiser]\ntime_cap = 5.0\n")
+
+    config = resolve_downwind_config(load_file_config(tmp_path), {})
+
+    assert config.environment_files == list(DEFAULT_ENVIRONMENT_FILES)
