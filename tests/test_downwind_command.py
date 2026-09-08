@@ -153,6 +153,55 @@ def test_a_change_no_test_reaches_runs_nothing_and_says_which_files(
     assert selection["changed_files"] == ["src/a.py"]
 
 
+@pytest.fixture
+def repo_with_tracked_own_artefacts(tmp_path: Path) -> Path:
+    """The profile and selection file are tracked, not gitignored -- the common early state.
+
+    Nothing here changes them after the commit; the test that uses this fixture does that, so
+    that the resulting git status is one this tool caused, not one a developer caused.
+    """
+    repo = tmp_path / "repo"
+    (repo / "src").mkdir(parents=True)
+    (repo / "tests").mkdir()
+    (repo / "src" / "a.py").write_text("from src import b\n")
+    (repo / "src" / "b.py").write_text("x = 1\n")
+    (repo / "tests" / "test_x.py").write_text("def test_x():\n    assert True\n")
+    (repo / "profile.json").write_text(json.dumps(_profile_where_the_change_reaches_no_test()))
+    (repo / ".downwind.json").write_text("{}")
+
+    _git(repo, "init")
+    _git(repo, "add", ".")
+    _git(repo, "-c", "user.email=t@example.com", "-c", "user.name=t", "commit", "-m", "initial")
+    return repo
+
+
+def test_rewriting_its_own_artefacts_is_not_treated_as_a_change(
+    repo_with_tracked_own_artefacts: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A project that has not gitignored the profile and selection file must not be punished for it.
+
+    Both files are rewritten by this tool's own previous runs, not by the developer -- so seeing
+    them dirty in git status must not force the full suite the way a real, unattributable change
+    would.
+    """
+    repo = repo_with_tracked_own_artefacts
+    (repo / "profile.json").write_text(json.dumps(_profile_where_the_change_reaches_no_test()) + "\n")
+    (repo / ".downwind.json").write_text('{"rewritten": true}')
+
+    with patch("smoke_optimiser.downwind.command._run_pytest") as run_pytest:
+        exit_code = run_downwind(_config(repo), repo)
+
+    assert exit_code == EXIT_OK
+    run_pytest.assert_not_called()
+    assert "No changes in the working tree" in capsys.readouterr().out
+
+    with (repo / ".downwind.json").open("rb") as f:
+        selection = json.load(f)
+    assert selection["changed_files"] == []
+    assert selection["blind_spots"] == []
+
+
 def test_a_clean_tree_says_nothing_changed_rather_than_warning_about_untested_files(
     repo_with_an_untested_module: Path,
     capsys: pytest.CaptureFixture[str],

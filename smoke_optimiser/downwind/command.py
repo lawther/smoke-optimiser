@@ -210,10 +210,27 @@ def _report_selection(selection: _Selection) -> None:
         typer.secho(f"     {path}", fg=typer.colors.CYAN)
 
 
-def _select(profile: ProfilingData, repo_root: Path) -> _Selection:
+def _drop_own_artefacts(
+    changed: frozenset[ChangedFile], repo_root: Path, config: DownwindConfig
+) -> frozenset[ChangedFile]:
+    """Exclude smoke-optimiser's own generated files from the changed set.
+
+    The profile and the selection file are rewritten by this tool's own runs, not by anything a
+    developer did to the tree -- so a project that has not gitignored them would otherwise see
+    every downwind run force the full suite over changes it made to itself the run before.
+
+    Both sides are resolved against ``repo_root`` before comparing: ``config``'s paths may be
+    given relative (the common case) or absolute, while ``changed`` always reports paths relative
+    to ``repo_root``, and joining an absolute path onto ``repo_root`` is a no-op either way.
+    """
+    own_artefacts = {(repo_root / config.profile_path).resolve(), (repo_root / config.downwind_file_path).resolve()}
+    return frozenset(file for file in changed if (repo_root / file.path).resolve() not in own_artefacts)
+
+
+def _select(profile: ProfilingData, repo_root: Path, config: DownwindConfig) -> _Selection:
     """Ask the rules, having made the two queries only this layer can make."""
     maps = DownwindMaps.from_profile(profile)
-    changed = changed_files(repo_root)
+    changed = _drop_own_artefacts(changed_files(repo_root), repo_root, config)
     # The tree, not the diff, and narrowed by the predicate the profile was
     # captured under. Applying anything less than the whole predicate would
     # compare the maps against files they could never have contained.
@@ -285,7 +302,7 @@ def run_downwind(config: DownwindConfig, invocation_dir: Path) -> int:
     profile = load_profile(config.profile_path)
 
     try:
-        selection = _select(profile, repo_root)
+        selection = _select(profile, repo_root, config)
     except GitStatusError as exc:
         _report_git_failure(exc)
         return EXIT_ERROR
