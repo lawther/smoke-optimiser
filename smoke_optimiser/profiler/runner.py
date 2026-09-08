@@ -15,6 +15,7 @@ import typer
 from pydantic import ValidationError
 
 from smoke_optimiser.config import ResolvedConfig
+from smoke_optimiser.downwind.changes import GitStatusError, tracked_files
 from smoke_optimiser.profiler.coverage_db import CoverageIngestError, build_profiling_data
 from smoke_optimiser.profiler.import_tracer import ImportGraphIngestError, merge_graphs, read_graph
 from smoke_optimiser.profiler.models import (
@@ -23,7 +24,14 @@ from smoke_optimiser.profiler.models import (
     OutcomesFileModel,
     ProfilingData,
     ProfilingMeta,
+    ReadMap,
     SuiteRunResults,
+)
+from smoke_optimiser.profiler.read_tracer import (
+    PYTHON_SUFFIX,
+    ReadMapIngestError,
+    merge_read_maps,
+    read_read_map,
 )
 from smoke_optimiser.profiler.scope import ProfileScope
 
@@ -57,12 +65,29 @@ FATAL_EXIT_CODES: dict[pytest.ExitCode, str] = {
 USABLE_EXIT_CODES = frozenset({pytest.ExitCode.OK, pytest.ExitCode.TESTS_FAILED})
 
 
+class HookArtefacts(NamedTuple):
+    """The files the profiling hook writes, which the runner reads back.
+
+    One group rather than three parameters: every one of them is written by the
+    same hook, in the same temporary directory, and read back in the same step,
+    so a caller that had one and not another would have nothing to do with it.
+
+    Each is a base name. Under pytest-xdist every worker writes its own sibling
+    of each, since sharing one file between workers loses all but the last.
+    """
+
+    outcomes_json: Path
+    import_graph_json: Path
+    read_map_json: Path
+
+
 class IterationResult(NamedTuple):
     """Everything one profiling iteration left behind, including how pytest exited."""
 
     returncode: int
     outcomes: IterationOutcomes
     import_graph: ImportGraph
+    read_map: ReadMap
 
 
 # Minimal inline pytest plugin to capture exact node IDs, durations, outcomes, and markers
@@ -75,9 +100,11 @@ from pathlib import Path
 import pytest
 
 from smoke_optimiser.profiler.import_tracer import ImportTracer, write_graph
+from smoke_optimiser.profiler.read_tracer import ReadTracer, write_read_map
 from smoke_optimiser.profiler.scope import resolve_scope
 
 _TRACER = ImportTracer()
+_READS = ReadTracer(Path(os.environ.get('SMOKE_PROJECT_ROOT', os.getcwd())))
 _COLLECTION_ERRORS = []
 
 
@@ -96,6 +123,10 @@ def pytest_configure(config):
     # this is early enough to see them. Imports made before now -- pytest's own start-up
     # and this plugin's -- are missed, and none of those are project files.
     _TRACER.install()
+    # Installed at the same moment, and for the mirror of the same reason: a file a
+    # project module reads while being imported is a real dependency with no test to
+    # attribute it to, which is exactly what the unattributed read set is for.
+    _READS.install()
 
 def pytest_collectreport(report):
     if report.failed:
@@ -104,6 +135,16 @@ def pytest_collectreport(report):
         # exits 1 -- indistinguishable from ordinary test failures. Recording it here
         # is what lets the runner tell the two apart.
         _COLLECTION_ERRORS.append(report.nodeid or 'the test session root')
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_protocol(item, nextitem):
+    # The whole protocol, not just the call phase, so a fixture that reads a fixture
+    # file attributes to the test that used it -- matching how coverage records its
+    # own contexts across setup, call and teardown.
+    _READS.set_active_test(item.nodeid)
+    yield
+    _READS.set_active_test(None)
 
 
 @pytest.hookimpl(hookwrapper=True)
@@ -130,10 +171,15 @@ def pytest_runtest_makereport(item, call):
 
 def pytest_unconfigure(config):
     _TRACER.uninstall()
+    _READS.uninstall()
     root = Path(os.environ.get('SMOKE_PROJECT_ROOT', str(config.rootpath)))
     graph_file = os.environ.get('SMOKE_IMPORT_GRAPH_JSON')
     if graph_file:
         write_graph(_TRACER.snapshot(root, sys.modules), Path(_worker_path(graph_file)))
+
+    read_map_file = os.environ.get('SMOKE_READ_MAP_JSON')
+    if read_map_file:
+        write_read_map(_READS.snapshot(), Path(_worker_path(read_map_file)))
 
     # Read here rather than from the command line the runner built: the project's
     # own addopts and testpaths are applied by pytest inside this process and are
@@ -348,12 +394,42 @@ def _read_iteration_graph(import_graph_json: Path) -> ImportGraph:
     return merge_graphs(graphs)
 
 
+def _read_iteration_read_map(read_map_json: Path) -> ReadMap:
+    """Read and merge every file read map one profiling iteration produced."""
+    paths = sorted(read_map_json.parent.glob(f"{read_map_json.stem}*{read_map_json.suffix}"))
+    maps = [read_read_map(path) for path in paths]
+    for path in paths:
+        path.unlink()
+    return merge_read_maps(maps)
+
+
+def _present_files(project_root: Path) -> frozenset[str]:
+    """The tracked non-Python files that exist as the run starts.
+
+    The read map's denominator, so that a file nothing opened can be told apart
+    from a file that was not there to be opened. Best effort, as the commit is:
+    profiling does not otherwise need git, and an empty denominator makes every
+    data file look new, which over-selects rather than under-selects.
+    """
+    try:
+        tracked = tracked_files(project_root)
+    except GitStatusError as exc:
+        typer.secho(
+            f"\u26a0\ufe0f Warning: could not list the tracked files ({exc.detail.strip()}), so the profile "
+            "records no denominator for the file read map. Downwind selection will treat every data file as "
+            "newly added, which widens its answers rather than narrowing them.",
+            fg=typer.colors.YELLOW,
+            err=True,
+        )
+        return frozenset()
+    return frozenset(path for path in tracked if not path.endswith(PYTHON_SUFFIX))
+
+
 def _profiling_env(
     temp_dir: Path,
     project_root: Path,
-    outcomes_json: Path,
     coverage_db: Path,
-    import_graph_json: Path,
+    artefacts: HookArtefacts,
 ) -> dict[str, EnvVarValue]:
     """Build the environment the profiled pytest subprocess runs under."""
     env = {name: EnvVarValue(value) for name, value in os.environ.items()}
@@ -365,8 +441,9 @@ def _profiling_env(
         parts.append(current_pythonpath)
     env["PYTHONPATH"] = EnvVarValue(os.pathsep.join(parts))
 
-    env["SMOKE_OUTCOMES_JSON"] = EnvVarValue(str(outcomes_json))
-    env["SMOKE_IMPORT_GRAPH_JSON"] = EnvVarValue(str(import_graph_json))
+    env["SMOKE_OUTCOMES_JSON"] = EnvVarValue(str(artefacts.outcomes_json))
+    env["SMOKE_IMPORT_GRAPH_JSON"] = EnvVarValue(str(artefacts.import_graph_json))
+    env["SMOKE_READ_MAP_JSON"] = EnvVarValue(str(artefacts.read_map_json))
     env["COVERAGE_FILE"] = EnvVarValue(str(coverage_db))
     # The graph's paths must be relative to the same root as the coverage data, which
     # pytest's own rootdir is not obliged to match.
@@ -418,8 +495,7 @@ def _run_iteration(
     pytest_cmd: list[str],
     project_root: Path,
     env: dict[str, EnvVarValue],
-    outcomes_json: Path,
-    import_graph_json: Path,
+    artefacts: HookArtefacts,
 ) -> IterationResult:
     """Run the suite once and collect everything that iteration left behind."""
     # the command is built from sys.executable and user-provided args in a local CLI tool
@@ -429,15 +505,24 @@ def _run_iteration(
     # for the next iteration and because the outcomes file is what carries the
     # collection errors -- which need reporting however pytest chose to exit.
     try:
-        outcomes = _read_iteration_outcomes(outcomes_json)
+        outcomes = _read_iteration_outcomes(artefacts.outcomes_json)
     except OutcomesIngestError as exc:
         _fail(str(exc))
     try:
-        import_graph = _read_iteration_graph(import_graph_json)
+        import_graph = _read_iteration_graph(artefacts.import_graph_json)
     except ImportGraphIngestError as exc:
         _fail(str(exc))
+    try:
+        read_map = _read_iteration_read_map(artefacts.read_map_json)
+    except ReadMapIngestError as exc:
+        _fail(str(exc))
 
-    return IterationResult(returncode=run.returncode, outcomes=outcomes, import_graph=import_graph)
+    return IterationResult(
+        returncode=run.returncode,
+        outcomes=outcomes,
+        import_graph=import_graph,
+        read_map=read_map,
+    )
 
 
 def run_profiling(config: ResolvedConfig, project_root: Path) -> ProfilingData:
@@ -446,8 +531,11 @@ def run_profiling(config: ResolvedConfig, project_root: Path) -> ProfilingData:
 
     with tempfile.TemporaryDirectory() as temp_dir_str:
         temp_dir = Path(temp_dir_str)
-        outcomes_json = temp_dir / "outcomes.json"
-        import_graph_json = temp_dir / "import_graph.json"
+        artefacts = HookArtefacts(
+            outcomes_json=temp_dir / "outcomes.json",
+            import_graph_json=temp_dir / "import_graph.json",
+            read_map_json=temp_dir / "read_map.json",
+        )
         hook_file = temp_dir / "_smoke_hook.py"
         coveragerc = temp_dir / ".coveragerc"
         coverage_db = temp_dir / ".coverage"
@@ -461,16 +549,20 @@ def run_profiling(config: ResolvedConfig, project_root: Path) -> ProfilingData:
         final_markers: dict[str, frozenset[str]] = {}
         xdist_workers = 1
         graphs: list[ImportGraph] = []
+        read_maps: list[ReadMap] = []
         scopes: list[ProfileScope] = []
+        # Before the first iteration, so the denominator names the tree the suite was
+        # actually profiled against rather than whatever it became while it ran.
+        present_files = _present_files(project_root)
 
-        env = _profiling_env(temp_dir, project_root, outcomes_json, coverage_db, import_graph_json)
+        env = _profiling_env(temp_dir, project_root, coverage_db, artefacts)
         pytest_cmd = _build_pytest_command(config, coveragerc)
 
         for i in range(config.iterations):
             if config.iterations > 1:
                 typer.secho(f"  \U0001f504 Iteration {i + 1}/{config.iterations}...", fg=typer.colors.CYAN)
 
-            result = _run_iteration(pytest_cmd, project_root, env, outcomes_json, import_graph_json)
+            result = _run_iteration(pytest_cmd, project_root, env, artefacts)
 
             if result.outcomes.collection_errors:
                 # Fatal however many iterations have already run: the same files fail to
@@ -500,6 +592,7 @@ def run_profiling(config: ResolvedConfig, project_root: Path) -> ProfilingData:
 
             xdist_workers = max(xdist_workers, result.outcomes.xdist_workers)
             graphs.append(result.import_graph)
+            read_maps.append(result.read_map)
             scopes.append(result.outcomes.scope)
 
             for nodeid, record in result.outcomes.outcomes.items():
@@ -518,6 +611,8 @@ def run_profiling(config: ResolvedConfig, project_root: Path) -> ProfilingData:
             xdist_workers=xdist_workers,
             import_graph=merge_graphs(graphs),
             scope=_merge_scopes(scopes),
+            read_map=merge_read_maps(read_maps),
+            present_files=present_files,
         )
         _warn_about_an_unbounded_test_scope(results.scope)
         try:
@@ -544,4 +639,6 @@ def run_profiling(config: ResolvedConfig, project_root: Path) -> ProfilingData:
             import_graph=data.import_graph,
             scope=data.scope,
             unattributable_branches=data.unattributable_branches,
+            reads=data.reads,
+            present_files=data.present_files,
         )

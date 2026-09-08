@@ -3,7 +3,7 @@ from typing import Any
 
 import pytest
 
-from smoke_optimiser.profiler.models import PROFILE_SCHEMA_VERSION, ImportGraph
+from smoke_optimiser.profiler.models import PROFILE_SCHEMA_VERSION, ImportGraph, ReadMap
 
 type RawProfileFactory = Callable[[], dict[str, Any]]
 
@@ -17,6 +17,18 @@ def empty_graph() -> ImportGraph:
         edges=frozenset(),
         unattributed_modules=frozenset(),
         resolution_errors=0,
+        error_samples=(),
+    )
+
+
+@pytest.fixture
+def empty_read_map() -> ReadMap:
+    """A read map that recorded nothing, for tests that are not about reads."""
+    return ReadMap(
+        reads_by_test={},
+        listings_by_test={},
+        unattributed_reads=frozenset(),
+        recording_errors=0,
         error_samples=(),
     )
 

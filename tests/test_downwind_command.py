@@ -17,6 +17,7 @@ import pytest
 
 from smoke_optimiser.config import DownwindConfig
 from smoke_optimiser.downwind.command import run_downwind
+from smoke_optimiser.profiler.models import PROFILE_SCHEMA_VERSION
 
 EXIT_OK = 0
 EXIT_ERROR = 1
@@ -46,7 +47,7 @@ def _profile_where_the_change_reaches_no_test() -> dict[str, Any]:
     not a refusal, and it is the shape this file exists to pin down.
     """
     return {
-        "schema_version": 2,
+        "schema_version": PROFILE_SCHEMA_VERSION,
         "meta": {
             "timestamp": "2026-03-02T10:30:00Z",
             "commit": "abcdef",

@@ -17,7 +17,7 @@ from smoke_optimiser.profiler.coverage_db import (
     build_profiling_data,
     read_coverage_db,
 )
-from smoke_optimiser.profiler.models import ImportGraph, SuiteRunResults
+from smoke_optimiser.profiler.models import ImportGraph, ReadMap, SuiteRunResults
 from smoke_optimiser.profiler.scope import ProfileScope
 
 TEST_POS = "tests/test_app.py::test_pos"
@@ -262,7 +262,9 @@ def test_a_measured_file_that_is_not_python_is_treated_as_branchless(
     assert "not Python source" in stderr
 
 
-def test_build_profiling_data_carries_outcomes_and_markers(tmp_path: Path, empty_graph: ImportGraph) -> None:
+def test_build_profiling_data_carries_outcomes_and_markers(
+    tmp_path: Path, empty_graph: ImportGraph, empty_read_map: ReadMap
+) -> None:
     db_path = _standard_db(tmp_path)
     results = SuiteRunResults(
         durations=_durations(),
@@ -270,6 +272,8 @@ def test_build_profiling_data_carries_outcomes_and_markers(tmp_path: Path, empty
         markers={TEST_POS: frozenset(["unit"]), TEST_NEG: frozenset()},
         xdist_workers=1,
         import_graph=empty_graph,
+        read_map=empty_read_map,
+        present_files=frozenset(),
         scope=ProfileScope(
             coverage_roots=frozenset({"src"}),
             test_roots=frozenset({"tests"}),
@@ -291,7 +295,9 @@ def test_build_profiling_data_carries_outcomes_and_markers(tmp_path: Path, empty
     assert data.meta.coverage_version != "unknown"
 
 
-def test_a_test_with_no_recorded_coverage_still_appears(tmp_path: Path, empty_graph: ImportGraph) -> None:
+def test_a_test_with_no_recorded_coverage_still_appears(
+    tmp_path: Path, empty_graph: ImportGraph, empty_read_map: ReadMap
+) -> None:
     app = _write_app(tmp_path)
     db_path = tmp_path / ".coverage"
     _write_db(db_path, {f"{TEST_POS}|run": {str(app): {(2, 3)}}})
@@ -301,6 +307,8 @@ def test_a_test_with_no_recorded_coverage_still_appears(tmp_path: Path, empty_gr
         markers={},
         xdist_workers=1,
         import_graph=empty_graph,
+        read_map=empty_read_map,
+        present_files=frozenset(),
         scope=ProfileScope(
             coverage_roots=frozenset({"src"}),
             test_roots=frozenset({"tests"}),

@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 from smoke_optimiser.environment import MachineEnvironment
 from smoke_optimiser.profiler.scope import ProfileScope
 
-PROFILE_SCHEMA_VERSION = 2
+PROFILE_SCHEMA_VERSION = 3
 """Schema version this build writes to a profiling data file.
 
 Bumped whenever ProfilingDataFile's shape changes in a way that makes an
@@ -28,6 +28,13 @@ class ProfilingOutcome:
             straight-line code -- constants, re-exports, model declarations --
             contributes no branch ids at all, so ``branches_covered`` cannot
             answer which tests touch it.
+        files_read: Non-Python project files this test opened for reading, in
+            any of setup, call or teardown. Coverage and the import graph both
+            answer only for Python, so this is the sole relation a data file
+            has to a test.
+        directories_listed: Project directories this test listed or globbed. A
+            test that globs a directory never names the file it opens, so this
+            is what answers for a file added after the profile was taken.
     """
 
     test_id: str
@@ -36,6 +43,8 @@ class ProfilingOutcome:
     branches_covered: frozenset[str]
     files_covered: frozenset[str]
     markers: frozenset[str]
+    files_read: frozenset[str] = frozenset()
+    directories_listed: frozenset[str] = frozenset()
 
 
 class ImportEdge(NamedTuple):
@@ -77,6 +86,49 @@ class ImportGraph:
 
 
 @dataclass(frozen=True)
+class ReadMap:
+    """What one process's read tracer saw, before it is folded into the profile.
+
+    The per-test halves land on each :class:`ProfilingOutcome`; what stays
+    here is what belongs to no single test.
+
+    Attributes:
+        reads_by_test: Node id -> the non-Python files that test read.
+        listings_by_test: Node id -> the directories that test listed.
+        unattributed_reads: Files read outside any test -- at import time or
+            during collection. A change to one means the map CANNOT ANSWER,
+            which must fall back to running everything: reading it as "no test
+            reads this" would select nothing at all.
+        recording_errors: How many times recording a read failed and was
+            swallowed. Each swallowed failure is a MISSING read, and a missing
+            read silently under-selects, so a non-zero count means the map is
+            incomplete by an unknown amount.
+        error_samples: The first few of those failures, for diagnosis.
+    """
+
+    reads_by_test: Mapping[str, frozenset[str]]
+    listings_by_test: Mapping[str, frozenset[str]]
+    unattributed_reads: frozenset[str]
+    recording_errors: int
+    error_samples: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class ReadObservations:
+    """The part of the read map that belongs to no single test.
+
+    Separate from :class:`ReadMap` because the per-test halves of that map are
+    stored on the outcomes themselves, leaving the profile to carry only what
+    qualifies the answers those relations give -- the same split
+    :class:`ImportGraph` makes between its edges and its own trustworthiness.
+    """
+
+    unattributed_reads: frozenset[str] = frozenset()
+    recording_errors: int = 0
+    error_samples: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class ProfilingMeta:
     """Metadata for a profiling run.
 
@@ -110,6 +162,13 @@ class ProfilingData:
             any test context -- module-level code running at import time. No
             selection of tests can ever cover them, so they cap the coverage
             the optimiser can reach.
+        present_files: The tracked non-Python files that existed when the run
+            started. This is the read map's denominator: without it, "no test
+            read this file" and "this file was not there to be read" are the
+            same observation, and only the first of them can warrant selecting
+            nothing.
+        reads: What the read tracer saw that belongs to no single test, and how
+            far it can be trusted.
         scope: What this profile was captured over -- the coverage targets and
             test paths the profiling run itself resolved. A file in scope is one
             a regenerated profile would know about, which is what makes
@@ -124,6 +183,8 @@ class ProfilingData:
     import_graph: ImportGraph
     scope: ProfileScope
     unattributable_branches: frozenset[str] = frozenset()
+    reads: ReadObservations = ReadObservations()
+    present_files: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True)
@@ -142,6 +203,8 @@ class SuiteRunResults:
     xdist_workers: int
     import_graph: ImportGraph
     scope: ProfileScope
+    read_map: ReadMap
+    present_files: frozenset[str]
 
 
 class ProfileScopeModel(BaseModel):
@@ -228,6 +291,62 @@ class ImportGraphModel(BaseModel):
         )
 
 
+class ReadMapModel(BaseModel):
+    """Pydantic model for one process's read map, as the profiling hook writes it."""
+
+    reads_by_test: dict[str, list[str]]
+    listings_by_test: dict[str, list[str]]
+    unattributed_reads: list[str]
+    recording_errors: int
+    error_samples: list[str]
+
+    def to_read_map(self) -> ReadMap:
+        """Convert to the internal frozen dataclass."""
+        return ReadMap(
+            reads_by_test={test: frozenset(paths) for test, paths in self.reads_by_test.items()},
+            listings_by_test={test: frozenset(paths) for test, paths in self.listings_by_test.items()},
+            unattributed_reads=frozenset(self.unattributed_reads),
+            recording_errors=self.recording_errors,
+            error_samples=tuple(self.error_samples),
+        )
+
+    @classmethod
+    def from_read_map(cls, read_map: ReadMap) -> "ReadMapModel":
+        """Build the model that writes ``read_map`` to a file, ordered for a stable diff."""
+        return cls(
+            reads_by_test={test: sorted(paths) for test, paths in sorted(read_map.reads_by_test.items())},
+            listings_by_test={test: sorted(paths) for test, paths in sorted(read_map.listings_by_test.items())},
+            unattributed_reads=sorted(read_map.unattributed_reads),
+            recording_errors=read_map.recording_errors,
+            error_samples=list(read_map.error_samples),
+        )
+
+
+class ReadObservationsModel(BaseModel):
+    """Pydantic model for ReadObservations validation."""
+
+    unattributed_reads: list[str] = Field(default_factory=list)
+    recording_errors: int = 0
+    error_samples: list[str] = Field(default_factory=list)
+
+    def to_read_observations(self) -> ReadObservations:
+        """Convert to the internal frozen dataclass."""
+        return ReadObservations(
+            unattributed_reads=frozenset(self.unattributed_reads),
+            recording_errors=self.recording_errors,
+            error_samples=tuple(self.error_samples),
+        )
+
+    @classmethod
+    def from_read_observations(cls, reads: ReadObservations) -> "ReadObservationsModel":
+        """Build the model that writes ``reads`` to the profile, ordered for a stable diff."""
+        return cls(
+            unattributed_reads=sorted(reads.unattributed_reads),
+            recording_errors=reads.recording_errors,
+            error_samples=list(reads.error_samples),
+        )
+
+
 class ProfilingOutcomeModel(BaseModel):
     """Pydantic model for ProfilingOutcome validation."""
 
@@ -237,6 +356,8 @@ class ProfilingOutcomeModel(BaseModel):
     branches_covered: list[str]
     files_covered: list[str]
     markers: list[str]
+    files_read: list[str] = Field(default_factory=list)
+    directories_listed: list[str] = Field(default_factory=list)
 
 
 class MachineModel(BaseModel):
@@ -285,6 +406,8 @@ class ProfilingDataFile(BaseModel):
     import_graph: ImportGraphModel
     scope: ProfileScopeModel
     unattributable_branches: list[str] = Field(default_factory=list)
+    reads: ReadObservationsModel = Field(default_factory=ReadObservationsModel)
+    present_files: list[str] = Field(default_factory=list)
 
     def to_profiling_data(self) -> ProfilingData:
         """Convert Pydantic model to internal frozen dataclasses."""
@@ -308,6 +431,8 @@ class ProfilingDataFile(BaseModel):
                 branches_covered=frozenset(tr.branches_covered),
                 files_covered=frozenset(tr.files_covered),
                 markers=frozenset(tr.markers),
+                files_read=frozenset(tr.files_read),
+                directories_listed=frozenset(tr.directories_listed),
             )
             for tid, tr in self.tests.items()
         }
@@ -320,6 +445,8 @@ class ProfilingDataFile(BaseModel):
             import_graph=self.import_graph.to_import_graph(),
             scope=self.scope.to_profile_scope(),
             unattributable_branches=frozenset(self.unattributable_branches),
+            reads=self.reads.to_read_observations(),
+            present_files=frozenset(self.present_files),
         )
 
 

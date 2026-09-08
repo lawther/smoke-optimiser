@@ -28,6 +28,7 @@ from smoke_optimiser.profiler.models import (
     ProfilingDataFile,
     ProfilingMetaModel,
     ProfilingOutcomeModel,
+    ReadObservationsModel,
     load_profiling_data_file,
 )
 
@@ -64,6 +65,8 @@ def save_profile(profiling_data: ProfilingData, profile_path: Path) -> None:
             branches_covered=list(po.branches_covered),
             files_covered=list(po.files_covered),
             markers=list(po.markers),
+            files_read=list(po.files_read),
+            directories_listed=list(po.directories_listed),
         )
         for tid, po in profiling_data.tests.items()
     }
@@ -83,6 +86,8 @@ def save_profile(profiling_data: ProfilingData, profile_path: Path) -> None:
         import_graph=graph_model,
         scope=ProfileScopeModel.from_profile_scope(profiling_data.scope),
         unattributable_branches=list(profiling_data.unattributable_branches),
+        reads=ReadObservationsModel.from_read_observations(profiling_data.reads),
+        present_files=list(profiling_data.present_files),
     )
     profile_path.unlink(missing_ok=True)
     with profile_path.open("w") as f:

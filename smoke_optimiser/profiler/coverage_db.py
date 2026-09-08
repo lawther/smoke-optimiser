@@ -40,6 +40,7 @@ from smoke_optimiser.profiler.models import (
     ProfilingData,
     ProfilingMeta,
     ProfilingOutcome,
+    ReadObservations,
     SuiteRunResults,
 )
 
@@ -376,6 +377,8 @@ def build_profiling_data(
             branches_covered=ingest.tests_branches.get(test_id, frozenset()),
             files_covered=ingest.tests_files.get(test_id, frozenset()),
             markers=results.markers.get(test_id, frozenset()),
+            files_read=results.read_map.reads_by_test.get(test_id, frozenset()),
+            directories_listed=results.read_map.listings_by_test.get(test_id, frozenset()),
         )
         for test_id, duration in results.durations.items()
     }
@@ -398,4 +401,10 @@ def build_profiling_data(
         import_graph=results.import_graph,
         scope=results.scope,
         unattributable_branches=ingest.unattributable_branches,
+        reads=ReadObservations(
+            unattributed_reads=results.read_map.unattributed_reads,
+            recording_errors=results.read_map.recording_errors,
+            error_samples=results.read_map.error_samples,
+        ),
+        present_files=results.present_files,
     )

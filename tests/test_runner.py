@@ -21,6 +21,19 @@ from smoke_optimiser.profiler.runner import (
 from smoke_optimiser.profiler.scope import ProfileScope
 
 
+def _pytest_command(mock_run: MagicMock) -> list[str]:
+    """The profiled pytest invocation, picked out of every subprocess the run made.
+
+    Not simply the first call: profiling also asks git for the tracked files, to
+    record the denominator the file read map is read against. Selecting by what
+    the command IS keeps these assertions about the pytest command line rather
+    than about the order the runner happens to do its work in.
+    """
+    commands = [call.args[0] for call in mock_run.call_args_list if "pytest" in call.args[0]]
+    assert commands, "the runner never invoked pytest"
+    return commands[0]
+
+
 def test_check_prerequisites_success() -> None:
     config = ResolvedConfig(
         mode=OperationMode.FULL,
@@ -65,8 +78,7 @@ def test_run_profiling_basic(mock_ingest: MagicMock, mock_run: MagicMock, tmp_pa
         run_profiling(config, tmp_path)
 
     # Verify pytest command
-    args, _kwargs = mock_run.call_args_list[0]
-    cmd = args[0]
+    cmd = _pytest_command(mock_run)
     assert "-m" in cmd
     assert "pytest" in cmd
     # We check that some --cov is present
@@ -113,7 +125,7 @@ def test_cov_report_in_pytest_args_does_not_suppress_the_cov_source(
     with patch("shutil.which", return_value="/usr/bin/pytest"):
         run_profiling(config, tmp_path)
 
-    cmd = mock_run.call_args_list[0].args[0]
+    cmd = _pytest_command(mock_run)
     assert "--cov=smoke_optimiser" in cmd
 
 
@@ -141,7 +153,7 @@ def test_an_explicit_cov_source_is_left_alone(mock_ingest: MagicMock, mock_run: 
     with patch("shutil.which", return_value="/usr/bin/pytest"):
         run_profiling(config, tmp_path)
 
-    cmd = mock_run.call_args_list[0].args[0]
+    cmd = _pytest_command(mock_run)
     assert "--cov=chosen_package" in cmd
     assert "--cov=smoke_optimiser" not in cmd
 
