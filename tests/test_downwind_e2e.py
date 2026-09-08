@@ -220,3 +220,39 @@ def test_the_smoke_command_still_writes_and_ranks_its_own_suite(profiled_repo: P
 
     assert result.returncode == EXIT_OK, f"{result.stderr}\nSTDOUT: {result.stdout}"
     assert (profiled_repo / ".smoke_suite.json").exists()
+
+
+def test_an_ordinary_smoke_run_leaves_a_profile_downwind_can_use(tmp_path: Path) -> None:
+    """The default handoff: run ``smoke``, then run ``downwind``, with nothing in between.
+
+    Deliberately not built on ``profiled_repo``, which profiles explicitly:
+    the point here is that a user who never asks for ``--profile-only`` still
+    ends up with a profile, so ``downwind`` selects rather than falling back to
+    the whole suite.
+    """
+    project_dir = tmp_path / "my_project"
+    _write_project(project_dir)
+    (project_dir / ".gitignore").write_text(
+        ".smoke_profiling_data.json\n.downwind.json\n__pycache__/\n.smoke_suite.json\n",
+    )
+    _git(project_dir, "init")
+    _git(project_dir, "add", ".")
+    _git(project_dir, "-c", "user.email=t@example.com", "-c", "user.name=t", "commit", "-m", "initial")
+
+    smoke = _run(project_dir, "smoke", "--allow-ordered", "--src=src")
+    assert smoke.returncode == EXIT_OK, f"{smoke.stderr}\nSTDOUT: {smoke.stdout}"
+    assert (project_dir / ".smoke_profiling_data.json").exists()
+
+    # A real edit that keeps the test passing, so the exit code is about
+    # selection rather than about the assertion inside the fixture project.
+    (project_dir / "src" / "other.py").write_text(
+        'def double(x):\n    """Twice x, or zero."""\n    if x > 0:\n        return x + x\n    return 0\n',
+    )
+    downwind = _run(project_dir, "downwind")
+
+    assert downwind.returncode == EXIT_OK, f"{downwind.stderr}\nSTDOUT: {downwind.stdout}"
+    assert "smoke-optimiser smoke --profile-only" not in downwind.stderr
+    selection = _selection(project_dir)
+    assert selection.blind_spots == []
+    assert selection.changed_files == ["src/other.py"]
+    assert set(selection.node_ids) == {"tests/test_other.py::test_double"}

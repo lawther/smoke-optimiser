@@ -1,9 +1,18 @@
 from collections.abc import Callable
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
 
-from smoke_optimiser.profiler.models import PROFILE_SCHEMA_VERSION, ImportGraph, ReadMap
+from smoke_optimiser.environment import MachineEnvironment
+from smoke_optimiser.profiler.models import (
+    PROFILE_SCHEMA_VERSION,
+    ImportGraph,
+    ProfilingData,
+    ProfilingMeta,
+    ReadMap,
+)
+from smoke_optimiser.profiler.scope import ProfileScope
 
 type RawProfileFactory = Callable[[], dict[str, Any]]
 
@@ -90,3 +99,49 @@ def raw_profile() -> RawProfileFactory:
         }
 
     return _build
+
+
+@pytest.fixture
+def profiled_suite() -> ProfilingData:
+    """A minimal but genuine profile, for tests that stub out the profiling phase.
+
+    A ``MagicMock`` will not do here: every ``smoke`` run now saves the profile,
+    and saving validates it, so a stubbed profiling phase has to hand back
+    something a Pydantic model will accept.
+    """
+    return ProfilingData(
+        meta=ProfilingMeta(
+            timestamp=datetime(2026, 3, 2, 10, 30, 0, tzinfo=UTC),
+            commit="abcdef",
+            python_version="3.12",
+            coverage_version="7.0",
+            command="smoke-optimiser smoke",
+            machine=MachineEnvironment(
+                os="Linux",
+                os_version="6.5",
+                platform="Ubuntu",
+                architecture="x86_64",
+                cpu_model="AMD",
+                cpu_cores_physical=16,
+                cpu_cores_logical=32,
+                ram_total_mb=65536,
+                ram_available_mb=58200,
+                hostname="ci-04",
+            ),
+            xdist_workers=1,
+        ),
+        tests={},
+        total_branches=frozenset(),
+        measured_files=frozenset(),
+        import_graph=ImportGraph(
+            edges=frozenset(),
+            unattributed_modules=frozenset(),
+            resolution_errors=0,
+            error_samples=(),
+        ),
+        scope=ProfileScope(
+            coverage_roots=frozenset({"src"}),
+            test_roots=frozenset({"tests"}),
+            test_file_patterns=("test_*.py",),
+        ),
+    )

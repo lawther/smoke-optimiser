@@ -283,9 +283,7 @@ def smoke(  # noqa: PLR0913 # special case for this function since Typer works t
     if config.mode != OperationMode.OPTIMISE_ONLY:
         typer.secho("🔍 Running profiling...", fg=typer.colors.CYAN, bold=True)
         profiling_data = run_profiling(config, project_root)
-
-        if config.mode == OperationMode.PROFILE_ONLY:
-            save_profile(profiling_data, profile_file)
+        save_profile(profiling_data, profile_file)
 
     # Phase 2: Optimisation
     if config.mode != OperationMode.PROFILE_ONLY:

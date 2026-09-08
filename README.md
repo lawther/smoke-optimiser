@@ -45,10 +45,9 @@ This will make the `smoke-optimiser` command available in your environment and r
    ```
 
 3. **Or run what your changes can reach**:
-   Record a profile, then select against your diff. `downwind` runs pytest itself, and exits with
-   pytest's own exit code, so it can gate a commit.
+   `downwind` selects against your diff, using the profile that step 1 recorded. It runs pytest
+   itself, and exits with pytest's own exit code, so it can gate a commit.
    ```bash
-   uv run smoke-optimiser smoke --profile-only
    uv run smoke-optimiser downwind
    ```
    It must be run from the repository root: git reports repo-relative paths and the profile's
@@ -91,7 +90,7 @@ uv run smoke-optimiser smoke --include="tests/test_auth.py" --exclude="@pytest.m
 | `--exclude` | Comma-separated list of tests, files, or markers to force exclude. | `[]` |
 | `--pytest-args` | Extra arguments forwarded to pytest during profiling. | `""` |
 | `--output-json` | Path for the generated smoke suite definition file. | `.smoke_suite.json` |
-| `--profile-only` | Run only the profiling phase and save intermediate data. | `False` |
+| `--profile-only` | Record the profile and stop, skipping the optimisation phase. | `False` |
 | `--optimise-only` | Run only the optimisation phase using existing profile data. | `False` |
 | `--allow-ordered` / `--no-allow-ordered` | Suppress warning when `pytest-randomly` is not installed. | `False` |
 | `--allow-parallel-durations` / `--no-allow-parallel-durations` | Rank a profile whose durations were recorded under `pytest-xdist` contention. | `False` |

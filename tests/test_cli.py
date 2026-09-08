@@ -53,12 +53,15 @@ def test_cli_defaults(
     mock_format: MagicMock,
     mock_optimise: MagicMock,
     mock_run: MagicMock,
+    profiled_suite: ProfilingData,
+    tmp_path: Path,
 ) -> None:
-    mock_run.return_value = MagicMock(tests={}, total_branches=frozenset(), meta=MagicMock(xdist_workers=1))
+    mock_run.return_value = profiled_suite
     mock_optimise.return_value = MagicMock()
     mock_format.return_value = "Summary"
 
-    result = runner.invoke(app, ["smoke"])
+    with patch("pathlib.Path.cwd", return_value=tmp_path):
+        result = runner.invoke(app, ["smoke"])
     assert result.exit_code == EXIT_CODE_SUCCESS
 
 
@@ -70,12 +73,18 @@ def test_cli_overrides(
     mock_format: MagicMock,
     mock_optimise: MagicMock,
     mock_run: MagicMock,
+    profiled_suite: ProfilingData,
+    tmp_path: Path,
 ) -> None:
-    mock_run.return_value = MagicMock(tests={}, total_branches=frozenset(), meta=MagicMock(xdist_workers=1))
+    mock_run.return_value = profiled_suite
     mock_optimise.return_value = MagicMock()
     mock_format.return_value = "Summary"
 
-    result = runner.invoke(app, ["smoke", "--time-cap", str(TIME_CAP_VALUE), "--target-cov", str(TARGET_COV_VALUE)])
+    with patch("pathlib.Path.cwd", return_value=tmp_path):
+        result = runner.invoke(
+            app,
+            ["smoke", "--time-cap", str(TIME_CAP_VALUE), "--target-cov", str(TARGET_COV_VALUE)],
+        )
     assert result.exit_code == EXIT_CODE_SUCCESS
 
 
@@ -85,30 +94,10 @@ def test_cli_overrides(
 @patch("smoke_optimiser.cli.format_summary", new=MagicMock())
 def test_cli_profile_only(
     mock_run: MagicMock,
+    profiled_suite: ProfilingData,
     tmp_path: Path,
 ) -> None:
-    meta = MagicMock()
-    meta.timestamp = datetime(2026, 3, 2, 10, 30, 0, tzinfo=UTC)
-    meta.commit = "abcdef"
-    meta.python_version = "3.12"
-    meta.coverage_version = "7.0"
-    meta.command = "smoke-optimiser"
-    meta.machine.os = "Linux"
-    meta.machine.os_version = "6.5"
-    meta.machine.platform = "Ubuntu"
-    meta.machine.architecture = "x86_64"
-    meta.machine.cpu_model = "AMD"
-    meta.machine.cpu_cores_physical = 16
-    meta.machine.cpu_cores_logical = 32
-    meta.machine.ram_total_mb = 65536
-    meta.machine.ram_available_mb = 58200
-    meta.machine.hostname = "ci-04"
-
-    mock_run.return_value = MagicMock(
-        tests={},
-        total_branches=frozenset(),
-        meta=meta,
-    )
+    mock_run.return_value = profiled_suite
 
     with patch("pathlib.Path.cwd", return_value=tmp_path):
         result = runner.invoke(app, ["smoke", "--profile-only"])
@@ -129,12 +118,15 @@ def test_cli_include_exclude(
     mock_format: MagicMock,
     mock_optimise: MagicMock,
     mock_run: MagicMock,
+    profiled_suite: ProfilingData,
+    tmp_path: Path,
 ) -> None:
-    mock_run.return_value = MagicMock(tests={}, total_branches=frozenset(), meta=MagicMock(xdist_workers=1))
+    mock_run.return_value = profiled_suite
     mock_optimise.return_value = MagicMock()
     mock_format.return_value = "Summary"
 
-    result = runner.invoke(app, ["smoke", "--include", "test_a", "--include", "test_b", "--exclude", "test_c"])
+    with patch("pathlib.Path.cwd", return_value=tmp_path):
+        result = runner.invoke(app, ["smoke", "--include", "test_a", "--include", "test_b", "--exclude", "test_c"])
     assert result.exit_code == EXIT_CODE_SUCCESS
 
 
@@ -336,11 +328,12 @@ def _resolved_config_from_a_run(mock_run: MagicMock) -> ResolvedConfig:
 @patch("smoke_optimiser.cli.format_summary", new=MagicMock())
 def test_a_boolean_set_in_pyproject_survives_a_run_that_does_not_mention_it(
     mock_run: MagicMock,
+    profiled_suite: ProfilingData,
     tmp_path: Path,
 ) -> None:
     """End to end: the file setting reaches the profiler when no flag contradicts it."""
     (tmp_path / "pyproject.toml").write_text("[tool.smoke_optimiser]\nallow_ordered = true\n")
-    mock_run.return_value = MagicMock(tests={}, total_branches=frozenset(), meta=MagicMock(xdist_workers=1))
+    mock_run.return_value = profiled_suite
 
     with patch("pathlib.Path.cwd", return_value=tmp_path):
         result = runner.invoke(app, ["smoke"])
@@ -355,11 +348,12 @@ def test_a_boolean_set_in_pyproject_survives_a_run_that_does_not_mention_it(
 @patch("smoke_optimiser.cli.format_summary", new=MagicMock())
 def test_the_negative_form_of_a_flag_turns_off_a_setting_the_file_turned_on(
     mock_run: MagicMock,
+    profiled_suite: ProfilingData,
     tmp_path: Path,
 ) -> None:
     """The command line wins over pyproject.toml in both directions, not just one."""
     (tmp_path / "pyproject.toml").write_text("[tool.smoke_optimiser]\nallow_ordered = true\n")
-    mock_run.return_value = MagicMock(tests={}, total_branches=frozenset(), meta=MagicMock(xdist_workers=1))
+    mock_run.return_value = profiled_suite
 
     with patch("pathlib.Path.cwd", return_value=tmp_path):
         result = runner.invoke(app, ["smoke", "--no-allow-ordered"])
