@@ -31,7 +31,7 @@ from pathlib import Path
 from typing import NamedTuple
 
 import coverage
-from coverage.exceptions import NoSource
+from coverage.exceptions import NoSource, NotPython
 from coverage.python import PythonFileReporter
 
 from smoke_optimiser.environment import capture_environment
@@ -273,6 +273,20 @@ def read_coverage_db(
                     "Branch data cannot be derived without the source, and guessing would misreport coverage. "
                     "This usually means the file was moved or removed while profiling was running, or that the "
                     "coverage database is left over from an earlier state of the tree; profile again."
+                )
+                raise CoverageIngestError(msg) from exc
+            except NotPython as exc:
+                msg = (
+                    f"The coverage database recorded {absolute_path} as measured, but it cannot be parsed as "
+                    f"Python: {exc}\n"
+                    "This usually means a templating engine (Jinja2 is the common case) compiled the file to "
+                    "bytecode and pointed the code object's filename at the original template, so its own "
+                    "tracebacks read naturally -- coverage.py then treats the template as a Python source file "
+                    "it measured, and fails when it tries to parse it as one.\n"
+                    "Exclude it from coverage so it is never counted as a source file, then profile again. "
+                    "Add this to pyproject.toml:\n\n"
+                    "[tool.coverage.run]\n"
+                    f'omit = ["{relative_path}"]\n'
                 )
                 raise CoverageIngestError(msg) from exc
             branches_by_file[file_id] = branches
