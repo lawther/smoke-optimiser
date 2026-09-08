@@ -53,6 +53,58 @@ def test_check_prerequisites_success() -> None:
         check_prerequisites(config)
 
 
+@patch("smoke_optimiser.profiler.runner.subprocess.run")
+def test_check_prerequisites_does_not_shell_out_to_pytest_for_the_ordering_check(mock_run: MagicMock) -> None:
+    """The pytest-randomly check must not run the profiled suite just to look for a plugin.
+
+    It used to invoke `pytest --trace-config` in a subprocess to grep the plugin
+    banner, which -- with nothing else restricting it -- collected and ran the
+    entire suite serially before the real, parallel profiling run ever started.
+    Checking the installed distributions in-process must never touch subprocess.
+    """
+    config = ResolvedConfig(
+        mode=OperationMode.FULL,
+        time_cap=15.0,
+        target_cov=100.0,
+        include_mandatory=[],
+        exclude_mandatory=[],
+        pytest_args="",
+        output_json=Path(".json"),
+        allow_ordered=True,
+        cov_source=".",
+        iterations=1,
+        allow_parallel_durations=False,
+        profile_path=Path(".smoke_profiling_data.json"),
+    )
+    with patch("shutil.which", return_value="/usr/bin/pytest"):
+        check_prerequisites(config)
+
+    mock_run.assert_not_called()
+
+
+def test_check_prerequisites_warns_and_exits_when_pytest_randomly_is_missing() -> None:
+    config = ResolvedConfig(
+        mode=OperationMode.FULL,
+        time_cap=15.0,
+        target_cov=100.0,
+        include_mandatory=[],
+        exclude_mandatory=[],
+        pytest_args="",
+        output_json=Path(".json"),
+        allow_ordered=False,
+        cov_source=".",
+        iterations=1,
+        allow_parallel_durations=False,
+        profile_path=Path(".smoke_profiling_data.json"),
+    )
+    with (
+        patch("shutil.which", return_value="/usr/bin/pytest"),
+        patch("smoke_optimiser.profiler.runner.importlib.util.find_spec", return_value=None),
+        pytest.raises(SystemExit),
+    ):
+        check_prerequisites(config)
+
+
 @patch("subprocess.run")
 @patch("smoke_optimiser.profiler.runner.build_profiling_data")
 def test_run_profiling_basic(mock_ingest: MagicMock, mock_run: MagicMock, tmp_path: Path) -> None:

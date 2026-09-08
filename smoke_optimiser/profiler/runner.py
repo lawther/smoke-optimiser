@@ -1,3 +1,4 @@
+import importlib.util
 import os
 import shlex
 import shutil
@@ -235,23 +236,19 @@ def check_prerequisites(config: ResolvedConfig) -> None:
         msg = "pytest not found in PATH"
         raise RuntimeError(msg)
 
-    if not config.allow_ordered:
-        # Check if pytest-randomly is installed
-        result = subprocess.run(
-            [sys.executable, "-m", "pytest", "--trace-config"],
-            capture_output=True,
-            text=True,
-            check=False,
+    # Checked directly against the installed distributions rather than by running
+    # `pytest --trace-config` in a subprocess: with nothing else restricting it,
+    # that invocation collects and runs the entire profiled suite serially, just
+    # to grep its banner for the plugin's name -- exactly the slow, single-core
+    # detour this check exists to avoid inflicting on the profiling run itself.
+    if not config.allow_ordered and importlib.util.find_spec("pytest_randomly") is None:
+        typer.secho(
+            "⚠️ Warning: pytest-randomly is not installed. Ordering-dependent tests produce unreliable smoke suites.",
+            fg=typer.colors.YELLOW,
+            err=True,
         )
-        if "pytest-randomly" not in result.stdout:
-            typer.secho(
-                "⚠️ Warning: pytest-randomly is not installed. "
-                "Ordering-dependent tests produce unreliable smoke suites.",
-                fg=typer.colors.YELLOW,
-                err=True,
-            )
-            typer.secho("💡 Use --allow-ordered to suppress this check.", fg=typer.colors.YELLOW, err=True)
-            sys.exit(1)
+        typer.secho("💡 Use --allow-ordered to suppress this check.", fg=typer.colors.YELLOW, err=True)
+        sys.exit(1)
 
 
 def _get_git_commit(project_root: Path) -> str | None:
@@ -342,7 +339,7 @@ def _warn_about_an_unbounded_test_scope(scope: ProfileScope) -> None:
         "\u26a0\ufe0f Warning: pytest has no configured test paths, so the whole repository is in scope and "
         "only files matching its test-file patterns can be tracked. New test support modules (fixtures, "
         "factories, helpers) will not be noticed when the profile goes stale, and any test-named file "
-        "elsewhere in the tree -- a vendored package's suite, an example, a manual script -- makes every "
+        "elsewhere in the tree (a vendored package's suite, an example, a manual script) makes every "
         "downwind run fall back to the full suite.",
         fg=typer.colors.YELLOW,
         err=True,
