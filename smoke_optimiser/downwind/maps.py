@@ -74,7 +74,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from smoke_optimiser.profiler.scope import WHOLE_REPOSITORY, under_root
+from smoke_optimiser.profiler.scope import parent_directory, under_root
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -139,17 +139,6 @@ def _tests_by_file(profile: ProfilingData, known_files: frozenset[str]) -> dict[
     return {path: frozenset(covering.get(path, ())) for path in known_files}
 
 
-def _parent_directory(path: str) -> str:
-    """The directory holding ``path``, as the read map spells directories.
-
-    A file at the top level of the repository is held by
-    :data:`WHOLE_REPOSITORY`, the same name the tracer records when a test
-    lists the root, so one spelling answers for both.
-    """
-    directory, separator, _ = path.rpartition("/")
-    return directory if separator else WHOLE_REPOSITORY
-
-
 def _tests_reading_file(profile: ProfilingData) -> dict[str, frozenset[str]]:
     """Invert ``files_read`` into file -> the tests that opened it.
 
@@ -190,7 +179,7 @@ def _tests_reading_in_directory(profile: ProfilingData) -> dict[str, frozenset[s
     reading: dict[str, set[str]] = {}
     for outcome in profile.tests.values():
         for path in outcome.files_read:
-            reading.setdefault(_parent_directory(path), set()).add(outcome.test_id)
+            reading.setdefault(parent_directory(path), set()).add(outcome.test_id)
     return {directory: frozenset(tests) for directory, tests in reading.items()}
 
 

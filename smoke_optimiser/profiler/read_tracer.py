@@ -54,6 +54,7 @@ from typing import TYPE_CHECKING, Any
 from pydantic import ValidationError
 
 from smoke_optimiser.profiler.models import ReadMap, ReadMapModel
+from smoke_optimiser.profiler.scope import WHOLE_REPOSITORY
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
@@ -96,9 +97,6 @@ EXCLUDED_PATH_PARTS = frozenset(
         "node_modules",
     }
 )
-
-WHOLE_REPOSITORY = "."
-"""What the repository root itself is called when a test lists it."""
 
 
 def is_read_mode(mode: str | None, flags: int) -> bool:

@@ -60,7 +60,7 @@ from typing import TYPE_CHECKING, NamedTuple
 
 from smoke_optimiser.downwind.blind_spots import BlindSpot, BlindSpotReason
 from smoke_optimiser.downwind.environment_files import is_environment_file
-from smoke_optimiser.profiler.scope import CONFTEST, WHOLE_REPOSITORY
+from smoke_optimiser.profiler.scope import CONFTEST, WHOLE_REPOSITORY, parent_directory
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
@@ -204,12 +204,6 @@ def _tests_downwind_of(maps: DownwindMaps, path: str) -> _FileAnswer:
     return _FileAnswer(node_ids=frozenset(selected), blind_spots=frozenset(dead_ends))
 
 
-def _parent_directory(path: str) -> str:
-    """The directory holding ``path``, spelled as the read map spells directories."""
-    directory, separator, _ = path.rpartition("/")
-    return directory if separator else WHOLE_REPOSITORY
-
-
 def _read_answer(maps: DownwindMaps, path: str, environment_files: Sequence[str]) -> _FileAnswer:
     """What the read map says about one changed non-Python path.
 
@@ -250,7 +244,7 @@ def _read_answer(maps: DownwindMaps, path: str, environment_files: Sequence[str]
             blind_spots=frozenset({BlindSpot(reason=BlindSpotReason.UNATTRIBUTED_READ, file=path)}),
         )
 
-    directory = _parent_directory(path)
+    directory = parent_directory(path)
     if maps.was_present(path):
         selected = maps.tests_reading(path) | maps.tests_listing(directory)
     else:

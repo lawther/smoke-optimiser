@@ -204,6 +204,18 @@ def under_root(path: str, root: str) -> bool:
     return path == root or path.startswith(f"{root}/")
 
 
+def parent_directory(path: str) -> str:
+    """The directory holding ``path``, spelled as the read map spells directories.
+
+    Public, and shared with the downwind maps and rules, for the same reason
+    :func:`under_root` is: the read map keys directories by this spelling, and
+    a second spelling that disagreed about the repository root would look up a
+    directory nothing had ever recorded and answer that no test touches it.
+    """
+    directory, separator, _ = path.rpartition("/")
+    return directory if separator else WHOLE_REPOSITORY
+
+
 def _would_be_collected(path: str, test_file_patterns: Sequence[str]) -> bool:
     """Would pytest collect this file as test code?"""
     name = path.rsplit("/", maxsplit=1)[-1]
