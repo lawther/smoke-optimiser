@@ -4,8 +4,10 @@ import pytest
 from pydantic import ValidationError
 
 from smoke_optimiser.config import (
+    CovSourceOrigin,
     FileConfig,
     OperationMode,
+    _discover_cov_target,
     load_file_config,
     resolve_config,
     resolve_downwind_config,
@@ -125,7 +127,7 @@ def test_a_project_extends_the_environment_carve_out_rather_than_replacing_it(tm
     """
     (tmp_path / "pyproject.toml").write_text('[tool.smoke_optimiser]\nextra_environment_files = ["deploy/*.tf"]\n')
 
-    config = resolve_downwind_config(load_file_config(tmp_path), {})
+    config = resolve_downwind_config(load_file_config(tmp_path), {}, tmp_path)
 
     assert "deploy/*.tf" in config.environment_files
     assert "uv.lock" in config.environment_files
@@ -134,6 +136,69 @@ def test_a_project_extends_the_environment_carve_out_rather_than_replacing_it(tm
 def test_the_carve_out_defaults_to_the_shipped_list(tmp_path: Path) -> None:
     (tmp_path / "pyproject.toml").write_text("[tool.smoke_optimiser]\ntime_cap = 5.0\n")
 
-    config = resolve_downwind_config(load_file_config(tmp_path), {})
+    config = resolve_downwind_config(load_file_config(tmp_path), {}, tmp_path)
 
     assert config.environment_files == list(DEFAULT_ENVIRONMENT_FILES)
+
+
+def test_the_projects_own_coverage_configuration_beats_every_guess(tmp_path: Path) -> None:
+    """A project that has configured coverage has already answered the question.
+
+    Reaching past that to a heuristic is exactly how a profile ends up wider than
+    the project meant: enphase_curtailer declares source = ["app"] and has no
+    src/ directory and no package named after it, so the guesses fell through to
+    the whole repository -- which put four unmeasurable hook scripts into scope
+    and expired the profile permanently.
+    """
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "curtailer"\n\n[tool.coverage.run]\nsource = ["app"]\n',
+    )
+    (tmp_path / "app").mkdir()
+
+    discovered = _discover_cov_target(tmp_path)
+
+    assert discovered.value == "app"
+    assert discovered.origin is CovSourceOrigin.COVERAGE_CONFIG
+
+
+def test_a_coverage_configuration_naming_several_sources_says_only_the_first_is_used(tmp_path: Path) -> None:
+    """--src carries one value, so the other entries have to be mentioned rather than dropped."""
+    (tmp_path / "pyproject.toml").write_text('[tool.coverage.run]\nsource = ["app", "lib"]\n')
+
+    discovered = _discover_cov_target(tmp_path)
+
+    assert discovered.value == "app"
+    assert "2 entries" in discovered.note
+    assert "cov_source" in discovered.note
+
+
+def test_source_pkgs_is_read_when_source_is_absent(tmp_path: Path) -> None:
+    """coverage.py accepts either spelling, so reading only one would miss half the projects."""
+    (tmp_path / "pyproject.toml").write_text('[tool.coverage.run]\nsource_pkgs = ["app"]\n')
+
+    assert _discover_cov_target(tmp_path).origin is CovSourceOrigin.COVERAGE_CONFIG
+
+
+def test_finding_nothing_is_reported_as_undiscovered_rather_than_as_the_whole_repository(tmp_path: Path) -> None:
+    """The value is still '.', but nobody chose it, and that difference is the point.
+
+    Instrumenting everything puts every .py file in the tree into the profile's
+    scope, including ones coverage.py never walks -- so a run must be able to tell
+    'the user asked for the whole repository' from 'we could not work it out'.
+    """
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "nothing-matches"\n')
+
+    discovered = _discover_cov_target(tmp_path)
+
+    assert discovered.value == "."
+    assert discovered.origin is CovSourceOrigin.UNDISCOVERED
+
+
+def test_a_stated_cov_source_is_marked_as_configured_rather_than_discovered(tmp_path: Path) -> None:
+    """What the user said must never be announced back at them as a guess."""
+    (tmp_path / "pyproject.toml").write_text('[tool.smoke_optimiser]\ncov_source = "."\n')
+
+    config = resolve_config(load_file_config(tmp_path), {}, tmp_path)
+
+    assert config.cov_source == "."
+    assert config.cov_source_origin is CovSourceOrigin.CONFIGURED

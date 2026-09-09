@@ -53,6 +53,7 @@ _META = ProfilingMeta(
     command="smoke-optimiser",
     machine=_MACHINE,
     xdist_workers=1,
+    iterations=1,
 )
 
 _SWALLOWED_EDGES = 3

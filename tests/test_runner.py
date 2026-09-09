@@ -1,5 +1,6 @@
 import json
 import os
+import re
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from types import SimpleNamespace
@@ -8,7 +9,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from smoke_optimiser.config import OperationMode, ResolvedConfig
+from smoke_optimiser.config import CovSourceOrigin, ProfilingRunConfig
 from smoke_optimiser.profiler.import_tracer import write_graph
 from smoke_optimiser.profiler.models import ImportGraph, ReadMap
 from smoke_optimiser.profiler.read_tracer import write_read_map
@@ -17,6 +18,8 @@ from smoke_optimiser.profiler.runner import (
     ArtefactFileCounts,
     IterationOutcomes,
     OutcomesIngestError,
+    ProfilingIncompleteError,
+    ProfilingUnavailableError,
     _artefact_files,
     _missing_artefact_message,
     _read_iteration_outcomes,
@@ -41,19 +44,12 @@ def _pytest_command(mock_run: MagicMock) -> list[str]:
 
 
 def test_check_prerequisites_success() -> None:
-    config = ResolvedConfig(
-        mode=OperationMode.FULL,
-        time_cap=15.0,
-        target_cov=100.0,
-        include_mandatory=[],
-        exclude_mandatory=[],
-        pytest_args="",
-        output_json=Path(".json"),
-        allow_ordered=True,
+    config = ProfilingRunConfig(
         cov_source=".",
+        cov_source_origin=CovSourceOrigin.CONFIGURED,
+        pytest_args="",
+        allow_ordered=True,
         iterations=1,
-        allow_parallel_durations=False,
-        profile_path=Path(".smoke_profiling_data.json"),
     )
     with patch("shutil.which", return_value="/usr/bin/pytest"):
         check_prerequisites(config)
@@ -68,19 +64,12 @@ def test_check_prerequisites_does_not_shell_out_to_pytest_for_the_ordering_check
     entire suite serially before the real, parallel profiling run ever started.
     Checking the installed distributions in-process must never touch subprocess.
     """
-    config = ResolvedConfig(
-        mode=OperationMode.FULL,
-        time_cap=15.0,
-        target_cov=100.0,
-        include_mandatory=[],
-        exclude_mandatory=[],
-        pytest_args="",
-        output_json=Path(".json"),
-        allow_ordered=True,
+    config = ProfilingRunConfig(
         cov_source=".",
+        cov_source_origin=CovSourceOrigin.CONFIGURED,
+        pytest_args="",
+        allow_ordered=True,
         iterations=1,
-        allow_parallel_durations=False,
-        profile_path=Path(".smoke_profiling_data.json"),
     )
     with patch("shutil.which", return_value="/usr/bin/pytest"):
         check_prerequisites(config)
@@ -88,45 +77,50 @@ def test_check_prerequisites_does_not_shell_out_to_pytest_for_the_ordering_check
     mock_run.assert_not_called()
 
 
-def test_check_prerequisites_warns_and_exits_when_pytest_randomly_is_missing() -> None:
-    config = ResolvedConfig(
-        mode=OperationMode.FULL,
-        time_cap=15.0,
-        target_cov=100.0,
-        include_mandatory=[],
-        exclude_mandatory=[],
-        pytest_args="",
-        output_json=Path(".json"),
-        allow_ordered=False,
+def test_a_missing_pytest_randomly_warns_rather_than_refusing_to_profile(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The plugin's absence costs a worse ranking, not a wrong map, so it cannot stop the run.
+
+    It used to exit 1 here. That was survivable while profiling was something you
+    asked for explicitly, but the downwind fallback profiles the suite the developer
+    is already waiting on -- and declining to run their tests because a ranking-quality
+    plugin is missing is a far worse trade than the unreliable smoke suite it avoids.
+    """
+    config = ProfilingRunConfig(
         cov_source=".",
+        cov_source_origin=CovSourceOrigin.CONFIGURED,
+        pytest_args="",
+        allow_ordered=False,
         iterations=1,
-        allow_parallel_durations=False,
-        profile_path=Path(".smoke_profiling_data.json"),
     )
     with (
         patch("shutil.which", return_value="/usr/bin/pytest"),
         patch("smoke_optimiser.profiler.runner.importlib.util.find_spec", return_value=None),
-        pytest.raises(SystemExit),
     ):
+        check_prerequisites(config)
+
+    assert "pytest-randomly is not installed" in capsys.readouterr().err
+
+
+def test_pytest_missing_entirely_is_reported_as_profiling_being_unavailable() -> None:
+    """Distinct from an incomplete profile: nothing ran, so a caller still owes the suite a run."""
+    config = ProfilingRunConfig(
+        cov_source=".", cov_source_origin=CovSourceOrigin.CONFIGURED, pytest_args="", allow_ordered=True, iterations=1
+    )
+    with patch("shutil.which", return_value=None), pytest.raises(ProfilingUnavailableError):
         check_prerequisites(config)
 
 
 @patch("subprocess.run")
 @patch("smoke_optimiser.profiler.runner.build_profiling_data")
 def test_run_profiling_basic(mock_ingest: MagicMock, mock_run: MagicMock, tmp_path: Path) -> None:
-    config = ResolvedConfig(
-        mode=OperationMode.FULL,
-        time_cap=15.0,
-        target_cov=100.0,
-        include_mandatory=[],
-        exclude_mandatory=[],
-        pytest_args="",
-        output_json=Path(".json"),
-        allow_ordered=True,
+    config = ProfilingRunConfig(
         cov_source=".",
+        cov_source_origin=CovSourceOrigin.CONFIGURED,
+        pytest_args="",
+        allow_ordered=True,
         iterations=1,
-        allow_parallel_durations=False,
-        profile_path=Path(".smoke_profiling_data.json"),
     )
 
     mock_run.side_effect = _pytest_exit_codes(0)
@@ -162,19 +156,12 @@ def test_cov_report_in_pytest_args_does_not_suppress_the_cov_source(
     site-packages included -- which both inflates total_branches and makes
     measured_files describe the wrong tree.
     """
-    config = ResolvedConfig(
-        mode=OperationMode.FULL,
-        time_cap=15.0,
-        target_cov=100.0,
-        include_mandatory=[],
-        exclude_mandatory=[],
-        pytest_args="--cov-report=term",
-        output_json=Path(".json"),
-        allow_ordered=True,
+    config = ProfilingRunConfig(
         cov_source="smoke_optimiser",
+        cov_source_origin=CovSourceOrigin.CONFIGURED,
+        pytest_args="--cov-report=term",
+        allow_ordered=True,
         iterations=1,
-        allow_parallel_durations=False,
-        profile_path=Path(".smoke_profiling_data.json"),
     )
 
     mock_run.side_effect = _pytest_exit_codes(0)
@@ -190,19 +177,12 @@ def test_cov_report_in_pytest_args_does_not_suppress_the_cov_source(
 @patch("subprocess.run")
 @patch("smoke_optimiser.profiler.runner.build_profiling_data")
 def test_an_explicit_cov_source_is_left_alone(mock_ingest: MagicMock, mock_run: MagicMock, tmp_path: Path) -> None:
-    config = ResolvedConfig(
-        mode=OperationMode.FULL,
-        time_cap=15.0,
-        target_cov=100.0,
-        include_mandatory=[],
-        exclude_mandatory=[],
-        pytest_args="--cov=chosen_package",
-        output_json=Path(".json"),
-        allow_ordered=True,
+    config = ProfilingRunConfig(
         cov_source="smoke_optimiser",
+        cov_source_origin=CovSourceOrigin.CONFIGURED,
+        pytest_args="--cov=chosen_package",
+        allow_ordered=True,
         iterations=1,
-        allow_parallel_durations=False,
-        profile_path=Path(".smoke_profiling_data.json"),
     )
 
     mock_run.side_effect = _pytest_exit_codes(0)
@@ -368,19 +348,12 @@ def test_an_outer_xdist_worker_does_not_leak_into_the_profiled_run(
     the serial pytest we launch -- which would report the profiled suite as parallel
     and refuse to rank it, purely because of who called us.
     """
-    config = ResolvedConfig(
-        mode=OperationMode.FULL,
-        time_cap=15.0,
-        target_cov=100.0,
-        include_mandatory=[],
-        exclude_mandatory=[],
-        pytest_args="",
-        output_json=Path(".json"),
-        allow_ordered=True,
+    config = ProfilingRunConfig(
         cov_source="smoke_optimiser",
+        cov_source_origin=CovSourceOrigin.CONFIGURED,
+        pytest_args="",
+        allow_ordered=True,
         iterations=1,
-        allow_parallel_durations=False,
-        profile_path=Path(".smoke_profiling_data.json"),
     )
     outer = {"PYTEST_XDIST_WORKER": "gw0", "PYTEST_XDIST_WORKER_COUNT": "4"}
 
@@ -405,21 +378,14 @@ THREE_ITERATIONS = 3
 PYTEST_LAUNCHES = 2
 
 
-def _profiling_config(iterations: int = 1) -> ResolvedConfig:
+def _profiling_config(iterations: int = 1) -> ProfilingRunConfig:
     """A configuration for a profiling run, with only what a test cares about spelled out."""
-    return ResolvedConfig(
-        mode=OperationMode.FULL,
-        time_cap=15.0,
-        target_cov=100.0,
-        include_mandatory=[],
-        exclude_mandatory=[],
-        pytest_args="",
-        output_json=Path(".json"),
-        allow_ordered=True,
+    return ProfilingRunConfig(
         cov_source=".",
+        cov_source_origin=CovSourceOrigin.CONFIGURED,
+        pytest_args="",
+        allow_ordered=True,
         iterations=iterations,
-        allow_parallel_durations=False,
-        profile_path=Path(".smoke_profiling_data.json"),
     )
 
 
@@ -493,7 +459,7 @@ def test_a_pytest_run_that_did_not_finish_produces_no_profile(
     """
     mock_run.side_effect = _pytest_exit_codes(INTERRUPTED)
 
-    with patch("shutil.which", return_value="/usr/bin/pytest"), pytest.raises(SystemExit):
+    with patch("shutil.which", return_value="/usr/bin/pytest"), pytest.raises(ProfilingIncompleteError):
         run_profiling(_profiling_config(), tmp_path)
 
     mock_ingest.assert_not_called()
@@ -505,15 +471,16 @@ def test_collecting_no_tests_says_so_rather_than_blaming_the_database(
     mock_ingest: MagicMock,
     mock_run: MagicMock,
     tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Exit 5 was caught only by luck downstream, as a missing coverage database."""
     mock_run.side_effect = _pytest_exit_codes(NO_TESTS_COLLECTED)
 
-    with patch("shutil.which", return_value="/usr/bin/pytest"), pytest.raises(SystemExit):
+    with (
+        patch("shutil.which", return_value="/usr/bin/pytest"),
+        pytest.raises(ProfilingIncompleteError, match="collected no tests"),
+    ):
         run_profiling(_profiling_config(), tmp_path)
 
-    assert "collected no tests" in capsys.readouterr().err
     mock_ingest.assert_not_called()
 
 
@@ -523,15 +490,16 @@ def test_an_exit_code_pytest_does_not_define_is_still_fatal(
     mock_ingest: MagicMock,
     mock_run: MagicMock,
     tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """A killed pytest reports its signal, which is in no exit code table."""
     mock_run.side_effect = _pytest_exit_codes(KILLED_BY_SIGNAL)
 
-    with patch("shutil.which", return_value="/usr/bin/pytest"), pytest.raises(SystemExit):
+    with (
+        patch("shutil.which", return_value="/usr/bin/pytest"),
+        pytest.raises(ProfilingIncompleteError, match=str(KILLED_BY_SIGNAL)),
+    ):
         run_profiling(_profiling_config(), tmp_path)
 
-    assert str(KILLED_BY_SIGNAL) in capsys.readouterr().err
     mock_ingest.assert_not_called()
 
 
@@ -624,7 +592,6 @@ def test_a_missing_import_graph_is_fatal_even_when_pytest_exits_zero(
     mock_ingest: MagicMock,
     mock_run: MagicMock,
     tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """The bug this guards: no graph file at all merged to a graph with no edges.
 
@@ -646,10 +613,12 @@ def test_a_missing_import_graph_is_fatal_even_when_pytest_exits_zero(
 
     mock_run.side_effect = run
 
-    with patch("shutil.which", return_value="/usr/bin/pytest"), pytest.raises(SystemExit):
+    with (
+        patch("shutil.which", return_value="/usr/bin/pytest"),
+        pytest.raises(ProfilingIncompleteError, match="import graph"),
+    ):
         run_profiling(_profiling_config(), tmp_path)
 
-    assert "import graph" in capsys.readouterr().err
     mock_ingest.assert_not_called()
 
 
@@ -659,7 +628,6 @@ def test_a_collection_error_is_fatal_even_when_pytest_exits_zero(
     mock_ingest: MagicMock,
     mock_run: MagicMock,
     tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """The exit code cannot be trusted to reveal a collection error.
 
@@ -682,11 +650,10 @@ def test_a_collection_error_is_fatal_even_when_pytest_exits_zero(
     with (
         patch("shutil.which", return_value="/usr/bin/pytest"),
         patch("smoke_optimiser.profiler.runner._read_iteration_outcomes", return_value=outcomes),
-        pytest.raises(SystemExit),
+        pytest.raises(ProfilingIncompleteError, match=re.escape("tests/test_broken.py")),
     ):
         run_profiling(_profiling_config(), tmp_path)
 
-    assert "tests/test_broken.py" in capsys.readouterr().err
     mock_ingest.assert_not_called()
 
 
@@ -771,3 +738,91 @@ def test_an_unbounded_test_scope_is_warned_about_with_the_steps_that_fix_it(
         assert "Create a tests/ directory" in stderr
         assert 'testpaths = ["tests"]' in stderr
         assert "Re-run smoke-optimiser" in stderr
+
+
+def test_an_undiscovered_coverage_source_refuses_to_profile_and_offers_the_command_that_would() -> None:
+    """Refusing to GUESS the whole repository is not refusing to instrument it.
+
+    A discovered '.' means nothing was found, and profiling everything under it is
+    silently destructive: every .py file in the tree enters the profile's scope,
+    including ones coverage.py never walks, and a file the profile can never know
+    expires it on every run. So it stops -- and hands back the exact commands that
+    would set a source, or ask for the whole repository deliberately.
+    """
+    config = ProfilingRunConfig(
+        cov_source=".",
+        cov_source_origin=CovSourceOrigin.UNDISCOVERED,
+        pytest_args="",
+        allow_ordered=True,
+        iterations=1,
+    )
+    with patch("shutil.which", return_value="/usr/bin/pytest"), pytest.raises(ProfilingUnavailableError) as excinfo:
+        check_prerequisites(config)
+
+    message = str(excinfo.value)
+    assert "cov_source" in message
+    assert "--src=your_package" in message
+    assert "--src=." in message
+
+
+def test_a_cov_in_the_users_own_arguments_settles_the_question(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A --cov already on the command line means the discovered value never reaches pytest.
+
+    Neither refusing nor announcing has anything to say about a value that is not
+    going to be used, and refusing here would reject a run with a perfectly good
+    coverage source all along.
+    """
+    config = ProfilingRunConfig(
+        cov_source=".",
+        cov_source_origin=CovSourceOrigin.UNDISCOVERED,
+        pytest_args="--cov=app --cov-report=term",
+        allow_ordered=True,
+        iterations=1,
+    )
+    with patch("shutil.which", return_value="/usr/bin/pytest"):
+        check_prerequisites(config)
+
+    assert "coverage source" not in capsys.readouterr().err
+
+
+def test_a_guessed_coverage_source_announces_what_it_chose_and_why(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """What a profile instruments decides what it can ever know, so a guess must be visible.
+
+    A fallback that silently re-guessed its coverage target is how a profile
+    recorded under --src=app became one recorded under the whole repository, with
+    nothing said about it until the blind spots turned up two runs later.
+    """
+    config = ProfilingRunConfig(
+        cov_source="app",
+        cov_source_origin=CovSourceOrigin.COVERAGE_CONFIG,
+        pytest_args="",
+        allow_ordered=True,
+        iterations=1,
+    )
+    with patch("shutil.which", return_value="/usr/bin/pytest"):
+        check_prerequisites(config)
+
+    stderr = capsys.readouterr().err
+    assert "--src=app" in stderr
+    assert "[tool.coverage.run]" in stderr
+
+
+def test_a_configured_coverage_source_is_not_announced_back_at_the_user(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """They said it; telling them they said it is noise, and noise is how warnings stop being read."""
+    config = ProfilingRunConfig(
+        cov_source="app",
+        cov_source_origin=CovSourceOrigin.CONFIGURED,
+        pytest_args="",
+        allow_ordered=True,
+        iterations=1,
+    )
+    with patch("shutil.which", return_value="/usr/bin/pytest"):
+        check_prerequisites(config)
+
+    assert "coverage source" not in capsys.readouterr().err

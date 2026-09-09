@@ -9,15 +9,21 @@ pytest is reached.
 
 import json
 import subprocess
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
-from smoke_optimiser.config import DownwindConfig
+from smoke_optimiser.config import CovSourceOrigin, DownwindConfig, ProfilingRunConfig
 from smoke_optimiser.downwind.command import run_downwind
 from smoke_optimiser.profiler.models import PROFILE_SCHEMA_VERSION
+from smoke_optimiser.profiler.runner import (
+    ProfilingIncompleteError,
+    ProfilingRun,
+    ProfilingUnavailableError,
+)
 
 EXIT_OK = 0
 EXIT_ERROR = 1
@@ -29,11 +35,25 @@ def _git(repo: Path, *args: str) -> None:
     subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True)  # noqa: S603, S607
 
 
-def _config(repo: Path) -> DownwindConfig:
+def _config(repo: Path, *, regenerate: bool = False) -> DownwindConfig:
+    """A downwind config for these tests.
+
+    Regeneration is off unless a test asks for it: most of what is exercised here
+    is the selective path, where a fallback never happens, and leaving it on would
+    make every full-suite assertion depend on the profiling runner as well.
+    """
     return DownwindConfig(
         profile_path=repo / "profile.json",
         downwind_file_path=repo / ".downwind.json",
         pytest_args="",
+        regenerate_on_fallback=regenerate,
+        profiling=ProfilingRunConfig(
+            cov_source="src",
+            cov_source_origin=CovSourceOrigin.CONFIGURED,
+            pytest_args="",
+            allow_ordered=True,
+            iterations=1,
+        ),
     )
 
 
@@ -67,6 +87,7 @@ def _profile_where_the_change_reaches_no_test() -> dict[str, Any]:
                 "hostname": "ci-04",
             },
             "xdist_workers": 1,
+            "iterations": 1,
         },
         "tests": {
             "tests/test_x.py::test_x": {
@@ -315,3 +336,353 @@ def test_a_tracked_file_the_maps_never_saw_expires_the_profile(
         ("expired_profile", "src/theirs.py"),
     ]
     assert selection["changed_files"] == ["src/a.py"]
+
+
+def _profiling_call(run_profiling: MagicMock) -> ProfilingRunConfig:
+    """The config the fallback actually handed the profiler."""
+    return run_profiling.call_args.args[0]
+
+
+def test_a_refusal_that_regenerates_profiles_the_full_suite_and_saves_what_it_recorded(
+    repo_with_an_untested_module: Path,
+) -> None:
+    """The run that pays for the fallback is the run that repairs the map."""
+    repo = repo_with_an_untested_module
+    (repo / "src" / "new_file.py").write_text("x = 1\n")
+    recorded = ProfilingRun(data=MagicMock(tests={"tests/test_a.py::test_a": object()}), returncode=EXIT_OK)
+
+    with (
+        patch("smoke_optimiser.downwind.command.run_profiling", return_value=recorded) as run_profiling,
+        patch("smoke_optimiser.downwind.command.save_profile") as save,
+        patch("smoke_optimiser.downwind.command._run_pytest") as run_pytest,
+    ):
+        exit_code = run_downwind(_config(repo, regenerate=True), repo)
+
+    assert exit_code == EXIT_OK
+    # The plain path must not also fire: one full suite, not two.
+    run_pytest.assert_not_called()
+    save.assert_called_once()
+    assert save.call_args.args[1] == repo / "profile.json"
+    assert run_profiling.call_args.args[1] == repo
+
+
+def test_the_instrumented_fallback_still_carries_the_downwind_flags(
+    repo_with_an_untested_module: Path,
+) -> None:
+    """The reason for the full suite must still reach pytest's own report header.
+
+    Instrumenting the run is not a reason to stop saying why it is running
+    everything -- the selection file is written either way, and the plugin
+    reads it either way.
+    """
+    repo = repo_with_an_untested_module
+    (repo / "src" / "new_file.py").write_text("x = 1\n")
+
+    with (
+        patch(
+            "smoke_optimiser.downwind.command.run_profiling",
+            return_value=ProfilingRun(data=MagicMock(tests={}), returncode=EXIT_OK),
+        ) as run_profiling,
+        patch("smoke_optimiser.downwind.command.save_profile"),
+    ):
+        run_downwind(_config(repo, regenerate=True), repo)
+
+    assert "--downwind" in _profiling_call(run_profiling).pytest_args
+    assert str(repo / ".downwind.json") in _profiling_call(run_profiling).pytest_args
+
+
+def test_the_fallback_profiles_under_the_profiling_arguments_not_the_downwind_ones(
+    repo_with_an_untested_module: Path,
+) -> None:
+    """The sharp edge this guards.
+
+    A per-commit ``-x`` in the downwind arguments would stop the instrumented run
+    at the first failure. pytest exits 1, which is a code the profiler treats as
+    usable; the hook still writes every artefact; the coverage contexts still
+    agree with the outcomes -- so every completeness check passes and a profile of
+    a fraction of the suite lands on top of a good one. The only defence is not to
+    forward them.
+    """
+    repo = repo_with_an_untested_module
+    (repo / "src" / "new_file.py").write_text("x = 1\n")
+    config = DownwindConfig(
+        profile_path=repo / "profile.json",
+        downwind_file_path=repo / ".downwind.json",
+        pytest_args="-x --lf",
+        regenerate_on_fallback=True,
+        profiling=ProfilingRunConfig(
+            cov_source="src",
+            cov_source_origin=CovSourceOrigin.CONFIGURED,
+            pytest_args="-p no:cacheprovider",
+            allow_ordered=True,
+            iterations=1,
+        ),
+    )
+
+    with (
+        patch(
+            "smoke_optimiser.downwind.command.run_profiling",
+            return_value=ProfilingRun(data=MagicMock(tests={}), returncode=EXIT_OK),
+        ) as run_profiling,
+        patch("smoke_optimiser.downwind.command.save_profile"),
+    ):
+        run_downwind(config, repo)
+
+    profiling_args = _profiling_call(run_profiling).pytest_args
+    assert "-p no:cacheprovider" in profiling_args
+    assert "-x" not in profiling_args
+    assert "--lf" not in profiling_args
+
+
+def test_a_fallback_that_could_not_be_profiled_leaves_the_previous_profile_alone(
+    repo_with_an_untested_module: Path,
+) -> None:
+    """A partial profile is worse than a stale one, so incomplete data changes nothing.
+
+    An empty import graph does not read as "unknown", it reads as "nothing in
+    this project imports anything" -- and a file nothing appears to reach selects
+    no tests. The previous profile is left exactly where it was.
+    """
+    repo = repo_with_an_untested_module
+    (repo / "src" / "new_file.py").write_text("x = 1\n")
+    before = (repo / "profile.json").read_text()
+
+    with (
+        patch(
+            "smoke_optimiser.downwind.command.run_profiling",
+            side_effect=ProfilingIncompleteError("not all of them left every artefact behind", EXIT_OK),
+        ),
+        patch("smoke_optimiser.downwind.command.save_profile") as save,
+    ):
+        exit_code = run_downwind(_config(repo, regenerate=True), repo)
+
+    save.assert_not_called()
+    assert (repo / "profile.json").read_text() == before
+    # The tests passed, so nothing else would have said the profile did not change.
+    assert exit_code == EXIT_ERROR
+
+
+def test_a_failed_regeneration_reports_that_the_profile_is_unchanged(
+    repo_with_an_untested_module: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Saying so is the requirement: silence here is indistinguishable from success."""
+    repo = repo_with_an_untested_module
+    (repo / "src" / "new_file.py").write_text("x = 1\n")
+
+    with (
+        patch(
+            "smoke_optimiser.downwind.command.run_profiling",
+            side_effect=ProfilingIncompleteError("an xdist worker died", EXIT_OK),
+        ),
+        patch("smoke_optimiser.downwind.command.save_profile"),
+    ):
+        run_downwind(_config(repo, regenerate=True), repo)
+
+    stderr = capsys.readouterr().err
+    assert "is unchanged" in stderr
+    assert "an xdist worker died" in stderr
+
+
+def test_a_failing_suite_keeps_its_own_exit_code_even_when_the_profile_could_not_be_written(
+    repo_with_an_untested_module: Path,
+) -> None:
+    """Those tests really did fail, which is truer about the commit than our own failure.
+
+    Reporting 1 here would tell the developer their profile did not regenerate
+    while hiding that their tests are red, which is the more urgent of the two.
+    """
+    repo = repo_with_an_untested_module
+    (repo / "src" / "new_file.py").write_text("x = 1\n")
+
+    with (
+        patch(
+            "smoke_optimiser.downwind.command.run_profiling",
+            side_effect=ProfilingIncompleteError("pytest was interrupted", EXIT_COLLECTION_ERROR),
+        ),
+        patch("smoke_optimiser.downwind.command.save_profile"),
+    ):
+        exit_code = run_downwind(_config(repo, regenerate=True), repo)
+
+    assert exit_code == EXIT_COLLECTION_ERROR
+
+
+def test_profiling_being_unavailable_still_runs_the_tests_the_developer_was_waiting_on(
+    repo_with_an_untested_module: Path,
+) -> None:
+    """Nothing ran, so the suite still has to. Failing to profile must not mean failing to test."""
+    repo = repo_with_an_untested_module
+    (repo / "src" / "new_file.py").write_text("x = 1\n")
+
+    with (
+        patch(
+            "smoke_optimiser.downwind.command.run_profiling",
+            side_effect=ProfilingUnavailableError("pytest not found in PATH"),
+        ),
+        patch("smoke_optimiser.downwind.command._run_pytest", return_value=EXIT_OK) as run_pytest,
+    ):
+        exit_code = run_downwind(_config(repo, regenerate=True), repo)
+
+    assert exit_code == EXIT_OK
+    assert "--downwind" in run_pytest.call_args.args[1]
+
+
+def test_a_profile_that_records_no_scope_stops_the_run_rather_than_regenerating_for_ever(
+    repo_with_an_untested_module: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The one fault a fallback cannot repair, so it must not be treated as one.
+
+    Scope comes from the coverage targets and pytest's test paths, so an empty one
+    names a misconfiguration rather than a stale file: profiling again produces
+    another profile exactly like it. Regenerating here would mean a silent full
+    suite on every commit for ever -- the ratchet this whole feature exists to end.
+    """
+    repo = repo_with_an_untested_module
+    profile = json.loads((repo / "profile.json").read_text())
+    profile["scope"] = {"coverage_roots": [], "test_roots": [], "test_file_patterns": []}
+    (repo / "profile.json").write_text(json.dumps(profile))
+
+    with (
+        patch("smoke_optimiser.downwind.command.run_profiling") as run_profiling,
+        patch("smoke_optimiser.downwind.command._run_pytest") as run_pytest,
+    ):
+        exit_code = run_downwind(_config(repo, regenerate=True), repo)
+
+    assert exit_code == EXIT_ERROR
+    run_profiling.assert_not_called()
+    run_pytest.assert_not_called()
+    stderr = capsys.readouterr().err
+    assert "no scope roots" in stderr
+    assert "testpaths" in stderr
+
+
+def _profile_with_coverage_roots(repo: Path, roots: list[str]) -> None:
+    """Rewrite the fixture profile's scope, which is what a fallback reproduces."""
+    profile = json.loads((repo / "profile.json").read_text())
+    profile["scope"]["coverage_roots"] = roots
+    (repo / "profile.json").write_text(json.dumps(profile))
+
+
+def test_a_fallback_instruments_the_coverage_root_the_replaced_profile_used(
+    repo_with_an_untested_module: Path,
+) -> None:
+    """A fallback must reproduce the profile it replaces, not substitute a different one.
+
+    The failure this exists to prevent, seen in the wild: a profile recorded with
+    --src=app was replaced by a fallback that re-discovered its coverage target,
+    found nothing, and settled on the whole repository. That widened the scope to
+    every .py file in the tree, including hook scripts coverage never measures --
+    so the very next run expired the profile it had just written, for ever.
+    """
+    repo = repo_with_an_untested_module
+    _profile_with_coverage_roots(repo, ["app"])
+    (repo / "src" / "new_file.py").write_text("x = 1\n")
+    # Nothing configured, so without the reuse this would fall through to a guess.
+    config = _config(repo, regenerate=True)
+    guessed = ProfilingRunConfig(
+        cov_source=".",
+        cov_source_origin=CovSourceOrigin.UNDISCOVERED,
+        pytest_args="",
+        allow_ordered=True,
+        iterations=1,
+    )
+    config = replace(config, profiling=guessed)
+
+    with (
+        patch(
+            "smoke_optimiser.downwind.command.run_profiling",
+            return_value=ProfilingRun(data=MagicMock(tests={}), returncode=EXIT_OK),
+        ) as run_profiling,
+        patch("smoke_optimiser.downwind.command.save_profile"),
+    ):
+        run_downwind(config, repo)
+
+    assert _profiling_call(run_profiling).cov_source == "app"
+    assert _profiling_call(run_profiling).cov_source_origin is CovSourceOrigin.REPLACED_PROFILE
+
+
+def test_an_explicit_coverage_source_beats_the_replaced_profiles_root(
+    repo_with_an_untested_module: Path,
+) -> None:
+    """Reproducing the old profile is a fallback for silence, not an override of intent.
+
+    A project that has since stated what it covers is correcting the old profile,
+    so reusing its root would make that correction impossible to apply.
+    """
+    repo = repo_with_an_untested_module
+    _profile_with_coverage_roots(repo, ["."])
+    (repo / "src" / "new_file.py").write_text("x = 1\n")
+
+    with (
+        patch(
+            "smoke_optimiser.downwind.command.run_profiling",
+            return_value=ProfilingRun(data=MagicMock(tests={}), returncode=EXIT_OK),
+        ) as run_profiling,
+        patch("smoke_optimiser.downwind.command.save_profile"),
+    ):
+        run_downwind(_config(repo, regenerate=True), repo)
+
+    # _config states cov_source explicitly, so the profile's "." must not win.
+    assert _profiling_call(run_profiling).cov_source == "src"
+
+
+def test_a_profile_with_several_coverage_roots_is_not_reduced_to_one_of_them(
+    repo_with_an_untested_module: Path,
+) -> None:
+    """--src carries one value, and picking one of several would be its own substitution."""
+    repo = repo_with_an_untested_module
+    _profile_with_coverage_roots(repo, ["app", "lib"])
+    (repo / "src" / "new_file.py").write_text("x = 1\n")
+    config = replace(
+        _config(repo, regenerate=True),
+        profiling=ProfilingRunConfig(
+            cov_source="guessed",
+            cov_source_origin=CovSourceOrigin.SRC_LAYOUT,
+            pytest_args="",
+            allow_ordered=True,
+            iterations=1,
+        ),
+    )
+
+    with (
+        patch(
+            "smoke_optimiser.downwind.command.run_profiling",
+            return_value=ProfilingRun(data=MagicMock(tests={}), returncode=EXIT_OK),
+        ) as run_profiling,
+        patch("smoke_optimiser.downwind.command.save_profile"),
+    ):
+        run_downwind(config, repo)
+
+    assert _profiling_call(run_profiling).cov_source == "guessed"
+
+
+def test_the_distribution_flags_carry_over_into_the_instrumented_run(
+    repo_with_an_untested_module: Path,
+) -> None:
+    """-n and --dist change how the same tests are spread, never which tests run.
+
+    Dropping them made the fallback run serially a suite the developer runs in
+    parallel, which costs far more than the instrumentation does. The durations it
+    records are contended, which `smoke` already refuses to rank without
+    --allow-parallel-durations; the maps downwind selects from are unaffected.
+    """
+    repo = repo_with_an_untested_module
+    (repo / "src" / "new_file.py").write_text("x = 1\n")
+    config = replace(_config(repo, regenerate=True), pytest_args="-n auto --dist=worksteal -x -k slow")
+
+    with (
+        patch(
+            "smoke_optimiser.downwind.command.run_profiling",
+            return_value=ProfilingRun(data=MagicMock(tests={}), returncode=EXIT_OK),
+        ) as run_profiling,
+        patch("smoke_optimiser.downwind.command.save_profile"),
+    ):
+        run_downwind(config, repo)
+
+    profiling_args = _profiling_call(run_profiling).pytest_args
+    assert "-n auto" in profiling_args
+    assert "--dist=worksteal" in profiling_args
+    # The narrowing ones still must not: they would profile a fraction of the suite.
+    assert "-x" not in profiling_args
+    assert "-k" not in profiling_args

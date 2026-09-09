@@ -191,27 +191,104 @@ def test_a_clean_tree_runs_nothing_and_succeeds(profiled_repo: Path) -> None:
     assert "test session starts" not in result.stdout
 
 
-def test_no_profile_at_all_runs_the_full_suite_and_says_how_to_record_one(profiled_repo: Path) -> None:
-    """A missing profile is an absence, not a fault: degrade to the full suite, loudly."""
+def test_no_profile_at_all_runs_the_full_suite_under_instrumentation_and_records_one(profiled_repo: Path) -> None:
+    """A missing profile is an absence the run that notices it can repair.
+
+    The bootstrap case, and the cheapest one to justify: the full suite is being
+    run either way, so instrumenting it costs one pass and leaves the next commit
+    able to select.
+    """
+    profile = profiled_repo / ".smoke_profiling_data.json"
+    profile.unlink()
+
+    result = _run(profiled_repo, "downwind")
+
+    assert result.returncode == EXIT_OK, f"{result.stderr}\nSTDOUT: {result.stdout}"
+    assert "no profile" in result.stderr
+    assert "3 passed" in result.stdout
+    assert profile.exists()
+
+
+def test_the_run_after_a_fallback_selects_a_subset_rather_than_falling_back_again(profiled_repo: Path) -> None:
+    """The point of the whole feature: staleness stops being a ratchet.
+
+    Without the rewrite, the profile stays missing and every commit from here on
+    pays a full suite until somebody remembers to regenerate by hand.
+    """
     (profiled_repo / ".smoke_profiling_data.json").unlink()
 
+    fallback = _run(profiled_repo, "downwind")
+    assert fallback.returncode == EXIT_OK, f"{fallback.stderr}\nSTDOUT: {fallback.stdout}"
+
+    (profiled_repo / "src" / "app.py").write_text(
+        "def add(a, b):\n    if a > 0:\n        return a + b\n    return b + 0\n",
+    )
+    second = _run(profiled_repo, "downwind")
+
+    assert second.returncode == EXIT_OK, f"{second.stderr}\nSTDOUT: {second.stdout}"
+    assert set(_selection(profiled_repo).node_ids) == {
+        "tests/test_app.py::test_add",
+        "tests/test_app.py::test_add_negative",
+    }
+    assert "1 deselected" in second.stdout
+
+
+def test_a_fallback_whose_tests_fail_still_rewrites_the_profile(profiled_repo: Path) -> None:
+    """The map is as good either way, so the rewrite turns on the data, not on the suite being green.
+
+    ProfilingOutcome records which tests passed, so a red suite produces a
+    perfectly valid profile -- and refusing to write it would mean a project with
+    one failing test could never repair its own map.
+    """
+    profile = profiled_repo / ".smoke_profiling_data.json"
+    before = profile.read_text()
+    # A file the maps have never seen forces the fallback; a broken assertion
+    # makes the suite that runs under it red.
+    (profiled_repo / "src" / "brand_new.py").write_text("def hello():\n    return 'hi'\n")
+    (profiled_repo / "tests" / "test_app.py").write_text(
+        "from src.app import add\n\n\ndef test_add():\n    assert add(1, 2) == 999\n",
+    )
+
     result = _run(profiled_repo, "downwind")
 
-    assert result.returncode == EXIT_OK
-    assert "no profile" in result.stderr
+    assert result.returncode == EXIT_TESTS_FAILED
+    assert "failed" in result.stdout
+    assert profile.read_text() != before
+
+
+def test_a_corrupt_profile_is_kept_for_diagnosis_and_rebuilt(profiled_repo: Path) -> None:
+    """Unblock the developer, and keep the evidence.
+
+    The write became atomic in so-n6b.46, so no run of ours can leave an
+    unparseable profile behind any more -- one that turns up points at something
+    outside the tool or at a bug inside it, and overwriting it would destroy the
+    only thing anybody could look at.
+    """
+    profile = profiled_repo / ".smoke_profiling_data.json"
+    profile.write_text("{not json at all")
+
+    result = _run(profiled_repo, "downwind")
+
+    assert result.returncode == EXIT_OK, f"{result.stderr}\nSTDOUT: {result.stdout}"
+    assert "could not be read" in result.stderr
+    kept = profiled_repo / ".smoke_profiling_data.json.corrupt"
+    assert kept.read_text() == "{not json at all"
+    assert "3 passed" in result.stdout
+    assert profile.exists()
+    assert profile.read_text() != "{not json at all"
+
+
+def test_turning_regeneration_off_runs_the_full_suite_plain_and_says_how_to_rebuild(profiled_repo: Path) -> None:
+    """The escape hatch, for a project where an instrumented full suite costs too much."""
+    profile = profiled_repo / ".smoke_profiling_data.json"
+    profile.unlink()
+
+    result = _run(profiled_repo, "downwind", "--no-regenerate-on-fallback")
+
+    assert result.returncode == EXIT_OK, f"{result.stderr}\nSTDOUT: {result.stdout}"
     assert "smoke-optimiser smoke --profile-only" in result.stderr
     assert "3 passed" in result.stdout
-
-
-def test_a_corrupt_profile_errors_rather_than_quietly_running_everything(profiled_repo: Path) -> None:
-    """A profile that exists and cannot be read is a broken state, and a slow run would hide it."""
-    (profiled_repo / ".smoke_profiling_data.json").write_text("{not json at all")
-
-    result = _run(profiled_repo, "downwind")
-
-    assert result.returncode == EXIT_ERROR
-    assert "Failed to parse profiling data" in result.stderr
-    assert "passed" not in result.stdout
+    assert not profile.exists()
 
 
 def test_the_smoke_command_still_writes_and_ranks_its_own_suite(profiled_repo: Path) -> None:

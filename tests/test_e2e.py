@@ -90,9 +90,12 @@ def test_setup_error(broken):
 
     assert result.returncode == 0, f"smoke-optimiser failed: {result.stderr}\nSTDOUT: {result.stdout}"
     assert "smoke-optimiser results" in result.stdout
-    # Verify the warning appeared in stderr (ANSI codes might be stripped by typer in non-tty)
-    assert "⚠️ Warning: --src was not specified" in result.stderr
+    # The heuristic must announce both what it chose and why: what a profile
+    # instruments decides what it can ever know, so a value nobody chose has to be
+    # visible at the moment it is acted on rather than discovered in the profile later.
+    assert "no coverage source given" in result.stderr
     assert "--src=src" in result.stderr
+    assert "src/ directory" in result.stderr
     # This project configures no testpaths, so pytest collects from the repository
     # root and the profile can only track files pytest itself would collect.
     assert "no configured test paths" in result.stderr

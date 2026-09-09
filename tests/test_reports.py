@@ -5,7 +5,7 @@ from pathlib import Path
 from typer.testing import CliRunner
 
 from smoke_optimiser.cli import app
-from smoke_optimiser.config import OperationMode, ResolvedConfig
+from smoke_optimiser.config import CovSourceOrigin, OperationMode, ResolvedConfig
 from smoke_optimiser.environment import MachineEnvironment
 from smoke_optimiser.optimiser.models import SmokeResult
 from smoke_optimiser.profiler.models import ProfilingMeta
@@ -32,6 +32,7 @@ def test_build_repro_command() -> None:
         output_json=Path(".smoke_suite.json"),
         allow_ordered=False,
         cov_source="src",
+        cov_source_origin=CovSourceOrigin.CONFIGURED,
         iterations=1,
         allow_parallel_durations=False,
         profile_path=Path(".smoke_profiling_data.json"),
@@ -61,6 +62,7 @@ def test_build_repro_command_empty_lists() -> None:
         output_json=Path(".smoke_suite.json"),
         allow_ordered=False,
         cov_source="src",
+        cov_source_origin=CovSourceOrigin.CONFIGURED,
         iterations=1,
         allow_parallel_durations=False,
         profile_path=Path(".smoke_profiling_data.json"),
@@ -110,6 +112,7 @@ def test_repro_command_completeness_against_help() -> None:
         output_json=Path(".smoke_suite.json"),
         allow_ordered=True,
         cov_source=".",
+        cov_source_origin=CovSourceOrigin.CONFIGURED,
         iterations=1,
         allow_parallel_durations=True,
         profile_path=Path(".smoke_profiling_data.json"),
@@ -153,6 +156,7 @@ def test_smoke_suite_roundtrip(tmp_path: Path) -> None:
             hostname="ci-04",
         ),
         xdist_workers=1,
+        iterations=1,
     )
     result = SmokeResult(
         selected_tests=[],
@@ -177,6 +181,7 @@ def test_smoke_suite_roundtrip(tmp_path: Path) -> None:
         output_json=Path(".smoke_suite.json"),
         allow_ordered=False,
         cov_source=".",
+        cov_source_origin=CovSourceOrigin.CONFIGURED,
         iterations=1,
         allow_parallel_durations=False,
         profile_path=Path(".smoke_profiling_data.json"),
@@ -209,6 +214,7 @@ def test_format_summary() -> None:
             hostname="ci-04",
         ),
         xdist_workers=1,
+        iterations=1,
     )
     result = SmokeResult(
         selected_tests=[],
@@ -233,6 +239,7 @@ def test_format_summary() -> None:
         output_json=Path(".smoke_suite.json"),
         allow_ordered=False,
         cov_source=".",
+        cov_source_origin=CovSourceOrigin.CONFIGURED,
         iterations=1,
         allow_parallel_durations=False,
         profile_path=Path(".smoke_profiling_data.json"),
@@ -267,6 +274,7 @@ def test_format_summary_reports_the_attainable_ceiling() -> None:
             hostname="ci-04",
         ),
         xdist_workers=1,
+        iterations=1,
     )
     result = SmokeResult(
         selected_tests=[],
@@ -292,6 +300,7 @@ def test_format_summary_reports_the_attainable_ceiling() -> None:
         output_json=Path(".smoke_suite.json"),
         allow_ordered=False,
         cov_source=".",
+        cov_source_origin=CovSourceOrigin.CONFIGURED,
         iterations=1,
         allow_parallel_durations=False,
         profile_path=Path(".smoke_profiling_data.json"),

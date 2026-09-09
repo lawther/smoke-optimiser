@@ -96,6 +96,23 @@ uv run smoke-optimiser smoke --include="tests/test_auth.py" --exclude="@pytest.m
 | `--allow-parallel-durations` / `--no-allow-parallel-durations` | Rank a profile whose durations were recorded under `pytest-xdist` contention. | `False` |
 | `--profile-path` | Path for the recorded profile, which `downwind` also reads. | `.smoke_profiling_data.json` |
 
+#### What gets instrumented
+
+If you do not pass `--src` or set `cov_source`, the coverage target is worked out in this order, and
+whichever step answers **says so on stderr** — what a profile instruments decides what it can ever
+know, so a value you did not choose is never applied silently:
+
+1. `[tool.coverage.run] source` (or `source_pkgs`) in `pyproject.toml` — your own explicit answer.
+2. A `src/` directory at the repository root.
+3. A package named after the project in `pyproject.toml`.
+
+If none of them answers, the run **stops** rather than instrumenting the whole repository. That is
+not a safe default: it puts every `.py` file in the tree into the profile's scope, including ones
+coverage.py never walks — anything outside an importable package, such as a directory of hook
+scripts — and a file the profile can never know expires it on every run. The error hands back the
+exact command to set a source, and the exact command to instrument everything on purpose if that is
+genuinely what you want.
+
 ### `smoke-optimiser downwind` (Change-based selection)
 
 | Argument | Description | Default |
@@ -103,14 +120,53 @@ uv run smoke-optimiser smoke --include="tests/test_auth.py" --exclude="@pytest.m
 | `--profile-path` | Path of the profile to select from. | `.smoke_profiling_data.json` |
 | `--downwind-file-path` | Path for the generated downwind selection file. | `.downwind.json` |
 | `--pytest-args` | Extra arguments forwarded to the downwind pytest run. Deliberately separate from the profiling run's, whose coverage flags would otherwise instrument every commit. | `""` |
+| `--regenerate-on-fallback` / `--no-regenerate-on-fallback` | Run a full-suite fallback under instrumentation, rewriting the profile it fell back from. | `True` |
+| `--src` | Source directory/package to instrument when a fallback regenerates the profile. | discovered |
 
 Its exit code is pytest's own, so a failing selected test fails the commit and a collection error
 never reads as a successful selective run. Two cases exit 0 without running pytest at all: a clean
 tree, and a change the profile says no test reaches — the latter with a warning naming the files,
 since it can also mean the profile is missing a route to the suite.
 
-With no profile at all it runs the full suite and prints the command to record one. A profile that
-exists but cannot be read is an error, not a silent full-suite run.
+#### A fallback repairs the map it fell back from
+
+When `downwind` cannot answer — a profile that is missing, from an older build, unreadable, or one
+whose maps have gone stale — it runs the full suite **under profiling instrumentation** and rewrites
+the profile. The run that pays for the fallback is the run that repairs the map, so the next commit
+selects a subset again. Without it staleness ratchets: the map expires and every commit pays a full
+suite until someone remembers to regenerate by hand.
+
+Nothing detaches and nothing fires later. The only suite that runs is the one you were already
+waiting on; instrumenting it measured about +11% (61s → 68s on one real project).
+
+The rewrite is conditional, because a partial profile is worse than a stale one — an import graph
+missing edges reads as *nothing imports those modules* rather than as *unknown*, so a change to them
+would select no tests. A run that did not produce complete data (killed part-way, an xdist worker
+that died) leaves the previous profile exactly where it was and says so, and the command exits
+non-zero so a regeneration that quietly failed cannot pass for a green run. A fallback whose *tests*
+fail is not that case: outcomes record which tests failed and the map is as good either way, so it
+still rewrites the profile and still reports pytest's exit code.
+
+The instrumented run uses the profiling `pytest_args`, not `--pytest-args` above. A per-commit `-x`
+or `-k` would narrow collection into a profile of part of the suite — one that every completeness
+check passes — and land it on top of a good one. The exception is the pytest-xdist distribution
+flags (`-n`, `--numprocesses`, `--dist`, `--maxprocesses`), which carry over: they change only how
+the same tests are spread across processes, so the profile is of the whole suite either way, and
+dropping them would run a parallel suite serially. Durations recorded that way are contended, so
+`smoke` will not rank such a profile without `--allow-parallel-durations` — downwind selection is
+unaffected.
+
+It instruments the coverage root the profile being replaced was recorded under, so a fallback
+reproduces the profile it replaces rather than substituting a different one. An explicitly
+configured source still wins over that.
+
+An unreadable profile is moved to `<profile>.corrupt` before being rebuilt, so the evidence survives
+for a bug report. The one fault a fallback cannot repair is a profile recording no scope roots: that
+names a misconfiguration, so regenerating would produce another one just like it. That case stops
+the run and names the settings to fix.
+
+Pass `--no-regenerate-on-fallback` (or set `regenerate_on_fallback = false`) to run the fallback
+plain and be told how to rebuild the profile yourself.
 
 #### Data files
 

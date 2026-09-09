@@ -6,6 +6,7 @@ from typer.testing import CliRunner
 from smoke_optimiser.cli import app
 from smoke_optimiser.profiler.models import ProfilingData
 from smoke_optimiser.profiler.persistence import load_profile
+from smoke_optimiser.profiler.runner import ProfilingRun
 
 runner = CliRunner()
 
@@ -21,7 +22,7 @@ def test_cli_full_run(
     profiled_suite: ProfilingData,
     tmp_path: Path,
 ) -> None:
-    mock_run.return_value = profiled_suite
+    mock_run.return_value = ProfilingRun(data=profiled_suite, returncode=0)
     mock_optimise.return_value = MagicMock()
     mock_format.return_value = "Summary"
 
@@ -51,7 +52,7 @@ def test_an_ordinary_run_leaves_the_profile_behind_for_downwind(
     to run the profiling phase they have just sat through.
     """
     with patch("pathlib.Path.cwd", return_value=tmp_path):
-        mock_run.return_value = profiled_suite
+        mock_run.return_value = ProfilingRun(data=profiled_suite, returncode=0)
         result = runner.invoke(app, ["smoke"])
 
         assert result.exit_code == 0
@@ -69,7 +70,7 @@ def test_a_full_run_writes_the_profile_where_profile_path_asks_for_it(
     tmp_path: Path,
 ) -> None:
     """The path both commands share is honoured on a full run, not just on --profile-only."""
-    mock_run.return_value = profiled_suite
+    mock_run.return_value = ProfilingRun(data=profiled_suite, returncode=0)
 
     with patch("pathlib.Path.cwd", return_value=tmp_path):
         result = runner.invoke(app, ["smoke", "--profile-path", "custom-profile.json"])
@@ -81,7 +82,7 @@ def test_a_full_run_writes_the_profile_where_profile_path_asks_for_it(
 
 @patch("smoke_optimiser.cli.run_profiling")
 def test_cli_profile_only(mock_run: MagicMock, profiled_suite: ProfilingData, tmp_path: Path) -> None:
-    mock_run.return_value = profiled_suite
+    mock_run.return_value = ProfilingRun(data=profiled_suite, returncode=0)
 
     with patch("pathlib.Path.cwd", return_value=tmp_path):
         result = runner.invoke(app, ["smoke", "--profile-only"])

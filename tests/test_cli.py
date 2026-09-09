@@ -8,10 +8,11 @@ import typer
 from typer.testing import CliRunner
 
 from smoke_optimiser.cli import _reject_parallel_durations, app
-from smoke_optimiser.config import OperationMode, ResolvedConfig
+from smoke_optimiser.config import CovSourceOrigin, OperationMode, ProfilingRunConfig, ResolvedConfig
 from smoke_optimiser.environment import MachineEnvironment
 from smoke_optimiser.profiler.models import PROFILE_SCHEMA_VERSION, ImportGraph, ProfilingData, ProfilingMeta
 from smoke_optimiser.profiler.persistence import load_profile
+from smoke_optimiser.profiler.runner import ProfilingRun
 from smoke_optimiser.profiler.scope import ProfileScope
 from tests.conftest import RawProfileFactory
 
@@ -56,7 +57,7 @@ def test_cli_defaults(
     profiled_suite: ProfilingData,
     tmp_path: Path,
 ) -> None:
-    mock_run.return_value = profiled_suite
+    mock_run.return_value = ProfilingRun(data=profiled_suite, returncode=0)
     mock_optimise.return_value = MagicMock()
     mock_format.return_value = "Summary"
 
@@ -76,7 +77,7 @@ def test_cli_overrides(
     profiled_suite: ProfilingData,
     tmp_path: Path,
 ) -> None:
-    mock_run.return_value = profiled_suite
+    mock_run.return_value = ProfilingRun(data=profiled_suite, returncode=0)
     mock_optimise.return_value = MagicMock()
     mock_format.return_value = "Summary"
 
@@ -97,7 +98,7 @@ def test_cli_profile_only(
     profiled_suite: ProfilingData,
     tmp_path: Path,
 ) -> None:
-    mock_run.return_value = profiled_suite
+    mock_run.return_value = ProfilingRun(data=profiled_suite, returncode=0)
 
     with patch("pathlib.Path.cwd", return_value=tmp_path):
         result = runner.invoke(app, ["smoke", "--profile-only"])
@@ -121,7 +122,7 @@ def test_cli_include_exclude(
     profiled_suite: ProfilingData,
     tmp_path: Path,
 ) -> None:
-    mock_run.return_value = profiled_suite
+    mock_run.return_value = ProfilingRun(data=profiled_suite, returncode=0)
     mock_optimise.return_value = MagicMock()
     mock_format.return_value = "Summary"
 
@@ -252,6 +253,7 @@ def _profile_recorded_with(workers: int) -> ProfilingData:
             hostname=None,
         ),
         xdist_workers=workers,
+        iterations=1,
     )
     return ProfilingData(
         meta=meta,
@@ -283,6 +285,7 @@ def _default_config(*, allow_parallel_durations: bool) -> ResolvedConfig:
         output_json=Path(".smoke_suite.json"),
         allow_ordered=True,
         cov_source=".",
+        cov_source_origin=CovSourceOrigin.CONFIGURED,
         iterations=1,
         allow_parallel_durations=allow_parallel_durations,
         profile_path=Path(".smoke_profiling_data.json"),
@@ -315,10 +318,10 @@ def test_a_serial_profile_is_ranked_without_complaint() -> None:
     _reject_parallel_durations(config, _profile_recorded_with(1))
 
 
-def _resolved_config_from_a_run(mock_run: MagicMock) -> ResolvedConfig:
+def _resolved_config_from_a_run(mock_run: MagicMock) -> ProfilingRunConfig:
     """Recover the config the CLI actually resolved, as handed to the profiler."""
     config = mock_run.call_args.args[0]
-    assert isinstance(config, ResolvedConfig)
+    assert isinstance(config, ProfilingRunConfig)
     return config
 
 
@@ -333,7 +336,7 @@ def test_a_boolean_set_in_pyproject_survives_a_run_that_does_not_mention_it(
 ) -> None:
     """End to end: the file setting reaches the profiler when no flag contradicts it."""
     (tmp_path / "pyproject.toml").write_text("[tool.smoke_optimiser]\nallow_ordered = true\n")
-    mock_run.return_value = profiled_suite
+    mock_run.return_value = ProfilingRun(data=profiled_suite, returncode=0)
 
     with patch("pathlib.Path.cwd", return_value=tmp_path):
         result = runner.invoke(app, ["smoke"])
@@ -353,7 +356,7 @@ def test_the_negative_form_of_a_flag_turns_off_a_setting_the_file_turned_on(
 ) -> None:
     """The command line wins over pyproject.toml in both directions, not just one."""
     (tmp_path / "pyproject.toml").write_text("[tool.smoke_optimiser]\nallow_ordered = true\n")
-    mock_run.return_value = profiled_suite
+    mock_run.return_value = ProfilingRun(data=profiled_suite, returncode=0)
 
     with patch("pathlib.Path.cwd", return_value=tmp_path):
         result = runner.invoke(app, ["smoke", "--no-allow-ordered"])

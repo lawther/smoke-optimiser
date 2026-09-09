@@ -72,6 +72,7 @@ def raw_profile() -> RawProfileFactory:
                     "hostname": "ci-04",
                 },
                 "xdist_workers": 1,
+                "iterations": 1,
             },
             "tests": {
                 "test_a": {
@@ -129,6 +130,7 @@ def profiled_suite() -> ProfilingData:
                 hostname="ci-04",
             ),
             xdist_workers=1,
+            iterations=1,
         ),
         tests={},
         total_branches=frozenset(),

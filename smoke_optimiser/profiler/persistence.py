@@ -6,11 +6,17 @@ the same words -- a schema mismatch, a corrupt file and a profile that cannot
 say what it measured each need a different fix, and a second copy of these
 messages would drift from the first.
 
-Failures are reported and exit rather than raised, because every caller is a
-CLI command whose only response is to say what went wrong and stop.
+Every failure is rendered once, here, and reaches its caller as a
+:class:`ProfileUnusableError` carrying both the finished message and a
+:class:`ProfileFault` saying what KIND of broken it is. The kind matters
+because the two callers respond differently: ``smoke`` reports and stops
+whatever the fault, while downwind decides from it whether to regenerate over
+the file, keep a copy of it first, or refuse.
 """
 
 import json
+from dataclasses import dataclass
+from enum import Enum, auto
 from pathlib import Path
 
 import typer
@@ -56,6 +62,7 @@ def save_profile(profiling_data: ProfilingData, profile_path: Path) -> None:
         command=profiling_data.meta.command,
         machine=machine_model,
         xdist_workers=profiling_data.meta.xdist_workers,
+        iterations=profiling_data.meta.iterations,
     )
     test_models = {
         tid: ProfilingOutcomeModel(
@@ -100,24 +107,50 @@ def save_profile(profiling_data: ProfilingData, profile_path: Path) -> None:
     typer.secho(f"💾 Profiling data saved to {profile_path}", fg=typer.colors.GREEN)
 
 
-def load_profile(profile_path: Path) -> ProfilingData:
-    """Load and validate the profile, or report why it cannot be used and exit.
+class ProfileFault(Enum):
+    """What kind of unusable a profile is, which decides who can repair it.
 
-    A profile that is present but unusable is a broken state rather than an
-    absent one, so every case here stops the command. Callers that can carry
-    on without a profile at all -- downwind, which falls back to the full
-    suite -- check for the file themselves before calling.
+    OUTDATED and UNREADABLE both mean "this file cannot be used and a fresh
+    profile would be", and differ only in whether the file is worth keeping.
+    MISCONFIGURED is the one a fresh profile would not repair.
     """
+
+    OUTDATED = auto()
+    """Written by a different build of the tool. Regenerating is the whole fix."""
+
+    UNREADABLE = auto()
+    """Corrupt or invalid. Since the write became atomic no run of ours can leave
+    one behind, so it points at something outside the tool or a bug inside it, and
+    the file is evidence either way."""
+
+    MISCONFIGURED = auto()
+    """Names something wrong with the project's configuration rather than with the
+    file. Regenerating reproduces it exactly, so only a human can clear it."""
+
+
+@dataclass(frozen=True)
+class ProfileUnusableError(Exception):
+    """A profile that is present and cannot be used, with the message to say so.
+
+    The message is rendered here rather than by the caller so that both callers
+    say the same thing about the same file: two copies would drift, and each of
+    these faults needs a different fix that the user has to be told exactly once.
+    """
+
+    fault: ProfileFault
+    message: str
+
+
+def read_profile(profile_path: Path) -> ProfilingData:
+    """Load and validate the profile, or raise saying which kind of broken it is."""
     try:
         with profile_path.open("rb") as f:
             raw = json.load(f)
     except (OSError, json.JSONDecodeError) as e:
-        typer.secho(
-            f"❌ Error: Failed to parse profiling data ({profile_path}): {e}",
-            fg=typer.colors.RED,
-            err=True,
-        )
-        raise typer.Exit(code=1) from None
+        raise ProfileUnusableError(
+            fault=ProfileFault.UNREADABLE,
+            message=f"Failed to parse profiling data ({profile_path}): {e}",
+        ) from None
 
     try:
         return load_profiling_data_file(raw).to_profiling_data()
@@ -127,27 +160,57 @@ def load_profile(profile_path: Path) -> ProfilingData:
             if e.command
             else " Re-run the profiling phase to regenerate it."
         )
-        typer.secho(
-            f"❌ Error: Profiling data ({profile_path}) has schema version {e.found!r}, but this build "
-            f"expects schema version {e.expected}.{rerun}",
-            fg=typer.colors.RED,
-            err=True,
-        )
-        raise typer.Exit(code=1) from None
+        raise ProfileUnusableError(
+            fault=ProfileFault.OUTDATED,
+            message=(
+                f"Profiling data ({profile_path}) has schema version {e.found!r}, but this build "
+                f"expects schema version {e.expected}.{rerun}"
+            ),
+        ) from None
     except ProfileScopeMissingError as e:
-        typer.secho(
-            f"❌ Error: Profiling data ({profile_path}) is schema version {e.schema_version} but records "
-            "no scope roots, so it cannot tell whether it has gone stale. Re-run the profiling phase; if the "
-            "message persists, no coverage target or test path resolved inside the repository -- check --cov "
-            "and pytest's testpaths.",
-            fg=typer.colors.RED,
-            err=True,
-        )
-        raise typer.Exit(code=1) from None
+        raise ProfileUnusableError(
+            fault=ProfileFault.MISCONFIGURED, message=_no_scope_message(profile_path, e)
+        ) from None
     except ValidationError as e:
-        typer.secho(
-            f"❌ Error: Failed to parse profiling data ({profile_path}): {e}",
-            fg=typer.colors.RED,
-            err=True,
-        )
+        raise ProfileUnusableError(
+            fault=ProfileFault.UNREADABLE,
+            message=f"Failed to parse profiling data ({profile_path}): {e}",
+        ) from None
+
+
+def _no_scope_message(profile_path: Path, error: ProfileScopeMissingError) -> str:
+    """Name the misconfiguration, and the three edits that clear it.
+
+    Spelled out at length because this is the one fault regenerating cannot fix:
+    a fresh profile is captured under the same configuration and comes out just
+    as scope-less, so a message that only said "re-run the profiling phase" would
+    send the user round a loop that never terminates.
+    """
+    return (
+        f"Profiling data ({profile_path}) is schema version {error.schema_version} but records no scope "
+        "roots, so it cannot tell whether it has gone stale -- and regenerating it would produce another "
+        "one exactly like it.\n"
+        "   Scope is the coverage targets plus pytest's test paths, so an empty scope means neither "
+        "resolved to a path inside this repository. To fix, in order of likelihood:\n"
+        "     1. Profile from the repository root, not from a subdirectory.\n"
+        "     2. Point --cov at a directory in the tree rather than at an installed package:\n"
+        '        [tool.smoke_optimiser] cov_source = "your_package"   (or --src=your_package)\n'
+        "     3. Give pytest a test path inside the repository:\n"
+        '        [tool.pytest.ini_options] testpaths = ["tests"]\n'
+        "   Then regenerate: smoke-optimiser smoke --profile-only"
+    )
+
+
+def load_profile(profile_path: Path) -> ProfilingData:
+    """Load and validate the profile, or report why it cannot be used and exit.
+
+    A profile that is present but unusable is a broken state rather than an
+    absent one, so every case here stops the command. Callers that can do
+    something better than stop -- downwind, which can rebuild the file it could
+    not read -- call :func:`read_profile` and decide from the fault.
+    """
+    try:
+        return read_profile(profile_path)
+    except ProfileUnusableError as e:
+        typer.secho(f"\u274c Error: {e.message}", fg=typer.colors.RED, err=True)
         raise typer.Exit(code=1) from None

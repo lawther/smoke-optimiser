@@ -410,6 +410,7 @@ def build_profiling_data(
         command=" ".join(sys.argv),
         machine=capture_environment(),
         xdist_workers=results.xdist_workers,
+        iterations=results.iterations,
     )
 
     return ProfilingData(

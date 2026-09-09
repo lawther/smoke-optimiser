@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 from smoke_optimiser.environment import MachineEnvironment
 from smoke_optimiser.profiler.scope import ProfileScope
 
-PROFILE_SCHEMA_VERSION = 3
+PROFILE_SCHEMA_VERSION = 4
 """Schema version this build writes to a profiling data file.
 
 Bumped whenever ProfilingDataFile's shape changes in a way that makes an
@@ -138,6 +138,14 @@ class ProfilingMeta:
             tests competed for the machine, so the durations are not comparable
             with each other or with a serial profile. The coverage map is
             unaffected.
+        iterations: How many complete passes over the suite each duration is the
+            mean of -- the number that FINISHED, not the number configured, so a
+            three-iteration run whose last pass was interrupted records two. The
+            maps do not vary with it (they merge where the durations average), so
+            this says nothing about the coverage, import or read maps and
+            everything about how much a single slow sample could be skewing the
+            ranking. A downwind fallback records 1 whatever the project
+            configured.
     """
 
     timestamp: datetime
@@ -147,6 +155,7 @@ class ProfilingMeta:
     command: str
     machine: MachineEnvironment
     xdist_workers: int
+    iterations: int
 
 
 @dataclass(frozen=True)
@@ -195,12 +204,16 @@ class SuiteRunResults:
         scope: The coverage targets and test paths the profiled pytest process
             resolved. Read inside that process because that is the only place a
             project's own addopts and testpaths have been applied.
+        iterations: How many passes over the suite these durations are the mean
+            of. Counted from the passes that finished, so an interrupted run
+            reports what it kept rather than what it set out to do.
     """
 
     durations: dict[str, float]
     outcomes: dict[str, bool]
     markers: dict[str, frozenset[str]]
     xdist_workers: int
+    iterations: int
     import_graph: ImportGraph
     scope: ProfileScope
     read_map: ReadMap
@@ -385,6 +398,7 @@ class ProfilingMetaModel(BaseModel):
     command: str
     machine: MachineModel
     xdist_workers: int
+    iterations: int
 
 
 class ProfilingDataFile(BaseModel):
@@ -421,6 +435,7 @@ class ProfilingDataFile(BaseModel):
             command=self.meta.command,
             machine=machine_env,
             xdist_workers=self.meta.xdist_workers,
+            iterations=self.meta.iterations,
         )
 
         tests = {

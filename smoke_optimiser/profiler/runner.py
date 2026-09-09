@@ -15,7 +15,7 @@ import pytest
 import typer
 from pydantic import ValidationError
 
-from smoke_optimiser.config import ResolvedConfig
+from smoke_optimiser.config import CovSourceOrigin, ProfilingRunConfig
 from smoke_optimiser.downwind.changes import GitStatusError, tracked_files
 from smoke_optimiser.profiler.coverage_db import CoverageIngestError, build_profiling_data
 from smoke_optimiser.profiler.import_tracer import ImportGraphIngestError, merge_graphs, read_graph
@@ -43,6 +43,36 @@ EnvVarValue = NewType("EnvVarValue", str)
 
 class OutcomesIngestError(RuntimeError):
     """Raised when the outcomes written by the profiling hook cannot be read."""
+
+
+class ProfilingUnavailableError(RuntimeError):
+    """Raised when profiling cannot be attempted at all, so no suite ran.
+
+    Kept apart from :class:`ProfilingIncompleteError` because the two leave the
+    caller in different places: nothing has been run here, so a caller that
+    needed the suite run -- the downwind fallback -- still has to run it,
+    uninstrumented.
+    """
+
+
+class ProfilingIncompleteError(RuntimeError):
+    """Raised when a suite ran but did not yield a profile that can be trusted.
+
+    Raised rather than exited so that a caller with more to do than stop can do
+    it. ``smoke`` catches this and exits 1, exactly as it always did; the
+    downwind fallback catches it, leaves the previous profile untouched, and
+    still has a pytest exit code to honour.
+
+    ``returncode`` is how the profiled pytest exited, where that is known. It is
+    None for the failures that happen before or after any single run can be
+    blamed -- reading back the coverage database, say -- and a caller with a
+    verdict to reach should treat that as "no verdict from pytest" rather than
+    as success.
+    """
+
+    def __init__(self, message: str, returncode: int | None = None) -> None:
+        super().__init__(message)
+        self.returncode = returncode
 
 
 class IterationOutcomes(NamedTuple):
@@ -103,6 +133,40 @@ class IterationResult(NamedTuple):
     import_graph: ImportGraph
     read_map: ReadMap
     artefact_files: ArtefactFileCounts
+
+
+class SuiteObservations(NamedTuple):
+    """What the iterations observed, before the denominator only the caller knows.
+
+    Everything in :class:`SuiteRunResults` except ``present_files``, which is the
+    state of the tree BEFORE the first iteration and so cannot be gathered by the
+    loop that runs them.
+    """
+
+    durations: dict[str, float]
+    outcomes: dict[str, bool]
+    markers: dict[str, frozenset[str]]
+    xdist_workers: int
+    iterations: int
+    import_graph: ImportGraph
+    scope: ProfileScope
+    read_map: ReadMap
+    returncode: int
+    """How the last pytest invocation exited. Kept because a caller may be running
+    the suite for its own sake and not only to profile it, and would otherwise have
+    to rerun it to learn whether the tests passed."""
+
+
+class ProfilingRun(NamedTuple):
+    """A completed profiling run: the profile, and how the suite that made it exited.
+
+    Two values rather than one because the run answers two questions at once for
+    the downwind fallback -- what the map is now, and whether these tests pass --
+    and only the second can gate a commit.
+    """
+
+    data: ProfilingData
+    returncode: int
 
 
 # Minimal inline pytest plugin to capture exact node IDs, durations, outcomes, and markers
@@ -244,17 +308,110 @@ branch = True
 """
 
 
-def check_prerequisites(config: ResolvedConfig) -> None:
+HEURISTIC_COV_SOURCES: dict[CovSourceOrigin, str] = {
+    CovSourceOrigin.COVERAGE_CONFIG: "from [tool.coverage.run] in pyproject.toml",
+    CovSourceOrigin.SRC_LAYOUT: "because this project has a src/ directory",
+    CovSourceOrigin.PROJECT_NAME: "from the project name in pyproject.toml",
+}
+"""How each guessed coverage source was arrived at, in words.
+
+Every one of these is announced. What a profile instruments decides what it can
+ever know, so a value the user did not choose has to be visible at the moment it
+is acted on -- a run that quietly widened the coverage root from a package to the
+whole repository is how a profile acquires files coverage can never measure, and
+with them an expiry no amount of regenerating clears. CONFIGURED is absent
+because the user already knows; UNDISCOVERED is absent because it is refused
+rather than announced.
+"""
+
+
+def _invocation() -> str:
+    """This run's own command line, ready to be pasted back with something added."""
+    return " ".join([Path(sys.argv[0]).name, *(shlex.quote(arg) for arg in sys.argv[1:])])
+
+
+def _no_coverage_source_message() -> str:
+    """Refuse to instrument, and hand back the three commands that would.
+
+    Refused rather than defaulted to the whole repository, because that default is
+    silently destructive: every .py file in the tree goes into the profile's scope,
+    including the ones coverage.py never walks -- anything outside an importable
+    package, such as a directory of hook scripts -- and a file that can never be
+    measured is a file the profile is permanently missing, which expires it on
+    every run for ever.
+
+    Instrumenting everything is still a perfectly reasonable thing to want, which
+    is why the last line offers exactly that: refusing to GUESS it is not the same
+    as refusing to do it.
+    """
+    invocation = _invocation()
+    return (
+        "no coverage source is configured and none could be discovered, so there is nothing to "
+        "instrument.\n"
+        "   Instrumenting the whole repository is not a safe default: it puts every .py file in the "
+        "tree into the profile's scope, including ones coverage.py never measures, and a file the "
+        "profile can never know expires it on every run.\n"
+        "   Set it once, in pyproject.toml:\n"
+        "     [tool.smoke_optimiser]\n"
+        '     cov_source = "your_package"\n'
+        "   Or just for this run:\n"
+        f"     {invocation} --src=your_package\n"
+        "   Or, to instrument the whole repository deliberately:\n"
+        f"     {invocation} --src=."
+    )
+
+
+def _announce_cov_source(config: ProfilingRunConfig) -> None:
+    """Say what is being instrumented whenever the user did not say it themselves."""
+    explanation = HEURISTIC_COV_SOURCES.get(config.cov_source_origin)
+    if explanation is None:
+        return
+    typer.secho(
+        f"⚠️ Warning: no coverage source given, so instrumenting --src={config.cov_source}, {explanation}.",
+        fg=typer.colors.YELLOW,
+        err=True,
+    )
+
+
+def supplies_cov_source(pytest_args: str) -> bool:
+    """Do these pytest arguments already say what coverage measures?
+
+    Shared with :func:`_build_pytest_command`, which appends ``--cov`` only when
+    they do not: a second spelling of this question that disagreed would either
+    instrument twice or refuse a run that had a perfectly good coverage source
+    all along. Only --cov itself sets what is measured; --cov-report and friends
+    do not.
+    """
+    return any(arg == "--cov" or arg.startswith("--cov=") for arg in shlex.split(pytest_args))
+
+
+def check_prerequisites(config: ProfilingRunConfig) -> None:
     """Verify that all necessary tools are available."""
     if shutil.which("pytest") is None:
         msg = "pytest not found in PATH"
-        raise RuntimeError(msg)
+        raise ProfilingUnavailableError(msg)
+
+    # A --cov in the user's own arguments settles the question, so neither the
+    # refusal nor the announcement below has anything to say about a value that
+    # is never going to reach the command line.
+    if supplies_cov_source(config.pytest_args):
+        return
+
+    if config.cov_source_origin is CovSourceOrigin.UNDISCOVERED:
+        raise ProfilingUnavailableError(_no_coverage_source_message())
+
+    _announce_cov_source(config)
 
     # Checked directly against the installed distributions rather than by running
     # `pytest --trace-config` in a subprocess: with nothing else restricting it,
     # that invocation collects and runs the entire profiled suite serially, just
     # to grep its banner for the plugin's name -- exactly the slow, single-core
     # detour this check exists to avoid inflicting on the profiling run itself.
+    #
+    # A warning and not a refusal: what it costs is a smoke suite ranked from
+    # order-dependent timings, which is a worse suite rather than a wrong map,
+    # and the same profile is what downwind selects from. Refusing to record it
+    # would mean declining to run the developer's tests over a missing plugin.
     if not config.allow_ordered and importlib.util.find_spec("pytest_randomly") is None:
         typer.secho(
             "⚠️ Warning: pytest-randomly is not installed. Ordering-dependent tests produce unreliable smoke suites.",
@@ -262,7 +419,6 @@ def check_prerequisites(config: ResolvedConfig) -> None:
             err=True,
         )
         typer.secho("💡 Use --allow-ordered to suppress this check.", fg=typer.colors.YELLOW, err=True)
-        sys.exit(1)
 
 
 def _get_git_commit(project_root: Path) -> str | None:
@@ -525,13 +681,19 @@ def _profiling_env(
     return env
 
 
-def _fail(message: str) -> NoReturn:
-    """Report a fatal profiling problem and stop, rather than emit a partial profile."""
-    typer.secho(f"\u274c Error: {message}", fg=typer.colors.RED, err=True)
-    sys.exit(1)
+def _fail(message: str, returncode: int | None = None) -> NoReturn:
+    """Refuse to emit a profile, rather than emit a partial one.
+
+    Raises rather than exits: the caller decides what a failed profiling run
+    costs. For ``smoke`` it is the whole command; for the downwind fallback it
+    means the previous profile stands and the suite that just ran still has an
+    exit code to report -- which is why ``returncode`` is carried wherever the
+    caller could know it.
+    """
+    raise ProfilingIncompleteError(message, returncode)
 
 
-def _build_pytest_command(config: ResolvedConfig, coveragerc: Path) -> list[str]:
+def _build_pytest_command(config: ProfilingRunConfig, coveragerc: Path) -> list[str]:
     """Build the pytest command line one profiling iteration runs."""
     pytest_cmd = [
         sys.executable,
@@ -544,14 +706,10 @@ def _build_pytest_command(config: ResolvedConfig, coveragerc: Path) -> list[str]
         "--cov-context=test",
     ]
 
-    has_cov_source = False
     if config.pytest_args:
-        args = shlex.split(config.pytest_args)
-        pytest_cmd.extend(args)
-        # Only --cov itself sets what is measured; --cov-report and friends do not.
-        has_cov_source = any(arg == "--cov" or arg.startswith("--cov=") for arg in args)
+        pytest_cmd.extend(shlex.split(config.pytest_args))
 
-    if not has_cov_source:
+    if not supplies_cov_source(config.pytest_args):
         pytest_cmd.append(f"--cov={config.cov_source}")
 
     return pytest_cmd
@@ -584,15 +742,15 @@ def _run_iteration(
     try:
         outcomes = _read_iteration_outcomes(outcomes_files)
     except OutcomesIngestError as exc:
-        _fail(str(exc))
+        _fail(str(exc), run.returncode)
     try:
         import_graph = _read_iteration_graph(graph_files)
     except ImportGraphIngestError as exc:
-        _fail(str(exc))
+        _fail(str(exc), run.returncode)
     try:
         read_map = _read_iteration_read_map(read_map_files)
     except ReadMapIngestError as exc:
-        _fail(str(exc))
+        _fail(str(exc), run.returncode)
 
     return IterationResult(
         returncode=run.returncode,
@@ -603,7 +761,104 @@ def _run_iteration(
     )
 
 
-def run_profiling(config: ResolvedConfig, project_root: Path) -> ProfilingData:
+def _accumulate_iterations(
+    config: ProfilingRunConfig,
+    pytest_cmd: list[str],
+    project_root: Path,
+    env: dict[str, EnvVarValue],
+    artefacts: HookArtefacts,
+) -> SuiteObservations:
+    """Run the suite as many times as configured, and merge what each pass left.
+
+    Durations are averaged across the passes; the maps are unioned, because an
+    import or a file read observed once is a fact about the codebase however many
+    times it was watched for. A pass that did not finish is dropped whole rather
+    than partly, so no test ends up averaged over fewer samples than its
+    neighbours.
+    """
+    all_durations: dict[str, list[float]] = defaultdict(list)
+    final_outcomes: dict[str, bool] = {}
+    final_markers: dict[str, frozenset[str]] = {}
+    xdist_workers = 1
+    # Counted rather than taken from the config: the loop leaves early on an
+    # iteration that did not finish, and the profile records how many passes its
+    # durations are actually the mean of.
+    completed_iterations = 0
+    graphs: list[ImportGraph] = []
+    read_maps: list[ReadMap] = []
+    scopes: list[ProfileScope] = []
+    # The loop below always runs at least once, and every path out of it either
+    # raises or has assigned this, so the initial value is never the one reported.
+    returncode = int(pytest.ExitCode.OK)
+
+    for i in range(config.iterations):
+        if config.iterations > 1:
+            typer.secho(f"  \U0001f504 Iteration {i + 1}/{config.iterations}...", fg=typer.colors.CYAN)
+
+        result = _run_iteration(pytest_cmd, project_root, env, artefacts)
+        returncode = result.returncode
+
+        if result.outcomes.collection_errors:
+            # Fatal however many iterations have already run: the same files fail to
+            # collect every time, so no amount of accumulated coverage makes up for
+            # the tests that were never collected at all.
+            _fail(_collection_error_message(result.outcomes.collection_errors), result.returncode)
+
+        if result.returncode not in USABLE_EXIT_CODES:
+            reason = _fatal_exit_message(result.returncode)
+            # Every iteration that does not complete leaves the loop here, so i is
+            # exactly the number of iterations that did complete.
+            if i == 0:
+                _fail(reason, result.returncode)
+            # Coverage accumulates into one database across iterations, so the work
+            # the earlier ones did is intact and still worth a profile. This
+            # iteration's durations are not: tests it never reached would be
+            # averaged over fewer samples than the rest, so its outcomes and import
+            # graph are dropped whole.
+            plural = "" if i == 1 else "s"
+            typer.secho(
+                f"\u26a0\ufe0f Warning: iteration {i + 1}/{config.iterations} did not finish -- {reason} "
+                f"Profiling continues from the {i} iteration{plural} that did.",
+                fg=typer.colors.YELLOW,
+                err=True,
+            )
+            break
+
+        # After the exit code, not before it: an iteration pytest already reported
+        # as fatal is dropped whole above, and its missing files are explained by
+        # that rather than being a second mystery. What is left here is the case
+        # this guards -- pytest was content, and the artefacts still are not all
+        # there.
+        missing = _missing_artefact_message(result.artefact_files)
+        if missing is not None:
+            _fail(missing, result.returncode)
+
+        completed_iterations += 1
+        xdist_workers = max(xdist_workers, result.outcomes.xdist_workers)
+        graphs.append(result.import_graph)
+        read_maps.append(result.read_map)
+        scopes.append(result.outcomes.scope)
+
+        for nodeid, record in result.outcomes.outcomes.items():
+            all_durations[nodeid].append(record.duration)
+            # Use the last run's outcome/markers (should be consistent)
+            final_outcomes[nodeid] = record.passed
+            final_markers[nodeid] = frozenset(record.markers)
+
+    return SuiteObservations(
+        durations={nodeid: sum(durations) / len(durations) for nodeid, durations in all_durations.items()},
+        outcomes=final_outcomes,
+        markers=final_markers,
+        xdist_workers=xdist_workers,
+        iterations=completed_iterations,
+        import_graph=merge_graphs(graphs),
+        scope=_merge_scopes(scopes),
+        read_map=merge_read_maps(read_maps),
+        returncode=returncode,
+    )
+
+
+def run_profiling(config: ProfilingRunConfig, project_root: Path) -> ProfilingRun:
     """Run the test suite under coverage instrumentation and collect results."""
     check_prerequisites(config)
 
@@ -621,14 +876,6 @@ def run_profiling(config: ResolvedConfig, project_root: Path) -> ProfilingData:
         hook_file.write_text(PYTEST_HOOK_CODE)
         coveragerc.write_text(COVERAGERC_CONTENT)
 
-        # Run pytest, aggregating durations across iterations
-        all_durations: dict[str, list[float]] = defaultdict(list)
-        final_outcomes: dict[str, bool] = {}
-        final_markers: dict[str, frozenset[str]] = {}
-        xdist_workers = 1
-        graphs: list[ImportGraph] = []
-        read_maps: list[ReadMap] = []
-        scopes: list[ProfileScope] = []
         # Before the first iteration, so the denominator names the tree the suite was
         # actually profiled against rather than whatever it became while it ran.
         present_files = _present_files(project_root)
@@ -636,76 +883,25 @@ def run_profiling(config: ResolvedConfig, project_root: Path) -> ProfilingData:
         env = _profiling_env(temp_dir, project_root, coverage_db, artefacts)
         pytest_cmd = _build_pytest_command(config, coveragerc)
 
-        for i in range(config.iterations):
-            if config.iterations > 1:
-                typer.secho(f"  \U0001f504 Iteration {i + 1}/{config.iterations}...", fg=typer.colors.CYAN)
-
-            result = _run_iteration(pytest_cmd, project_root, env, artefacts)
-
-            if result.outcomes.collection_errors:
-                # Fatal however many iterations have already run: the same files fail to
-                # collect every time, so no amount of accumulated coverage makes up for
-                # the tests that were never collected at all.
-                _fail(_collection_error_message(result.outcomes.collection_errors))
-
-            if result.returncode not in USABLE_EXIT_CODES:
-                reason = _fatal_exit_message(result.returncode)
-                # Every iteration that does not complete leaves the loop here, so i is
-                # exactly the number of iterations that did complete.
-                if i == 0:
-                    _fail(reason)
-                # Coverage accumulates into one database across iterations, so the work
-                # the earlier ones did is intact and still worth a profile. This
-                # iteration's durations are not: tests it never reached would be
-                # averaged over fewer samples than the rest, so its outcomes and import
-                # graph are dropped whole.
-                plural = "" if i == 1 else "s"
-                typer.secho(
-                    f"\u26a0\ufe0f Warning: iteration {i + 1}/{config.iterations} did not finish -- {reason} "
-                    f"Profiling continues from the {i} iteration{plural} that did.",
-                    fg=typer.colors.YELLOW,
-                    err=True,
-                )
-                break
-
-            # After the exit code, not before it: an iteration pytest already reported
-            # as fatal is dropped whole above, and its missing files are explained by
-            # that rather than being a second mystery. What is left here is the case
-            # this guards -- pytest was content, and the artefacts still are not all
-            # there.
-            missing = _missing_artefact_message(result.artefact_files)
-            if missing is not None:
-                _fail(missing)
-
-            xdist_workers = max(xdist_workers, result.outcomes.xdist_workers)
-            graphs.append(result.import_graph)
-            read_maps.append(result.read_map)
-            scopes.append(result.outcomes.scope)
-
-            for nodeid, record in result.outcomes.outcomes.items():
-                all_durations[nodeid].append(record.duration)
-                # Use the last run's outcome/markers (should be consistent)
-                final_outcomes[nodeid] = record.passed
-                final_markers[nodeid] = frozenset(record.markers)
-
-        avg_durations = {nodeid: sum(durations) / len(durations) for nodeid, durations in all_durations.items()}
+        observed = _accumulate_iterations(config, pytest_cmd, project_root, env, artefacts)
 
         # Read per-test coverage straight out of coverage.py's SQLite database
         results = SuiteRunResults(
-            durations=avg_durations,
-            outcomes=final_outcomes,
-            markers=final_markers,
-            xdist_workers=xdist_workers,
-            import_graph=merge_graphs(graphs),
-            scope=_merge_scopes(scopes),
-            read_map=merge_read_maps(read_maps),
+            durations=observed.durations,
+            outcomes=observed.outcomes,
+            markers=observed.markers,
+            xdist_workers=observed.xdist_workers,
+            iterations=observed.iterations,
+            import_graph=observed.import_graph,
+            scope=observed.scope,
+            read_map=observed.read_map,
             present_files=present_files,
         )
         _warn_about_an_unbounded_test_scope(results.scope)
         try:
             data = build_profiling_data(coverage_db, project_root, results, config_file=coveragerc)
         except CoverageIngestError as exc:
-            _fail(str(exc))
+            _fail(str(exc), observed.returncode)
 
         # Fill in the missing metadata
         final_meta = ProfilingMeta(
@@ -716,16 +912,20 @@ def run_profiling(config: ResolvedConfig, project_root: Path) -> ProfilingData:
             command=" ".join(sys.argv),
             machine=data.meta.machine,
             xdist_workers=data.meta.xdist_workers,
+            iterations=data.meta.iterations,
         )
 
-        return ProfilingData(
-            meta=final_meta,
-            tests=data.tests,
-            total_branches=data.total_branches,
-            measured_files=data.measured_files,
-            import_graph=data.import_graph,
-            scope=data.scope,
-            unattributable_branches=data.unattributable_branches,
-            reads=data.reads,
-            present_files=data.present_files,
+        return ProfilingRun(
+            data=ProfilingData(
+                meta=final_meta,
+                tests=data.tests,
+                total_branches=data.total_branches,
+                measured_files=data.measured_files,
+                import_graph=data.import_graph,
+                scope=data.scope,
+                unattributable_branches=data.unattributable_branches,
+                reads=data.reads,
+                present_files=data.present_files,
+            ),
+            returncode=observed.returncode,
         )

@@ -16,7 +16,6 @@ from pydantic import ValidationError
 
 from smoke_optimiser.config import (
     DownwindConfig,
-    FileConfig,
     OperationMode,
     ResolvedConfig,
     load_file_config,
@@ -28,7 +27,11 @@ from smoke_optimiser.optimiser.filters import apply_filters
 from smoke_optimiser.optimiser.greedy import optimise
 from smoke_optimiser.profiler.models import ProfilingData
 from smoke_optimiser.profiler.persistence import load_profile, save_profile
-from smoke_optimiser.profiler.runner import run_profiling
+from smoke_optimiser.profiler.runner import (
+    ProfilingIncompleteError,
+    ProfilingUnavailableError,
+    run_profiling,
+)
 from smoke_optimiser.reports.smoke_suite import write_smoke_suite
 from smoke_optimiser.reports.summary import format_summary
 
@@ -92,27 +95,6 @@ def _validate_option_combinations(
             err=True,
         )
         raise typer.Exit(code=1)
-
-
-def _warn_if_source_was_guessed(
-    config: ResolvedConfig,
-    file_config: FileConfig | None,
-    src: str | None,
-    pytest_args: str | None,
-) -> None:
-    """Tell the user when the coverage source came from heuristic discovery rather than from them."""
-    if config.mode == OperationMode.OPTIMISE_ONLY or src is not None:
-        return
-    if pytest_args and "--cov" in pytest_args:
-        return
-    if file_config and file_config.cov_source:
-        return
-
-    typer.secho(
-        f"⚠️ Warning: --src was not specified. Falling back to heuristic discovery: --src={config.cov_source}",
-        fg=typer.colors.YELLOW,
-        err=True,
-    )
 
 
 def _reject_parallel_durations(config: ResolvedConfig, profiling_data: ProfilingData) -> None:
@@ -274,15 +256,21 @@ def smoke(  # noqa: PLR0913 # special case for this function since Typer works t
         _report_invalid_configuration(err)
         raise typer.Exit(code=1) from None
 
-    _warn_if_source_was_guessed(config, file_config, src, pytest_args)
-
     profiling_data = None
     profile_file = project_root / config.profile_path
 
     # Phase 1: Profiling
     if config.mode != OperationMode.OPTIMISE_ONLY:
         typer.secho("🔍 Running profiling...", fg=typer.colors.CYAN, bold=True)
-        profiling_data = run_profiling(config, project_root)
+        try:
+            # Only the profile is wanted here, so pytest's exit code is dropped: this
+            # command was asked to measure the suite, not to judge it, and a failing
+            # test is still a profiled test. downwind, which runs the suite because
+            # the developer needed it run, keeps the code instead.
+            profiling_data = run_profiling(config.for_profiling(), project_root).data
+        except (ProfilingIncompleteError, ProfilingUnavailableError) as exc:
+            typer.secho(f"❌ Error: {exc}", fg=typer.colors.RED, err=True)
+            raise typer.Exit(code=1) from None
         save_profile(profiling_data, profile_file)
 
     # Phase 2: Optimisation
@@ -308,17 +296,35 @@ def downwind(
         str | None,
         typer.Option("--pytest-args", help="Extra arguments forwarded to the downwind pytest run."),
     ] = None,
+    regenerate_on_fallback: Annotated[
+        bool | None,
+        typer.Option(
+            "--regenerate-on-fallback/--no-regenerate-on-fallback",
+            help="Run a full-suite fallback under instrumentation, rewriting the profile it fell back from.",
+        ),
+    ] = None,
+    src: Annotated[
+        str | None,
+        typer.Option(
+            "--src",
+            help="Source directory/package to instrument when a fallback regenerates the profile.",
+        ),
+    ] = None,
 ) -> None:
     """Run every test downwind of your working-tree changes, or the full suite when it cannot tell."""
     cli_overrides = {
         "profile_path": profile_path,
         "downwind_file_path": downwind_file_path,
         "downwind_pytest_args": pytest_args,
+        "regenerate_on_fallback": regenerate_on_fallback,
+        "cov_source": src,
     }
 
     invocation_dir = Path.cwd()
     try:
-        config: DownwindConfig = resolve_downwind_config(load_file_config(invocation_dir), cli_overrides)
+        config: DownwindConfig = resolve_downwind_config(
+            load_file_config(invocation_dir), cli_overrides, invocation_dir
+        )
     except ValidationError as err:
         _report_invalid_configuration(err)
         raise typer.Exit(code=1) from None
