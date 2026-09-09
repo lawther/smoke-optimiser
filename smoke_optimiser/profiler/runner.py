@@ -82,6 +82,19 @@ class HookArtefacts(NamedTuple):
     read_map_json: Path
 
 
+class ArtefactFileCounts(NamedTuple):
+    """How many files one iteration left behind for each artefact the hook writes.
+
+    Every process that runs the hook -- a serial run's single one, or the xdist
+    controller and each of its workers -- writes one file of every kind in the same
+    unconfigure, so the three counts agree unless a process died part-way through.
+    """
+
+    outcomes: int
+    import_graph: int
+    read_map: int
+
+
 class IterationResult(NamedTuple):
     """Everything one profiling iteration left behind, including how pytest exited."""
 
@@ -89,6 +102,7 @@ class IterationResult(NamedTuple):
     outcomes: IterationOutcomes
     import_graph: ImportGraph
     read_map: ReadMap
+    artefact_files: ArtefactFileCounts
 
 
 # Minimal inline pytest plugin to capture exact node IDs, durations, outcomes, and markers
@@ -272,7 +286,17 @@ def _get_git_commit(project_root: Path) -> str | None:
     return None
 
 
-def _read_iteration_outcomes(outcomes_json: Path) -> IterationOutcomes:
+def _artefact_files(base: Path) -> list[Path]:
+    """Every file one iteration's processes wrote for a single artefact.
+
+    A serial run writes the base name alone. Under pytest-xdist the controller and
+    each worker write a sibling of it, since sharing one file between them keeps
+    only the last writer's contribution.
+    """
+    return sorted(base.parent.glob(f"{base.stem}*{base.suffix}"))
+
+
+def _read_iteration_outcomes(paths: Sequence[Path]) -> IterationOutcomes:
     """Read and merge every outcomes file one profiling iteration produced.
 
     A serial run writes a single file. Under pytest-xdist each worker writes its
@@ -284,7 +308,7 @@ def _read_iteration_outcomes(outcomes_json: Path) -> IterationOutcomes:
     collection_errors: set[str] = set()
     scopes: list[ProfileScope] = []
 
-    for path in sorted(outcomes_json.parent.glob(f"{outcomes_json.stem}*{outcomes_json.suffix}")):
+    for path in paths:
         try:
             with path.open("rb") as f:
                 written = OutcomesFileModel.model_validate_json(f.read())
@@ -382,18 +406,63 @@ def _fatal_exit_message(returncode: int) -> str:
     return f"{meaning} (exit code {int(exit_code)}). The suite it profiled is incomplete."
 
 
-def _read_iteration_graph(import_graph_json: Path) -> ImportGraph:
+def _missing_artefact_message(counts: ArtefactFileCounts) -> str | None:
+    """Explain artefacts that a cleanly-exiting pytest still failed to leave behind.
+
+    Absence has to be reported, because alone among the failures here it reads as
+    valid data rather than as an error: a graph with no edges says nothing in the
+    project imports anything, and a read map with no reads says no test opened any
+    file. Every file then looks like a file nothing depends on, so a change to it
+    would select no tests -- the silent under-selection the profile exists to
+    prevent.
+
+    The three counts are checked against each other because each process writes one
+    of every artefact in the same unconfigure, so under xdist one dead worker shows
+    up as a set that is one short rather than as nothing at all. Which artefact is
+    short depends on where the process died -- the graph is written before the
+    outcomes -- so the expected count is the largest of the three, not the outcomes.
+    """
+    if not any(counts):
+        return (
+            "pytest exited cleanly but left no profiling artefacts at all, so its shutdown hook never "
+            "ran and nothing about the suite was recorded. An empty import graph does not read as "
+            "'unknown', it reads as 'nothing in this project imports anything', which would make a "
+            "change to any file select no tests. Profile again."
+        )
+
+    expected = max(counts)
+    shortfalls = [
+        f"{label} ({count} of {expected})"
+        for label, count in (
+            ("test outcomes", counts.outcomes),
+            ("import graph", counts.import_graph),
+            ("file read map", counts.read_map),
+        )
+        if count != expected
+    ]
+    if not shortfalls:
+        return None
+
+    listed = ", ".join(shortfalls)
+    return (
+        f"pytest exited cleanly, but of the {expected} processes it ran, not all of them left every "
+        f"artefact behind: {listed}. A process killed part-way through writing them -- a timeout, an "
+        "OOM kill, an xdist worker that died -- leaves a graph missing the edges it never recorded, "
+        "and missing edges read as 'nothing imports those modules' rather than as 'unknown', so a "
+        "change to them would select no tests. Profile again."
+    )
+
+
+def _read_iteration_graph(paths: Sequence[Path]) -> ImportGraph:
     """Read and merge every import graph one profiling iteration produced."""
-    paths = sorted(import_graph_json.parent.glob(f"{import_graph_json.stem}*{import_graph_json.suffix}"))
     graphs = [read_graph(path) for path in paths]
     for path in paths:
         path.unlink()
     return merge_graphs(graphs)
 
 
-def _read_iteration_read_map(read_map_json: Path) -> ReadMap:
+def _read_iteration_read_map(paths: Sequence[Path]) -> ReadMap:
     """Read and merge every file read map one profiling iteration produced."""
-    paths = sorted(read_map_json.parent.glob(f"{read_map_json.stem}*{read_map_json.suffix}"))
     maps = [read_read_map(path) for path in paths]
     for path in paths:
         path.unlink()
@@ -501,16 +570,27 @@ def _run_iteration(
     # The files are read whatever the exit code, both to leave the temp directory clean
     # for the next iteration and because the outcomes file is what carries the
     # collection errors -- which need reporting however pytest chose to exit.
+    # Listed before anything is read, because reading consumes the files: what is
+    # here is the only record of how many processes got as far as writing.
+    outcomes_files = _artefact_files(artefacts.outcomes_json)
+    graph_files = _artefact_files(artefacts.import_graph_json)
+    read_map_files = _artefact_files(artefacts.read_map_json)
+    counts = ArtefactFileCounts(
+        outcomes=len(outcomes_files),
+        import_graph=len(graph_files),
+        read_map=len(read_map_files),
+    )
+
     try:
-        outcomes = _read_iteration_outcomes(artefacts.outcomes_json)
+        outcomes = _read_iteration_outcomes(outcomes_files)
     except OutcomesIngestError as exc:
         _fail(str(exc))
     try:
-        import_graph = _read_iteration_graph(artefacts.import_graph_json)
+        import_graph = _read_iteration_graph(graph_files)
     except ImportGraphIngestError as exc:
         _fail(str(exc))
     try:
-        read_map = _read_iteration_read_map(artefacts.read_map_json)
+        read_map = _read_iteration_read_map(read_map_files)
     except ReadMapIngestError as exc:
         _fail(str(exc))
 
@@ -519,6 +599,7 @@ def _run_iteration(
         outcomes=outcomes,
         import_graph=import_graph,
         read_map=read_map,
+        artefact_files=counts,
     )
 
 
@@ -586,6 +667,15 @@ def run_profiling(config: ResolvedConfig, project_root: Path) -> ProfilingData:
                     err=True,
                 )
                 break
+
+            # After the exit code, not before it: an iteration pytest already reported
+            # as fatal is dropped whole above, and its missing files are explained by
+            # that rather than being a second mystery. What is left here is the case
+            # this guards -- pytest was content, and the artefacts still are not all
+            # there.
+            missing = _missing_artefact_message(result.artefact_files)
+            if missing is not None:
+                _fail(missing)
 
             xdist_workers = max(xdist_workers, result.outcomes.xdist_workers)
             graphs.append(result.import_graph)

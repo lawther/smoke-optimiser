@@ -1,6 +1,6 @@
 import json
 import os
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -9,10 +9,16 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from smoke_optimiser.config import OperationMode, ResolvedConfig
+from smoke_optimiser.profiler.import_tracer import write_graph
+from smoke_optimiser.profiler.models import ImportGraph, ReadMap
+from smoke_optimiser.profiler.read_tracer import write_read_map
 from smoke_optimiser.profiler.runner import (
     PYTEST_HOOK_CODE,
+    ArtefactFileCounts,
     IterationOutcomes,
     OutcomesIngestError,
+    _artefact_files,
+    _missing_artefact_message,
     _read_iteration_outcomes,
     _warn_about_an_unbounded_test_scope,
     check_prerequisites,
@@ -123,7 +129,7 @@ def test_run_profiling_basic(mock_ingest: MagicMock, mock_run: MagicMock, tmp_pa
         profile_path=Path(".smoke_profiling_data.json"),
     )
 
-    mock_run.return_value = MagicMock(returncode=0, stdout="pytest-randomly")
+    mock_run.side_effect = _pytest_exit_codes(0)
     mock_ingest.return_value = MagicMock()
 
     with patch("shutil.which", return_value="/usr/bin/pytest"):
@@ -171,7 +177,7 @@ def test_cov_report_in_pytest_args_does_not_suppress_the_cov_source(
         profile_path=Path(".smoke_profiling_data.json"),
     )
 
-    mock_run.return_value = MagicMock(returncode=0, stdout="")
+    mock_run.side_effect = _pytest_exit_codes(0)
     mock_ingest.return_value = MagicMock()
 
     with patch("shutil.which", return_value="/usr/bin/pytest"):
@@ -199,7 +205,7 @@ def test_an_explicit_cov_source_is_left_alone(mock_ingest: MagicMock, mock_run: 
         profile_path=Path(".smoke_profiling_data.json"),
     )
 
-    mock_run.return_value = MagicMock(returncode=0, stdout="")
+    mock_run.side_effect = _pytest_exit_codes(0)
     mock_ingest.return_value = MagicMock()
 
     with patch("shutil.which", return_value="/usr/bin/pytest"):
@@ -253,7 +259,7 @@ def test_serial_run_reads_the_single_outcomes_file(tmp_path: Path) -> None:
     outcomes_json = tmp_path / "outcomes.json"
     _write_outcomes(outcomes_json, None, None, ["test_a"])
 
-    iteration = _read_iteration_outcomes(outcomes_json)
+    iteration = _read_iteration_outcomes(_artefact_files(outcomes_json))
 
     assert set(iteration.outcomes) == {"test_a"}
     assert iteration.xdist_workers == 1
@@ -275,7 +281,7 @@ def test_every_xdist_worker_s_outcomes_survive_the_merge(tmp_path: Path) -> None
     _write_outcomes(tmp_path / "outcomes.gw1.json", "gw1", THREE_WORKERS, ["test_c"])
     _write_outcomes(tmp_path / "outcomes.gw2.json", "gw2", THREE_WORKERS, ["test_d"])
 
-    iteration = _read_iteration_outcomes(outcomes_json)
+    iteration = _read_iteration_outcomes(_artefact_files(outcomes_json))
 
     assert set(iteration.outcomes) == {"test_a", "test_b", "test_c", "test_d"}
     assert iteration.xdist_workers == THREE_WORKERS
@@ -288,7 +294,7 @@ def test_an_unreadable_outcomes_file_is_an_error_not_a_partial_profile(tmp_path:
     outcomes_json.write_text('{"worker": null, "outcomes": "not a mapping"}')
 
     with pytest.raises(OutcomesIngestError):
-        _read_iteration_outcomes(outcomes_json)
+        _read_iteration_outcomes(_artefact_files(outcomes_json))
 
 
 def test_the_profiling_hook_gives_each_xdist_worker_its_own_file(tmp_path: Path) -> None:
@@ -322,7 +328,7 @@ def test_the_profiling_hook_gives_each_xdist_worker_its_own_file(tmp_path: Path)
             os.environ.pop("SMOKE_PROJECT_ROOT", None)
             namespace["pytest_unconfigure"](config)
 
-    iteration = _read_iteration_outcomes(outcomes_json)
+    iteration = _read_iteration_outcomes(_artefact_files(outcomes_json))
 
     assert set(iteration.outcomes) == {"test_gw0", "test_gw1"}
     assert iteration.xdist_workers == TWO_WORKERS
@@ -346,7 +352,7 @@ def test_the_profiling_hook_keeps_the_plain_filename_when_serial(tmp_path: Path)
         namespace["pytest_unconfigure"](config)
 
     assert outcomes_json.exists()
-    assert _read_iteration_outcomes(outcomes_json).xdist_workers == 1
+    assert _read_iteration_outcomes(_artefact_files(outcomes_json)).xdist_workers == 1
 
 
 @patch("subprocess.run")
@@ -378,7 +384,7 @@ def test_an_outer_xdist_worker_does_not_leak_into_the_profiled_run(
     )
     outer = {"PYTEST_XDIST_WORKER": "gw0", "PYTEST_XDIST_WORKER_COUNT": "4"}
 
-    mock_run.return_value = MagicMock(returncode=0, stdout="pytest-randomly")
+    mock_run.side_effect = _pytest_exit_codes(0)
     mock_ingest.return_value = MagicMock()
 
     with patch.dict(os.environ, outer, clear=False), patch("shutil.which", return_value="/usr/bin/pytest"):
@@ -417,17 +423,56 @@ def _profiling_config(iterations: int = 1) -> ResolvedConfig:
     )
 
 
+EMPTY_GRAPH = ImportGraph(
+    edges=frozenset(),
+    unattributed_modules=frozenset(),
+    resolution_errors=0,
+    error_samples=(),
+)
+EMPTY_READ_MAP = ReadMap(
+    reads_by_test={},
+    listings_by_test={},
+    unattributed_reads=frozenset(),
+    recording_errors=0,
+    error_samples=(),
+)
+FINISHED_EXIT_CODES = frozenset({0, 1})
+
+
+def _write_hook_artefacts(env: Mapping[str, str], *, graph: bool = True, read_map: bool = True) -> None:
+    """Write what a pytest run that reached its shutdown hook leaves behind.
+
+    subprocess.run is mocked in these tests, so nothing else creates these files --
+    and the runner now reads their absence as a killed process rather than as a
+    project where nothing imports anything. The two flags let a test leave one out,
+    which is what a process killed part-way through its unconfigure produces.
+    """
+    _write_outcomes(Path(env["SMOKE_OUTCOMES_JSON"]), None, None, [])
+    if graph:
+        write_graph(EMPTY_GRAPH, Path(env["SMOKE_IMPORT_GRAPH_JSON"]))
+    if read_map:
+        write_read_map(EMPTY_READ_MAP, Path(env["SMOKE_READ_MAP_JSON"]))
+
+
 def _pytest_exit_codes(*codes: int) -> Callable[..., MagicMock]:
     """A subprocess.run stand-in giving each pytest launch the next exit code.
 
     subprocess.run also serves the git commit lookup, which must not eat one of the
-    codes, so the pytest calls are picked out by their command line.
+    codes, so the pytest calls are picked out by their command line. A launch that
+    finished writes its artefacts and one that was killed does not, since that is
+    the difference the runner's missing-artefact check reads.
     """
     remaining = list(codes)
 
-    def run(cmd: list[str], **_kwargs: object) -> MagicMock:
+    # env is optional because subprocess.run also serves the git lookup, which
+    # passes none; every pytest launch has one.
+    def run(cmd: list[str], env: Mapping[str, str] | None = None, **_kwargs: object) -> MagicMock:
         if "pytest" in cmd:
-            return MagicMock(returncode=remaining.pop(0), stdout="")
+            assert env is not None
+            code = remaining.pop(0)
+            if code in FINISHED_EXIT_CODES:
+                _write_hook_artefacts(env)
+            return MagicMock(returncode=code, stdout="")
         return MagicMock(returncode=0, stdout="")
 
     return run
@@ -526,6 +571,88 @@ def test_a_later_iteration_that_did_not_finish_keeps_the_earlier_ones(
     mock_ingest.assert_called_once()
 
 
+def test_artefacts_from_every_process_are_what_a_complete_iteration_looks_like() -> None:
+    assert _missing_artefact_message(ArtefactFileCounts(outcomes=4, import_graph=4, read_map=4)) is None
+
+
+def test_a_graph_short_of_a_process_is_reported_rather_than_merged() -> None:
+    """One dead xdist worker is the likely case, and the hardest to see.
+
+    The merged graph still parses, still has edges, and simply lacks the ones that
+    worker recorded -- which reads as 'nothing imports those modules' rather than as
+    'unknown', so a change to them would select no tests at all.
+    """
+    message = _missing_artefact_message(ArtefactFileCounts(outcomes=4, import_graph=THREE_WORKERS, read_map=4))
+
+    assert message is not None
+    assert "import graph" in message
+    assert "file read map" not in message
+
+
+def test_an_outcomes_file_lost_after_its_graph_was_written_is_reported() -> None:
+    """The likelier half of a dying process: the hook writes the graph first.
+
+    The expected count therefore cannot be the outcomes count -- here it is the one
+    that is short, and a run that measured four processes' worth of imports knows
+    the durations of only three.
+    """
+    message = _missing_artefact_message(ArtefactFileCounts(outcomes=THREE_WORKERS, import_graph=4, read_map=4))
+
+    assert message is not None
+    assert "test outcomes" in message
+
+
+def test_a_read_map_short_of_a_process_is_reported_too() -> None:
+    """The map has the same shape of hazard: no reads reads as 'no test opens this'."""
+    message = _missing_artefact_message(ArtefactFileCounts(outcomes=4, import_graph=4, read_map=THREE_WORKERS))
+
+    assert message is not None
+    assert "file read map" in message
+
+
+def test_an_iteration_that_wrote_nothing_at_all_is_reported() -> None:
+    """Equal counts are not enough when they are all zero: nothing ran the hook."""
+    message = _missing_artefact_message(ArtefactFileCounts(outcomes=0, import_graph=0, read_map=0))
+
+    assert message is not None
+    assert "no profiling artefacts" in message
+
+
+@patch("subprocess.run")
+@patch("smoke_optimiser.profiler.runner.build_profiling_data")
+def test_a_missing_import_graph_is_fatal_even_when_pytest_exits_zero(
+    mock_ingest: MagicMock,
+    mock_run: MagicMock,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The bug this guards: no graph file at all merged to a graph with no edges.
+
+    Nothing raised, because an empty graph is a perfectly valid one. The profile
+    that came out said no file in the project imports any other, so a change to any
+    of them would have selected no tests -- the silent under-selection profiling
+    exists to prevent. Absence is the only ingest failure that reads as data.
+    """
+    remaining = [0]
+
+    def run(cmd: list[str], env: Mapping[str, str] | None = None, **_kwargs: object) -> MagicMock:
+        if "pytest" in cmd:
+            assert env is not None
+            # A process killed inside pytest_unconfigure: the outcomes landed, the
+            # graph never did.
+            _write_hook_artefacts(env, graph=False)
+            return MagicMock(returncode=remaining.pop(0), stdout="")
+        return MagicMock(returncode=0, stdout="")
+
+    mock_run.side_effect = run
+
+    with patch("shutil.which", return_value="/usr/bin/pytest"), pytest.raises(SystemExit):
+        run_profiling(_profiling_config(), tmp_path)
+
+    assert "import graph" in capsys.readouterr().err
+    mock_ingest.assert_not_called()
+
+
 @patch("subprocess.run")
 @patch("smoke_optimiser.profiler.runner.build_profiling_data")
 def test_a_collection_error_is_fatal_even_when_pytest_exits_zero(
@@ -584,7 +711,9 @@ def test_the_profiling_hook_records_files_it_could_not_collect(tmp_path: Path) -
         os.environ.pop("SMOKE_PROJECT_ROOT", None)
         namespace["pytest_unconfigure"](config)
 
-    assert _read_iteration_outcomes(outcomes_json).collection_errors == frozenset({"tests/test_broken.py"})
+    assert _read_iteration_outcomes(_artefact_files(outcomes_json)).collection_errors == frozenset(
+        {"tests/test_broken.py"}
+    )
 
 
 def test_the_profiling_hook_records_the_scope_the_run_resolved(tmp_path: Path) -> None:
@@ -608,7 +737,7 @@ def test_the_profiling_hook_records_the_scope_the_run_resolved(tmp_path: Path) -
         os.environ.pop("SMOKE_PROJECT_ROOT", None)
         namespace["pytest_unconfigure"](config)
 
-    scope = _read_iteration_outcomes(outcomes_json).scope
+    scope = _read_iteration_outcomes(_artefact_files(outcomes_json)).scope
     assert scope.coverage_roots == frozenset({"src"})
     assert scope.test_roots == frozenset({"tests"})
 
