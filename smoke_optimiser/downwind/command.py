@@ -282,7 +282,16 @@ def _drop_own_artefacts(
     given relative (the common case) or absolute, while ``changed`` always reports paths relative
     to ``repo_root``, and joining an absolute path onto ``repo_root`` is a no-op either way.
     """
-    own_artefacts = {(repo_root / config.profile_path).resolve(), (repo_root / config.downwind_file_path).resolve()}
+    profile = (repo_root / config.profile_path).resolve()
+    own_artefacts = {
+        profile,
+        # A fallback that rebuilt an unreadable profile leaves this beside it, and a
+        # project's gitignore names the profile rather than its siblings -- so without
+        # this the run that repaired the map creates a permanent untracked change and
+        # every run after it falls back again.
+        profile.with_name(profile.name + CORRUPT_PROFILE_SUFFIX),
+        (repo_root / config.downwind_file_path).resolve(),
+    }
     return frozenset(file for file in changed if (repo_root / file.path).resolve() not in own_artefacts)
 
 
@@ -474,9 +483,9 @@ def _coverage_source(config: DownwindConfig, replaced: ProfilingData | None) -> 
     of them would be its own silent substitution.
     """
     profiling = config.profiling
-    reusable = replaced is not None and len(replaced.scope.coverage_roots) == 1
-    if profiling.cov_source_origin not in _EXPLICIT_ORIGINS and reusable:
-        assert replaced is not None  # noqa: S101 - narrowing for the type checker; `reusable` implies it
+    if profiling.cov_source_origin in _EXPLICIT_ORIGINS or replaced is None:
+        return profiling
+    if len(replaced.scope.coverage_roots) == 1:
         return ProfilingRunConfig(
             cov_source=next(iter(replaced.scope.coverage_roots)),
             cov_source_origin=CovSourceOrigin.REPLACED_PROFILE,

@@ -686,3 +686,27 @@ def test_the_distribution_flags_carry_over_into_the_instrumented_run(
     # The narrowing ones still must not: they would profile a fraction of the suite.
     assert "-x" not in profiling_args
     assert "-k" not in profiling_args
+
+
+def test_the_kept_copy_of_an_unreadable_profile_is_not_itself_a_change(
+    repo_with_an_untested_module: Path,
+) -> None:
+    """A fallback that repaired the map must not create the next run's blind spot.
+
+    Rebuilding an unreadable profile leaves a .corrupt sibling behind, and a
+    project's gitignore names the profile rather than its siblings -- so it turns
+    up as an untracked file, which is a change the maps cannot answer for, which
+    refuses and runs everything. That is the staleness ratchet again, created by
+    the very run that was supposed to end it.
+    """
+    repo = repo_with_an_untested_module
+    (repo / "profile.json.corrupt").write_text("{not json at all")
+
+    with patch("smoke_optimiser.downwind.command._run_pytest"):
+        run_downwind(_config(repo), repo)
+
+    # Asserted against the changed set the run recorded, not against the outcome:
+    # this file happens to raise no blind spot in this fixture, so a test that
+    # only checked the outcome would pass whether or not it was excluded.
+    changed = json.loads((repo / ".downwind.json").read_text())["changed_files"]
+    assert changed == []
