@@ -95,11 +95,12 @@ def profiled_repo(tmp_path: Path) -> Path:
 
     result = _run(project_dir, "smoke", "--profile-only", "--allow-ordered", "--src=src")
     assert result.returncode == EXIT_OK, f"profiling failed: {result.stderr}\nSTDOUT: {result.stdout}"
-    # Our own untracked artefacts must not read as changes, and neither must
-    # Python's: git reports every .pyc under --untracked-files=all, and each one
-    # is a non-Python file the maps cannot answer for. Every real project
-    # ignores __pycache__, which is what makes this ordinary rather than a
-    # special case -- see so-n6b.35.
+    # The fixture ignores what every real project ignores, so a test below
+    # asserting on the changed-file list is asserting on ITS OWN edit rather
+    # than on our artefacts and Python's, which git reports under
+    # --untracked-files=all. None of them costs a selection any more -- the
+    # read map answers "nothing read this" for each -- so this is about what
+    # the assertions can say, not about whether a selection happens: so-n6b.47.
     (project_dir / ".gitignore").write_text(
         ".smoke_profiling_data.json\n.downwind.json\n__pycache__/\n.smoke_suite.json\n",
     )
