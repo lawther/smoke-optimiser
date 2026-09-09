@@ -16,7 +16,7 @@ import typer
 from pydantic import ValidationError
 
 from smoke_optimiser.config import CovSourceOrigin, ProfilingRunConfig
-from smoke_optimiser.downwind.changes import GitStatusError, tracked_files
+from smoke_optimiser.downwind.changes import GitStatusError, working_tree_files
 from smoke_optimiser.profiler.coverage_db import CoverageIngestError, build_profiling_data
 from smoke_optimiser.profiler.import_tracer import ImportGraphIngestError, merge_graphs, read_graph
 from smoke_optimiser.profiler.models import (
@@ -29,7 +29,6 @@ from smoke_optimiser.profiler.models import (
     SuiteRunResults,
 )
 from smoke_optimiser.profiler.read_tracer import (
-    PYTHON_SUFFIX,
     ReadMapIngestError,
     merge_read_maps,
     read_read_map,
@@ -626,25 +625,34 @@ def _read_iteration_read_map(paths: Sequence[Path]) -> ReadMap:
 
 
 def _present_files(project_root: Path) -> frozenset[str]:
-    """The tracked non-Python files that exist as the run starts.
+    """Every non-ignored file in the working tree as the run starts.
 
-    The read map's denominator, so that a file nothing opened can be told apart
-    from a file that was not there to be opened. Best effort, as the commit is:
-    profiling does not otherwise need git, and an empty denominator makes every
-    data file look new, which over-selects rather than under-selects.
+    The profile's denominator, so that a file nothing touched can be told apart
+    from a file that was not there to be touched. Both halves of the profile
+    need it and both need the same one: the read map, so an unopened data file
+    is answerable, and the Python maps, so a module the run never loaded is
+    inert by measurement rather than merely unheard of.
+
+    Python files are in it for that second reader. It records what EXISTED,
+    which is a question about the working tree rather than about any recorder,
+    so what coverage or the import tracer would have said about a file is no
+    reason to leave it out.
+
+    Best effort, as the commit is: profiling does not otherwise need git, and
+    an empty denominator makes every file look new, which over-selects rather
+    than under-selects.
     """
     try:
-        tracked = tracked_files(project_root)
+        return working_tree_files(project_root)
     except GitStatusError as exc:
         typer.secho(
-            f"\u26a0\ufe0f Warning: could not list the tracked files ({exc.detail.strip()}), so the profile "
-            "records no denominator for the file read map. Downwind selection will treat every data file as "
+            f"\u26a0\ufe0f Warning: could not list the working tree ({exc.detail.strip()}), so the profile "
+            "records no denominator. Downwind selection will treat every file it has no other record of as "
             "newly added, which widens its answers rather than narrowing them.",
             fg=typer.colors.YELLOW,
             err=True,
         )
         return frozenset()
-    return frozenset(path for path in tracked if not path.endswith(PYTHON_SUFFIX))
 
 
 def _profiling_env(

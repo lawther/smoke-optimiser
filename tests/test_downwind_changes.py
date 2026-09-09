@@ -10,6 +10,7 @@ from smoke_optimiser.downwind.changes import (
     changed_files,
     repository_root,
     tracked_files,
+    working_tree_files,
 )
 
 
@@ -227,6 +228,40 @@ def test_tracked_files_excludes_untracked_and_ignored_files(repo: Path) -> None:
     (repo / "build" / "generated.py").write_text("four\n")
 
     assert tracked_files(repo) == frozenset({".gitignore", "src/a.py"})
+
+
+def test_working_tree_files_includes_untracked_files_the_tree_holds(repo: Path) -> None:
+    """The denominator's whole point: it names what was THERE, not what git knows.
+
+    A file created and never added was every bit as available to the profiling
+    run's recorders as a committed one, so leaving it out would make a module
+    the run measured as inert indistinguishable from one that arrived after --
+    which is the difference the denominator exists to draw.
+    """
+    _commit(repo, "src/a.py", "one\n")
+    (repo / "src" / "inert.py").write_text("two\n")
+
+    assert working_tree_files(repo) == frozenset({"src/a.py", "src/inert.py"})
+
+
+def test_working_tree_files_excludes_ignored_files(repo: Path) -> None:
+    # Untracked is widened to, ignored is not: .gitignore stays the one
+    # definition of what counts as a project file, so .venv and __pycache__
+    # need no hand-rolled rule here.
+    _commit(repo, ".gitignore", "build/\n")
+    _commit(repo, "src/a.py", "one\n")
+    (repo / "build").mkdir()
+    (repo / "build" / "generated.py").write_text("two\n")
+
+    assert working_tree_files(repo) == frozenset({".gitignore", "src/a.py"})
+
+
+def test_working_tree_files_outside_a_repository_raises(tmp_path: Path) -> None:
+    not_a_repo = tmp_path / "plain"
+    not_a_repo.mkdir()
+
+    with pytest.raises(GitStatusError):
+        working_tree_files(not_a_repo)
 
 
 def test_tracked_files_outside_a_repository_raises(tmp_path: Path) -> None:

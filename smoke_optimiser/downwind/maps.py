@@ -49,8 +49,9 @@ The read relations are SPARSE where the Python ones are dense. A data file is
 not a file the profile "knows" in :meth:`DownwindMaps.knows`'s sense, so there
 is no key set to fill and no ambiguity to protect against: an empty answer is
 answered with the empty set rather than an error. Whether that emptiness is
-MEASURED -- the file was there and nothing opened it -- is a separate question,
-which :meth:`DownwindMaps.was_present` answers from the profile's denominator.
+MEASURED -- the file was there and nothing touched it -- is a separate question,
+which :meth:`DownwindMaps.was_present` answers from the profile's denominator,
+for a Python file the maps deny knowing as much as for an unopened data file.
 
 The three Python maps are dense: every file the profile knows about, from
 ``DownwindMaps.knows``, has an entry in each, empty where it has no tests,
@@ -376,9 +377,16 @@ class DownwindMaps:
     def was_present(self, path: str) -> bool:
         """Did this file exist when the profile was taken?
 
-        The read map's denominator. Without it, "no test read this file" and
-        "this file was not there to be read" are the same observation, and
-        only the first of them can warrant selecting nothing.
+        The denominator BOTH halves of the maps measure absence against.
+        Without it, "nothing the run watched touched this file" and "this file
+        was not there to be touched" are the same observation, and only the
+        first of them can warrant selecting nothing.
+
+        The read map asks it of a data file nothing opened. The Python maps ask
+        it of a file :meth:`knows` denies: present and unknown means every
+        recorder watched the file and none of them saw it take part, which is
+        inertness measured; absent and unknown means the file arrived after the
+        run, and nothing is known about it at all.
         """
         return path in self._present_files
 

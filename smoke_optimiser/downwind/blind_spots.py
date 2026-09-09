@@ -9,16 +9,29 @@ it nor the schema that serialises it, and both import it from here.
 Every reason over-selects rather than under-selects, so seeing one never means
 a test was silently dropped.
 
-WITH ONE EXCEPTION, which is deliberate and is the reason NON_PYTHON_FILE no
-longer exists. A non-Python file the profiling run measured as unread -- it was
-present while the suite ran, the audit hook watched every open, and no test
-opened it -- selects NOTHING rather than a blind spot. That is absence used as
-evidence, which every other rule here refuses to do, and it is warranted by
-measurement rather than by assumption: the read map has a denominator, so "no test
-read this" is distinguishable from "this was not there to be read". The bound on
-it is that a read the tracer cannot see -- a C library calling fopen() -- is
-undetectable, so the read map may only ever ADD selections for a Python file and
-never justify skipping one.
+WITH TWO EXCEPTIONS, both deliberate, and the first of them is the reason
+NON_PYTHON_FILE no longer exists:
+
+* a non-Python file the profiling run measured as UNREAD -- it was present
+  while the suite ran, the audit hook watched every open, and no test opened
+  it -- selects nothing;
+* a Python file the run measured as UNLOADED -- present just the same, and
+  absent from coverage, from the import graph and from every collected node
+  id -- selects only the tests that listed its directory, which is the one
+  relation a file nothing imports can still appear in.
+
+Both are absence used as evidence, which every other rule here refuses to do,
+and both are warranted by measurement rather than by assumption: the profile
+has a denominator, so "nothing touched this" is distinguishable from "this was
+not there to be touched". Neither applies to a file that arrived after the run,
+which is exactly the case the denominator separates out.
+
+Each has a bound, and it is the same bound: an access no tracer is present for.
+A read from a C library calling fopen() is invisible to the audit hook, and a
+script invoked through subprocess is opened by a child interpreter where
+neither the hook nor coverage is running. So the read map may only ever ADD
+selections for a Python file and never justify skipping one, and an inert
+Python file is inert only as far as in-process observation reaches.
 """
 
 from __future__ import annotations

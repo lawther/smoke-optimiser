@@ -131,6 +131,23 @@ def tracked_files(repo_root: Path) -> frozenset[str]:
     return frozenset(path for path in output.split("\0") if path)
 
 
+def working_tree_files(repo_root: Path) -> frozenset[str]:
+    """Every file in the working tree git does not ignore, tracked or not.
+
+    The profile's denominator, and deliberately WIDER than
+    :func:`tracked_files`. Membership here answers "was this file there while
+    the suite ran", and an untracked file was every bit as there as a tracked
+    one -- so leaving untracked files out would make a file that the run
+    measured as inert indistinguishable from one created since, which is the
+    distinction the denominator exists to draw.
+
+    ``--exclude-standard`` keeps .gitignore doing the filtering, so .venv,
+    __pycache__ and their friends stay out without hand-rolled rules here.
+    """
+    output = _run_git(["ls-files", "-z", "--cached", "--others", "--exclude-standard"], repo_root)
+    return frozenset(path for path in output.split("\0") if path)
+
+
 def _kind_from_xy(index_status: str, worktree_status: str) -> ChangeKind:
     """Combine the index-vs-HEAD and worktree-vs-index statuses into one kind.
 

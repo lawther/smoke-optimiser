@@ -81,14 +81,17 @@ class _ReadFacts(NamedTuple):
     """Everything the read map contributes to a hand-built profile.
 
     One group because they are one map: the per-test halves, what it could not
-    attribute, its denominator and how far it can be trusted. A test that sets
-    one of them almost always sets another, and the rules read them together.
+    attribute, and how far it can be trusted. A test that sets one of them
+    almost always sets another, and the rules read them together.
+
+    The denominator is NOT here. It is a fact about the tree the run started
+    against rather than about any recorder, and the Python rules read it too,
+    so it is a parameter of :func:`_maps` in its own right.
     """
 
     reads: dict[str, frozenset[str]] = {}  # noqa: RUF012 - a NamedTuple default is never shared mutable state
     listings: dict[str, frozenset[str]] = {}  # noqa: RUF012 - as above
     unattributed_reads: frozenset[str] = frozenset()
-    present_files: frozenset[str] = frozenset()
     read_errors: int = 0
 
 
@@ -104,6 +107,7 @@ def _maps(  # noqa: PLR0913 - one parameter per independent map fact; grouping t
     unattributed_modules: frozenset[str] = frozenset(),
     resolution_errors: int = 0,
     read_facts: _ReadFacts = _NO_READS,
+    present_files: frozenset[str] = frozenset(),
 ) -> DownwindMaps:
     """Maps over a profile described as node id -> the files that test executed."""
     profile = ProfilingData(
@@ -135,7 +139,7 @@ def _maps(  # noqa: PLR0913 - one parameter per independent map fact; grouping t
             recording_errors=read_facts.read_errors,
             error_samples=(),
         ),
-        present_files=read_facts.present_files,
+        present_files=present_files,
     )
     return DownwindMaps.from_profile(profile)
 
@@ -172,6 +176,7 @@ def _standard_maps(
     unattributed_modules: frozenset[str] = _STANDARD_UNATTRIBUTED,
     resolution_errors: int = 0,
     read_facts: _ReadFacts = _NO_READS,
+    present_files: frozenset[str] = frozenset(),
 ) -> DownwindMaps:
     return _maps(
         tests=_STANDARD_TESTS,
@@ -180,6 +185,7 @@ def _standard_maps(
         unattributed_modules=unattributed_modules,
         resolution_errors=resolution_errors,
         read_facts=read_facts,
+        present_files=present_files,
     )
 
 
@@ -405,12 +411,69 @@ def test_a_changed_path_the_maps_never_saw_refuses_with_unknown_path() -> None:
     )
 
 
+def test_a_changed_python_file_the_run_measured_as_unloaded_selects_nothing() -> None:
+    # The Python half of the same argument the read map makes. src/inert.py was
+    # sitting in the tree while the suite ran: coverage measured nothing in it,
+    # no import edge names it, pytest collected no test from it. That is
+    # inertness measured, and refusing would spend a full suite on a file the
+    # profiling run has already proven nothing reaches -- forever, since no
+    # amount of re-profiling can make a file nothing loads appear in a map.
+    maps = _standard_maps(present_files=_all_existing() | {"src/inert.py"})
+
+    answer = downwind_of(maps, _changed("src/inert.py"), _all_existing(), DEFAULT_ENVIRONMENT_FILES)
+
+    assert answer == DownwindSelection(node_ids=frozenset())
+
+
+def test_an_inert_python_file_still_selects_the_tests_that_listed_its_directory() -> None:
+    # The relation a file nothing imports can still appear in. A test that
+    # walks the tree and parses what it finds never imports the module and
+    # never opens it in a way the read map records -- .py paths are dropped
+    # there as coverage's business -- but it cannot find the file without
+    # listing the directory, and listings are recorded whatever the suffix.
+    maps = _standard_maps(
+        read_facts=_ReadFacts(listings={"tests/test_b.py::test_three": frozenset({"src"})}),
+        present_files=_all_existing() | {"src/inert.py"},
+    )
+
+    answer = downwind_of(maps, _changed("src/inert.py"), _all_existing(), DEFAULT_ENVIRONMENT_FILES)
+
+    assert answer == DownwindSelection(node_ids=frozenset({"tests/test_b.py::test_three"}))
+
+
+def test_an_unknown_python_file_absent_from_the_denominator_still_refuses() -> None:
+    # What keeps the inertness rule from swallowing a stale profile. This file
+    # was not there for any recorder to watch, so its absence from the maps is
+    # ignorance rather than measurement, and only a full suite is safe.
+    maps = _standard_maps(present_files=_all_existing())
+
+    answer = downwind_of(maps, _changed("src/brand_new.py"), _all_existing(), DEFAULT_ENVIRONMENT_FILES)
+
+    assert answer == DownwindRefusal(
+        blind_spots=frozenset({BlindSpot(reason=BlindSpotReason.UNKNOWN_PATH, file="src/brand_new.py")})
+    )
+
+
+def test_an_inert_python_file_in_the_tree_does_not_expire_the_profile() -> None:
+    # The other half of so-n6b.54's loop. Expiry asks the same question of a
+    # file nobody touched, so leaving it out here would keep forcing the full
+    # suite on every later commit even once the changed-file rule stopped.
+    answer = downwind_of(
+        _standard_maps(present_files=_all_existing() | {"src/inert.py"}),
+        _changed("src/a.py"),
+        _all_existing() | {"src/inert.py"},
+        DEFAULT_ENVIRONMENT_FILES,
+    )
+
+    assert answer == DownwindSelection(node_ids=frozenset({"tests/test_a.py::test_one", "tests/test_a.py::test_two"}))
+
+
 def test_a_changed_data_file_no_test_read_selects_nothing_rather_than_refusing() -> None:
     # The one place absence is evidence. The file was there while the suite
     # ran, the tracer watched every open, and nothing opened it -- so an empty
     # answer is measured rather than assumed, and refusing would spend a full
     # suite on a file provably nothing reads.
-    maps = _standard_maps(read_facts=_ReadFacts(present_files=frozenset({"config/settings.yaml"})))
+    maps = _standard_maps(present_files=frozenset({"config/settings.yaml"}))
 
     answer = downwind_of(maps, _changed("config/settings.yaml"), _all_existing(), DEFAULT_ENVIRONMENT_FILES)
 
@@ -657,10 +720,10 @@ def _read_maps(
         read_facts=_ReadFacts(
             reads=_READING_TESTS,
             listings=_GLOBBING_TESTS,
-            present_files=_PRESENT,
             unattributed_reads=unattributed_reads,
             read_errors=read_errors,
-        )
+        ),
+        present_files=_PRESENT,
     )
 
 

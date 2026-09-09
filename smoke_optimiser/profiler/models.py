@@ -171,11 +171,13 @@ class ProfilingData:
             any test context -- module-level code running at import time. No
             selection of tests can ever cover them, so they cap the coverage
             the optimiser can reach.
-        present_files: The tracked non-Python files that existed when the run
-            started. This is the read map's denominator: without it, "no test
-            read this file" and "this file was not there to be read" are the
-            same observation, and only the first of them can warrant selecting
-            nothing.
+        present_files: Every non-ignored file in the working tree when the run
+            started, Python included. This is the profile's denominator:
+            without it, "nothing the run watched touched this file" and "this
+            file was not there to be touched" are the same observation, and
+            only the first of them can warrant selecting nothing. The read map
+            asks it of a data file nothing opened; the Python maps ask it of a
+            module that appears in none of them.
         reads: What the read tracer saw that belongs to no single test, and how
             far it can be trusted.
         scope: What this profile was captured over -- the coverage targets and

@@ -72,6 +72,11 @@ def _write_project(project_dir: Path) -> None:
     (tests / "test_other.py").write_text(
         "from src.other import double\n\n\ndef test_double():\n    assert double(2) == 4\n",
     )
+    # A Python file every recorder is blind to, and legitimately so: it does not
+    # match a test file pattern so pytest never collects it, nothing imports it,
+    # and --src=src puts it outside what coverage measures. so-n6b.54 -- the
+    # profile can only ever say it was THERE, never that anything used it.
+    (tests / "unused_helper.py").write_text("def helper():\n    return 1\n")
 
 
 @pytest.fixture
@@ -150,6 +155,28 @@ def test_a_file_the_maps_have_never_seen_runs_the_whole_suite_and_names_the_blin
     assert "3 passed" in result.stdout
     assert "deselected" not in result.stdout
     assert selection.node_ids == []
+
+
+def test_editing_a_python_file_the_run_measured_as_unloaded_selects_nothing(profiled_repo: Path) -> None:
+    """so-n6b.54's loop, at the only level that can prove it is gone.
+
+    Nothing in the profile mentions tests/unused_helper.py and nothing ever
+    can: re-profiling reproduces exactly the same silence. Refusing on that
+    silence made every later run pay for the full suite while promising that
+    the fallback would repair the map -- a promise no run could keep. The
+    denominator turns the silence into a measurement, so it answers instead.
+    """
+    (profiled_repo / "tests" / "unused_helper.py").write_text("def helper():\n    return 2\n")
+
+    result = _run(profiled_repo, "downwind")
+
+    assert result.returncode == EXIT_OK, f"{result.stderr}\nSTDOUT: {result.stdout}"
+    selection = _selection(profiled_repo)
+    assert selection.blind_spots == []
+    assert selection.node_ids == []
+    assert selection.changed_files == ["tests/unused_helper.py"]
+    assert "0 of 3 tests downwind" in result.stdout
+    assert "test session starts" not in result.stdout
 
 
 def test_a_failing_selected_test_fails_the_command(profiled_repo: Path) -> None:

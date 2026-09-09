@@ -37,11 +37,17 @@ the project, a module loaded through machinery the tracer cannot follow --
 has no such rule to fall back on and is a blind spot.
 
 A changed NON-PYTHON path is answered from the read map instead, by a ladder
-of its own that :func:`_read_answer` documents. That path used to be an
-unconditional refusal, and it is the one place in this module where absence is
-allowed to count as evidence: a file the profiling run measured as unread
-selects nothing rather than everything. :mod:`smoke_optimiser.downwind.blind_spots`
-states what warrants that and what bounds it.
+of its own that :func:`_read_answer` documents.
+
+ABSENCE COUNTS AS EVIDENCE ONLY AGAINST THE DENOMINATOR, and in exactly two
+places: a data file the run measured as unread, and a Python file the run
+measured as unloaded. Both ask :meth:`DownwindMaps.was_present` first, so what
+they act on is "every recorder watched this file and none saw it take part",
+never "the maps have nothing to say". A file that was not there to be watched
+is still an unconditional refusal, which is what makes a stale profile expire
+instead of quietly answering for files it has never met.
+:mod:`smoke_optimiser.downwind.blind_spots` states what warrants that and what
+bounds it.
 
 REFUSALS ACCUMULATE. Every offending input contributes its own blind spot,
 so a developer sees everything they would have to fix to get a subset again
@@ -204,6 +210,50 @@ def _tests_downwind_of(maps: DownwindMaps, path: str) -> _FileAnswer:
     return _FileAnswer(node_ids=frozenset(selected), blind_spots=frozenset(dead_ends))
 
 
+def _inert_answer(maps: DownwindMaps, path: str) -> _FileAnswer:
+    """What a Python file present while the suite ran, and in no map, answers with.
+
+    Nothing loaded it. Coverage measured nothing in it, no import edge names
+    it, pytest collected no test from it, and the tracer never saw it loaded
+    as a module it could not attribute -- and the denominator says it was
+    sitting there the whole time for all four of them to see. That is inertness
+    MEASURED, on the same terms the read map measures an unopened data file,
+    and it is the difference between a file the profile is silent about and a
+    file the profile is stale about.
+
+    It is not silence, though. A test that walks the tree and parses what it
+    finds -- an architecture rule, a lint of the sources -- really does depend
+    on a module nothing imports, and the read map cannot say so because it
+    drops every ``.py`` path as coverage's business. What that test cannot
+    avoid is LISTING the directory to find the file, and listings are recorded
+    whatever the suffix, so the listers are the one relation that can still
+    reach an inert file and they are unioned in.
+
+    The bound is a Python file used OUT of process: a script a test invokes
+    through ``subprocess`` is opened by a child interpreter, where neither the
+    audit hook nor coverage is watching, so it looks exactly as inert as a file
+    nothing uses at all. so-n6b.55 closes most of that by auditing
+    ``subprocess.Popen`` and attributing the script named in its argv.
+    """
+    return _FileAnswer(node_ids=maps.tests_listing(parent_directory(path)), blind_spots=frozenset())
+
+
+def _python_answer(maps: DownwindMaps, path: str) -> _FileAnswer:
+    """What one changed Python path contributes: its tests, or its refusal.
+
+    Three outcomes, and the middle one is what keeps a refusal from being
+    permanent: a file the maps know is walked, a file they do not know but the
+    profile watched is inert, and a file they do not know that was not there to
+    be watched is the only one nothing can be said about.
+    """
+    reason = _blind_spot_reason(maps, path)
+    if reason is None:
+        return _tests_downwind_of(maps, path)
+    if reason is BlindSpotReason.UNKNOWN_PATH and maps.was_present(path):
+        return _inert_answer(maps, path)
+    return _FileAnswer(node_ids=frozenset(), blind_spots=frozenset({BlindSpot(reason=reason, file=path)}))
+
+
 def _read_answer(maps: DownwindMaps, path: str, environment_files: Sequence[str]) -> _FileAnswer:
     """What the read map says about one changed non-Python path.
 
@@ -259,7 +309,9 @@ def _expiry_blind_spots(maps: DownwindMaps, existing_files: Iterable[str]) -> se
     whatever it contains is absent from every answer they give.
     """
     return {
-        BlindSpot(reason=BlindSpotReason.EXPIRED_PROFILE, file=path) for path in existing_files if not maps.knows(path)
+        BlindSpot(reason=BlindSpotReason.EXPIRED_PROFILE, file=path)
+        for path in existing_files
+        if not maps.knows(path) and not maps.was_present(path)
     }
 
 
@@ -308,13 +360,9 @@ def downwind_of(
             blind_spots |= answer.blind_spots
             continue
 
-        reason = _blind_spot_reason(maps, path)
-        if reason is None:
-            answer = _tests_downwind_of(maps, path)
-            node_ids |= answer.node_ids
-            blind_spots |= answer.blind_spots
-        else:
-            blind_spots.add(BlindSpot(reason=reason, file=path))
+        answer = _python_answer(maps, path)
+        node_ids |= answer.node_ids
+        blind_spots |= answer.blind_spots
 
     if maps.resolution_errors:
         # Blunt on purpose, and in the safe direction: each swallowed failure
