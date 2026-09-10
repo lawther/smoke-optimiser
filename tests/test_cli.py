@@ -1,4 +1,5 @@
 import json
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -24,6 +25,13 @@ EXIT_CODE_ERROR = 1
 TIME_CAP_VALUE = 45.0
 TARGET_COV_VALUE = 80.0
 
+_ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def _plain(text: str) -> str:
+    """Strip ANSI styling, which typer forces on under GITHUB_ACTIONS and can split option names across escape codes."""
+    return _ANSI_ESCAPE.sub("", text)
+
 
 @patch("smoke_optimiser.cli.run_profiling", new=MagicMock())
 @patch("smoke_optimiser.cli.optimise", new=MagicMock())
@@ -33,17 +41,17 @@ def test_cli_help() -> None:
     """Both selection modes must be reachable, and be named the way every message names them."""
     result = runner.invoke(app, ["--help"], env={"COLUMNS": "200"})
     assert result.exit_code == EXIT_CODE_SUCCESS
-    assert "smoke" in result.stdout
-    assert "downwind" in result.stdout
+    assert "smoke" in _plain(result.stdout)
+    assert "downwind" in _plain(result.stdout)
 
     smoke_help = runner.invoke(app, ["smoke", "--help"], env={"COLUMNS": "200"})
     assert smoke_help.exit_code == EXIT_CODE_SUCCESS
-    assert "--time-cap" in smoke_help.stdout
+    assert "--time-cap" in _plain(smoke_help.stdout)
 
     downwind_help = runner.invoke(app, ["downwind", "--help"], env={"COLUMNS": "200"})
     assert downwind_help.exit_code == EXIT_CODE_SUCCESS
     # The optimiser's options must not have leaked onto a command that cannot honour them.
-    assert "--time-cap" not in downwind_help.stdout
+    assert "--time-cap" not in _plain(downwind_help.stdout)
 
 
 @patch("smoke_optimiser.cli.run_profiling")
