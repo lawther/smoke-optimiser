@@ -171,7 +171,12 @@ def test_a_profile_recording_no_scope_is_refused_rather_than_read_as_knowing_not
     rather than blaming a version mismatch that is not there.
     """
     raw = raw_profile()
-    raw["scope"] = {"coverage_roots": [], "test_roots": [], "test_file_patterns": ["test_*.py"]}
+    raw["scope"] = {
+        "coverage_roots": [],
+        "test_roots": [],
+        "test_file_patterns": ["test_*.py"],
+        "include_namespace_packages": False,
+    }
 
     with pytest.raises(ProfileScopeMissingError) as exc_info:
         load_profiling_data_file(cast("Any", raw))

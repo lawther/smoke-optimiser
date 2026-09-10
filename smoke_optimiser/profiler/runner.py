@@ -263,12 +263,20 @@ def pytest_unconfigure(config):
     # own addopts and testpaths are applied by pytest inside this process and are
     # invisible outside it, so this is the only place the scope actually measured
     # can be observed.
+    cov_plugin = config.pluginmanager.get_plugin('_cov')
+    cov_controller = getattr(cov_plugin, 'cov_controller', None) if cov_plugin else None
+    cov_config = getattr(getattr(cov_controller, 'cov', None), 'config', None)
+    # Read from the Coverage object actually doing the measuring, not assumed: a
+    # project that has turned this on is not subject to the package-walk
+    # restriction coverage otherwise applies to every one of its source dirs.
+    include_namespace_packages = bool(cov_config.include_namespace_packages) if cov_config is not None else False
     scope = resolve_scope(
         cov_sources=getattr(config.option, 'cov_source', None) or [],
         args=config.args,
         test_file_patterns=config.getini('python_files'),
         invocation_dir=Path(str(config.invocation_params.dir)),
         project_root=root,
+        include_namespace_packages=include_namespace_packages,
     )
 
     if hasattr(config, '_smoke_outcomes'):
@@ -295,6 +303,7 @@ def pytest_unconfigure(config):
                 'coverage_roots': sorted(scope.coverage_roots),
                 'test_roots': sorted(scope.test_roots),
                 'test_file_patterns': list(scope.test_file_patterns),
+                'include_namespace_packages': scope.include_namespace_packages,
             },
         }
         with open(outcomes_file, 'w') as f:
@@ -497,11 +506,17 @@ def _merge_scopes(scopes: Sequence[ProfileScope]) -> ProfileScope:
     parse the same command line, so they agree -- unioning them rather than
     picking one means a worker that somehow saw more is not silently discarded,
     since a scope that is too narrow is the direction that under-selects.
+
+    ``include_namespace_packages`` is the one field this is not really a union
+    of: every process shares the same coverage configuration, so they should
+    all report the same value. Taking the most permissive one if they somehow
+    disagreed keeps the same bias as the rest of this merge.
     """
     return ProfileScope(
         coverage_roots=frozenset().union(*(scope.coverage_roots for scope in scopes)) if scopes else frozenset(),
         test_roots=frozenset().union(*(scope.test_roots for scope in scopes)) if scopes else frozenset(),
         test_file_patterns=tuple(sorted({pattern for scope in scopes for pattern in scope.test_file_patterns})),
+        include_namespace_packages=any(scope.include_namespace_packages for scope in scopes),
     )
 
 

@@ -17,19 +17,30 @@ itself and are invisible to the process that launched it: recomputation lets
 failure this module exists to prevent.
 
 Coverage roots and test roots are kept apart because they answer the question
-differently. Everything under a coverage root is measured, executed or not, so
-every ``.py`` file beneath one is a file the profile would know. A test root is
-only as precise as the project made it: ``testpaths = ["tests"]`` names a
-directory whose every ``.py`` file is test code the maps would see, while a
-project that configures nothing leaves pytest pointed at the repository root,
-where "under the test root" says nothing at all. In that one case scope narrows
-to the files pytest would actually collect -- otherwise a vendored package's
-tests or a manual ``scripts/test_connection.py`` would be permanently unknown,
-and the profile permanently expired.
+differently. Everything under a coverage root is measured, executed or not --
+but "everything under" is coverage.py's notion, not a bare directory walk.
+Its own file discovery (``coverage.inorout.find_python_files``, run against
+every one of its source directories, not just a whole-repository root) only
+descends into a subdirectory that has an ``__init__.py``, unless the project
+has set ``include_namespace_packages``. A directory of plain scripts with no
+``__init__.py`` is invisible to coverage whatever the root says, so counting
+it as in scope would pin the profile to permanently expired: the files are
+in scope, absent from the maps, and no amount of regenerating can add them.
+A test root is only as precise as the project made it: ``testpaths =
+["tests"]`` names a directory whose every ``.py`` file is test code the maps
+would see, while a project that configures nothing leaves pytest pointed at
+the repository root, where "under the test root" says nothing at all. In
+that one case scope narrows to the files pytest would actually collect --
+otherwise a vendored package's tests or a manual
+``scripts/test_connection.py`` would be permanently unknown, and the profile
+permanently expired.
 
 :func:`resolve_scope` runs inside the profiled pytest process, where those
-settings have already been applied. :func:`files_in_scope` applies the recorded
-result. Both are pure; enumerating the tree is the caller's job.
+settings have already been applied. :func:`files_in_scope` applies the
+recorded result. Both are pure -- the package-walk check is answered from the
+same path list the caller already passed in, rather than by touching the
+filesystem again, so a repository-relative ``__init__.py`` in that list is
+all either function ever needs.
 """
 
 from __future__ import annotations
@@ -61,17 +72,25 @@ class ProfileScope:
     Attributes:
         coverage_roots: The resolved ``--cov`` targets. Coverage records every
             ``.py`` file beneath these whether or not a test executed it, so all
-            of them are files the profile knows.
+            of them are files the profile knows -- subject to its own
+            package-walk rule, which :data:`include_namespace_packages` governs.
         test_roots: The paths pytest collected from, after ``testpaths`` and
             ``addopts`` were applied.
         test_file_patterns: pytest's resolved ``python_files``. Only consulted
             for a test root of the whole repository, where a root alone cannot
             distinguish project test code from anything else in the tree.
+        include_namespace_packages: coverage.py's own setting of the same name,
+            read from the profiled run's actual configuration. False (its
+            default) means a subdirectory with no ``__init__.py`` is invisible
+            to coverage's file discovery, so a file beneath one is never in
+            scope. A project that has turned it on measures those files too,
+            and the package-walk check is skipped for its coverage roots.
     """
 
     coverage_roots: frozenset[str]
     test_roots: frozenset[str]
     test_file_patterns: tuple[str, ...]
+    include_namespace_packages: bool = False
 
     @property
     def is_empty(self) -> bool:
@@ -153,12 +172,14 @@ def _resolve_test_path(arg: str, invocation_dir: Path, project_root: Path) -> st
     return _repo_relative(invocation_dir / arg.split("::", maxsplit=1)[0], project_root)
 
 
-def resolve_scope(
+def resolve_scope(  # noqa: PLR0913 - each argument is an independent fact about the run; none can be dropped or grouped
     cov_sources: Sequence[str | bool],
     args: Sequence[str],
     test_file_patterns: Sequence[str],
     invocation_dir: Path,
     project_root: Path,
+    *,
+    include_namespace_packages: bool = False,
 ) -> ProfileScope:
     """The scope a profiling run measured, read from inside that run.
 
@@ -171,6 +192,10 @@ def resolve_scope(
         invocation_dir: The directory pytest was invoked from, which the
             arguments are relative to.
         project_root: The repository root the profile's paths are relative to.
+        include_namespace_packages: coverage.py's own setting of the same name
+            for this run, read from the ``Coverage`` object actually doing the
+            measuring rather than assumed, since a project that has turned it
+            on is not subject to the package-walk restriction at all.
 
     Test paths belong in the scope alongside the coverage targets. Under a
     typical ``--cov=mypackage`` the test modules are absent from the measured
@@ -188,6 +213,7 @@ def resolve_scope(
         coverage_roots=frozenset(root for root in coverage_roots if root is not None),
         test_roots=frozenset(root for root in test_roots if root is not None),
         test_file_patterns=tuple(test_file_patterns),
+        include_namespace_packages=include_namespace_packages,
     )
 
 
@@ -222,11 +248,40 @@ def _would_be_collected(path: str, test_file_patterns: Sequence[str]) -> bool:
     return name == CONFTEST or any(fnmatch(name, pattern) for pattern in test_file_patterns)
 
 
-def _in_scope(path: str, scope: ProfileScope) -> bool:
+def _package_directories(paths: Iterable[str]) -> frozenset[str]:
+    """Directories that hold an ``__init__.py``, as coverage.py's own walk would see them.
+
+    Built from the same path list the caller already has, rather than from a
+    fresh filesystem walk: every ``__init__.py`` git tracks is already in that
+    list, so nothing further needs to touch disk.
+    """
+    return frozenset(parent_directory(path) for path in paths if path.rsplit("/", maxsplit=1)[-1] == "__init__.py")
+
+
+def _reachable_by_coverage_walk(path: str, root: str, package_directories: frozenset[str]) -> bool:
+    """Would ``coverage.inorout.find_python_files`` descend from ``root`` to reach ``path``?
+
+    Mirrors coverage.py exactly: ``root`` itself is exempt (it was named
+    directly, so it is trusted), but every directory strictly between it and
+    ``path`` must hold an ``__init__.py`` or the walk never reaches it.
+    """
+    directory = parent_directory(path)
+    while directory != root:
+        if directory not in package_directories:
+            return False
+        directory = parent_directory(directory)
+    return True
+
+
+def _in_scope(path: str, scope: ProfileScope, package_directories: frozenset[str]) -> bool:
     """Would a profile regenerated under ``scope`` know about ``path``?"""
     if not path.endswith(".py"):
         return False
-    if any(under_root(path, root) for root in scope.coverage_roots):
+    if any(
+        under_root(path, root)
+        and (scope.include_namespace_packages or _reachable_by_coverage_walk(path, root, package_directories))
+        for root in scope.coverage_roots
+    ):
         return True
     return any(
         root != WHOLE_REPOSITORY or _would_be_collected(path, scope.test_file_patterns)
@@ -246,4 +301,6 @@ def files_in_scope(paths: Iterable[str], scope: ProfileScope) -> frozenset[str]:
     Paths must be repository-relative posix strings, as ``git ls-files`` and the
     profile's own paths both are.
     """
-    return frozenset(path for path in paths if _in_scope(path, scope))
+    all_paths = list(paths)
+    package_directories = _package_directories(all_paths)
+    return frozenset(path for path in all_paths if _in_scope(path, scope, package_directories))

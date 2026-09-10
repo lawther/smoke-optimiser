@@ -219,7 +219,12 @@ def test_a_profile_recording_no_scope_reports_what_to_configure(
     """
     profile = tmp_path / "profile.json"
     raw = raw_profile()
-    raw["scope"] = {"coverage_roots": [], "test_roots": [], "test_file_patterns": []}
+    raw["scope"] = {
+        "coverage_roots": [],
+        "test_roots": [],
+        "test_file_patterns": [],
+        "include_namespace_packages": False,
+    }
     profile.write_text(json.dumps(raw))
 
     with pytest.raises(typer.Exit):

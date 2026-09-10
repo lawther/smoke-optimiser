@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 from smoke_optimiser.environment import MachineEnvironment
 from smoke_optimiser.profiler.scope import ProfileScope
 
-PROFILE_SCHEMA_VERSION = 4
+PROFILE_SCHEMA_VERSION = 5
 """Schema version this build writes to a profiling data file.
 
 Bumped whenever ProfilingDataFile's shape changes in a way that makes an
@@ -228,6 +228,7 @@ class ProfileScopeModel(BaseModel):
     coverage_roots: list[str]
     test_roots: list[str]
     test_file_patterns: list[str]
+    include_namespace_packages: bool
 
     def to_profile_scope(self) -> ProfileScope:
         """Convert to the internal frozen dataclass."""
@@ -235,6 +236,7 @@ class ProfileScopeModel(BaseModel):
             coverage_roots=frozenset(self.coverage_roots),
             test_roots=frozenset(self.test_roots),
             test_file_patterns=tuple(self.test_file_patterns),
+            include_namespace_packages=self.include_namespace_packages,
         )
 
     @classmethod
@@ -244,6 +246,7 @@ class ProfileScopeModel(BaseModel):
             coverage_roots=sorted(scope.coverage_roots),
             test_roots=sorted(scope.test_roots),
             test_file_patterns=list(scope.test_file_patterns),
+            include_namespace_packages=scope.include_namespace_packages,
         )
 
 

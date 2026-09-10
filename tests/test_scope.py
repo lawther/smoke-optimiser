@@ -19,11 +19,14 @@ DEFAULT_PATTERNS = ("test_*.py", "*_test.py")
 def _scope(
     coverage_roots: frozenset[str] = frozenset(),
     test_roots: frozenset[str] = frozenset(),
+    *,
+    include_namespace_packages: bool = False,
 ) -> ProfileScope:
     return ProfileScope(
         coverage_roots=coverage_roots,
         test_roots=test_roots,
         test_file_patterns=DEFAULT_PATTERNS,
+        include_namespace_packages=include_namespace_packages,
     )
 
 
@@ -157,9 +160,10 @@ def test_a_scope_naming_nothing_is_empty(tmp_path: Path) -> None:
 def test_a_python_file_under_a_coverage_root_is_in_scope() -> None:
     scope = _scope(coverage_roots=frozenset({"smoke_optimiser"}))
 
-    assert files_in_scope(["smoke_optimiser/downwind/maps.py"], scope) == frozenset(
-        {"smoke_optimiser/downwind/maps.py"},
-    )
+    assert files_in_scope(
+        ["smoke_optimiser/downwind/__init__.py", "smoke_optimiser/downwind/maps.py"],
+        scope,
+    ) == frozenset({"smoke_optimiser/downwind/__init__.py", "smoke_optimiser/downwind/maps.py"})
 
 
 def test_a_non_python_file_is_never_in_scope() -> None:
@@ -220,13 +224,62 @@ def test_a_whole_repository_test_root_is_narrowed_to_what_pytest_would_collect()
     assert in_scope == frozenset({"test_app.py", "vendor/thing_test.py", "conftest.py"})
 
 
-def test_a_whole_repository_coverage_root_still_covers_every_python_file() -> None:
-    """A bare --cov measures the whole tree, so every .py file under it is known.
+def test_a_whole_repository_coverage_root_covers_a_file_under_a_package() -> None:
+    """A bare --cov measures the whole tree, so a file under it is known.
 
-    Only the TEST half of a whole-repository scope is narrowed: coverage records
-    files it never executed, so a file under a coverage root is one a regenerated
-    profile would know about whether or not anything imports it.
+    As long as coverage.py's own file discovery would actually reach it.
+    Coverage records files it never executed, so a file under a coverage root is
+    one a regenerated profile would know about whether or not anything imports it
+    -- provided every directory between it and the root is a package.
     """
     scope = _scope(coverage_roots=frozenset({"."}), test_roots=frozenset({"."}))
 
-    assert files_in_scope(["scripts/deploy.py"], scope) == frozenset({"scripts/deploy.py"})
+    assert files_in_scope(["scripts/__init__.py", "scripts/deploy.py"], scope) == frozenset(
+        {"scripts/__init__.py", "scripts/deploy.py"},
+    )
+
+
+def test_a_directory_with_no_init_is_invisible_to_a_whole_repository_coverage_root() -> None:
+    """so-n6b.50: coverage.py never walks into a directory with no __init__.py.
+
+    A plain directory of scripts -- .claude/hooks in enphase_curtailer, 2026-09-09
+    -- is invisible to coverage.files.find_python_files no matter what the
+    coverage root says, so counting it in scope pins the profile to permanently
+    expired: the files are in scope, absent from the maps, and no amount of
+    regenerating can add them.
+    """
+    scope = _scope(coverage_roots=frozenset({"."}))
+
+    assert files_in_scope([".claude/hooks/check_bead_model.py"], scope) == frozenset()
+
+
+def test_a_directory_with_no_init_is_invisible_under_any_coverage_root_not_just_the_whole_repository() -> None:
+    """coverage.py applies the same package-walk rule to every source directory.
+
+    Not only to a bare --cov of the whole repository.
+    """
+    scope = _scope(coverage_roots=frozenset({"app"}))
+
+    assert files_in_scope(["app/scripts/run.py"], scope) == frozenset()
+
+
+def test_a_coverage_root_itself_is_exempt_from_needing_an_init() -> None:
+    """coverage.py trusts a source directory named directly, __init__.py or not.
+
+    Only its subdirectories are checked.
+    """
+    scope = _scope(coverage_roots=frozenset({"app"}))
+
+    assert files_in_scope(["app/run.py"], scope) == frozenset({"app/run.py"})
+
+
+def test_include_namespace_packages_turns_off_the_package_walk_check() -> None:
+    """coverage.py's own include_namespace_packages setting.
+
+    A project that has turned it on is not subject to this rule at all.
+    """
+    scope = _scope(coverage_roots=frozenset({"."}), include_namespace_packages=True)
+
+    assert files_in_scope([".claude/hooks/check_bead_model.py"], scope) == frozenset(
+        {".claude/hooks/check_bead_model.py"},
+    )

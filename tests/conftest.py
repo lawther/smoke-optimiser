@@ -90,6 +90,7 @@ def raw_profile() -> RawProfileFactory:
                 "coverage_roots": ["src"],
                 "test_roots": ["tests"],
                 "test_file_patterns": ["test_*.py"],
+                "include_namespace_packages": False,
             },
             "import_graph": {
                 "edges": [{"importer": "tests/test_app.py", "imported": "file.py"}],

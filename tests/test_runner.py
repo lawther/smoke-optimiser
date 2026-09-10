@@ -200,12 +200,18 @@ THREE_WORKERS = 3
 TWO_WORKERS = 2
 
 
-def _fake_pytest_config(project_root: Path, outcomes: dict[str, Any] | None = None) -> SimpleNamespace:
+def _fake_pytest_config(
+    project_root: Path,
+    outcomes: dict[str, Any] | None = None,
+    *,
+    include_namespace_packages: bool = False,
+) -> SimpleNamespace:
     """Stand in for the pytest Config the hook is handed inside the subprocess.
 
     Only the attributes the hook reads: the outcomes it accumulated, the resolved
     --cov sources, the positional arguments after testpaths were applied, the
-    collection patterns, and where pytest was invoked from.
+    collection patterns, where pytest was invoked from, and the pytest-cov
+    plugin the hook asks for include_namespace_packages.
     """
     return SimpleNamespace(
         _smoke_outcomes=outcomes if outcomes is not None else {},
@@ -214,6 +220,21 @@ def _fake_pytest_config(project_root: Path, outcomes: dict[str, Any] | None = No
         option=SimpleNamespace(cov_source=["src"]),
         getini=lambda name: ["test_*.py"] if name == "python_files" else [],
         invocation_params=SimpleNamespace(dir=project_root),
+        # A real run always has pytest-cov registered under this name; standing in
+        # for "no such plugin" here would test a configuration the hook never sees.
+        pluginmanager=SimpleNamespace(
+            get_plugin=lambda name: (
+                SimpleNamespace(
+                    cov_controller=SimpleNamespace(
+                        cov=SimpleNamespace(
+                            config=SimpleNamespace(include_namespace_packages=include_namespace_packages)
+                        )
+                    )
+                )
+                if name == "_cov"
+                else None
+            )
+        ),
     )
 
 
@@ -230,7 +251,12 @@ def _write_outcomes(
         "worker_count": worker_count,
         "outcomes": {node_id: {"passed": True, "duration": 0.5, "markers": ["unit"]} for node_id in node_ids},
         "collection_errors": collection_errors or [],
-        "scope": {"coverage_roots": ["src"], "test_roots": ["tests"], "test_file_patterns": ["test_*.py"]},
+        "scope": {
+            "coverage_roots": ["src"],
+            "test_roots": ["tests"],
+            "test_file_patterns": ["test_*.py"],
+            "include_namespace_packages": False,
+        },
     }
     path.write_text(json.dumps(payload))
 
@@ -707,6 +733,34 @@ def test_the_profiling_hook_records_the_scope_the_run_resolved(tmp_path: Path) -
     scope = _read_iteration_outcomes(_artefact_files(outcomes_json)).scope
     assert scope.coverage_roots == frozenset({"src"})
     assert scope.test_roots == frozenset({"tests"})
+    assert scope.include_namespace_packages is False
+
+
+def test_the_profiling_hook_records_include_namespace_packages_from_the_real_coverage_config(
+    tmp_path: Path,
+) -> None:
+    """Read from the Coverage object actually measuring, not assumed.
+
+    A project that has turned this coverage.py setting on is not subject to the
+    package-walk restriction at all, so getting it wrong in either direction
+    either wrongly excludes files or wrongly stops excluding them.
+    """
+    namespace: dict[str, Any] = {}
+    exec(PYTEST_HOOK_CODE, namespace)  # noqa: S102 - the hook is only ever a string, so it must be exec'd to be tested
+
+    outcomes_json = tmp_path / "outcomes.json"
+    (tmp_path / "src").mkdir()
+    (tmp_path / "tests").mkdir()
+    config = _fake_pytest_config(tmp_path, include_namespace_packages=True)
+    with patch.dict(os.environ, {"SMOKE_OUTCOMES_JSON": str(outcomes_json)}, clear=False):
+        os.environ.pop("PYTEST_XDIST_WORKER", None)
+        os.environ.pop("PYTEST_XDIST_WORKER_COUNT", None)
+        os.environ.pop("SMOKE_IMPORT_GRAPH_JSON", None)
+        os.environ.pop("SMOKE_PROJECT_ROOT", None)
+        namespace["pytest_unconfigure"](config)
+
+    scope = _read_iteration_outcomes(_artefact_files(outcomes_json)).scope
+    assert scope.include_namespace_packages is True
 
 
 @pytest.mark.parametrize(

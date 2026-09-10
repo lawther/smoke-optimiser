@@ -105,6 +105,7 @@ def _profile_where_the_change_reaches_no_test() -> dict[str, Any]:
             "coverage_roots": ["src"],
             "test_roots": ["tests"],
             "test_file_patterns": ["test_*.py"],
+            "include_namespace_packages": False,
         },
         "import_graph": {
             "edges": [
@@ -540,7 +541,12 @@ def test_a_profile_that_records_no_scope_stops_the_run_rather_than_regenerating_
     """
     repo = repo_with_an_untested_module
     profile = json.loads((repo / "profile.json").read_text())
-    profile["scope"] = {"coverage_roots": [], "test_roots": [], "test_file_patterns": []}
+    profile["scope"] = {
+        "coverage_roots": [],
+        "test_roots": [],
+        "test_file_patterns": [],
+        "include_namespace_packages": False,
+    }
     (repo / "profile.json").write_text(json.dumps(profile))
 
     with (
