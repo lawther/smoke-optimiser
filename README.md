@@ -14,6 +14,9 @@ file you touched, plus every test whose module transitively imports one. Where i
 from the profile it says so and runs the whole suite. That promise is categorical rather than
 statistical, which is what makes it usable as a precommit gate.
 
+Both modes read the same profile, so one `smoke-optimiser smoke` run (or its `--profile-only`
+step) is enough to use either.
+
 ## Installation
 
 Add `smoke-optimiser` as a development dependency in your project:
@@ -32,11 +35,16 @@ This will make the `smoke-optimiser` command available in your environment and r
 
 ## Quickstart
 
-1. **Generate the smoke suite**:
-   Run the optimiser in your project root. It will automatically detect your source code and profile your tests.
+### `smoke` mode
+
+1. **Profile your suite**:
+   Run the optimiser in your project root. It will automatically detect your source code and profile your tests and build
+   an optimised smoke test suite.
    ```bash
    uv run smoke-optimiser smoke
    ```
+   This both writes a profile (`.smoke_profiling_data.json`) and, from it, a smoke suite
+   (`.smoke_suite.json`).
 
 2. **Run the smoke suite**:
    Use the `--smoke` flag with pytest to run only the selected high-value tests.
@@ -44,31 +52,53 @@ This will make the `smoke-optimiser` command available in your environment and r
    uv run pytest --smoke
    ```
 
-3. **Or run what your changes can reach**:
-   `downwind` selects against your diff, using the profile that step 1 recorded. It runs pytest
-   itself, and exits with pytest's own exit code, so it can gate a commit.
-   ```bash
-   uv run smoke-optimiser downwind
-   ```
-   It must be run from the repository root: git reports repo-relative paths and the profile's
-   paths are relative to where it was profiled from, so anywhere else the two stop agreeing.
+### `downwind` mode (test only what a change can reach)
 
-## Common Usages
+```bash
+uv run smoke-optimiser downwind
+```
 
-### Custom Efficiency Targets
+One command does the whole job, and there's no separate profiling step to run first: if
+`.smoke_profiling_data.json` is missing, stale, or from another build, `downwind` runs the full
+suite itself, instrumented, to produce one before it selects anything. Every run after that reads
+your current working-tree diff against that profile, writes the result to `.downwind.json`, and
+runs pytest against it (equivalent to `pytest --downwind` once `.downwind.json` is current — plain
+`pytest --downwind` on its own would just replay whatever selection is already on disk, stale or
+not). It exits with pytest's own exit code, so it can gate a commit, and it must be run from the
+repository root: git reports repo-relative paths and the profile's paths are relative to where it
+was profiled from, so anywhere else the two stop agreeing.
+
+## Smoke suite
+
+`smoke-optimiser smoke` profiles the suite, then greedily picks the smallest set of tests that
+meets a coverage target or time budget. The result is a **static** subset: the same tests come
+back whatever you changed, because the selection is a bet on coverage-per-second rather than a
+read of your diff. Use it where a fixed, fast gate is the goal and a categorical guarantee is not
+— a local pre-push smoke check, or the first, fast stage of CI.
+
+### How it works
+
+1. **Profiling**: It runs your suite with `pytest-cov` and a custom hook to map every single branch execution to specific tests.
+2. **Analysis**: It calculates the "efficiency" of every test (New Branches Covered / Duration).
+3. **Greedy Selection**: It iteratively picks the most efficient test until your coverage target or time cap is reached.
+4. **Redundancy Reporting**: It identifies "Coverage-equivalent groups" — sets of tests that cover the exact same logic.
+
+### Common usages
+
+#### Custom efficiency targets
 By default, the tool tries to get maximum coverage within a 15-second time cap. You can tighten these bounds:
 ```bash
 # Aim for 80% coverage, but stop if it takes longer than 5 seconds
 uv run smoke-optimiser smoke --target-cov=80 --time-cap=5
 ```
 
-### Stabilising Timing Data
+#### Stabilising timing data
 Test execution times can vary. Use `--iterations` to run the suite multiple times and average the results for a more stable smoke suite:
 ```bash
 uv run smoke-optimiser smoke --iterations=3
 ```
 
-### Mandatory Inclusion/Exclusion
+#### Mandatory inclusion/exclusion
 Force certain tests (or markers) to be included or excluded from the smoke suite:
 ```bash
 # Always include authentication tests, but exclude anything marked as 'slow'
@@ -76,9 +106,7 @@ uv run smoke-optimiser smoke --include="tests/test_auth.py" --exclude="@pytest.m
 ```
 *Multiple items can be separated by commas.*
 
-## Command-line Arguments
-
-### `smoke-optimiser smoke` (Generator)
+### Command-line arguments
 
 | Argument | Description | Default |
 | :--- | :--- | :--- |
@@ -96,7 +124,7 @@ uv run smoke-optimiser smoke --include="tests/test_auth.py" --exclude="@pytest.m
 | `--allow-parallel-durations` / `--no-allow-parallel-durations` | Rank a profile whose durations were recorded under `pytest-xdist` contention. | `False` |
 | `--profile-path` | Path for the recorded profile, which `downwind` also reads. | `.smoke_profiling_data.json` |
 
-#### What gets instrumented
+### What gets instrumented
 
 If you do not pass `--src` or set `cov_source`, the coverage target is worked out in this order, and
 whichever step answers **says so on stderr** — what a profile instruments decides what it can ever
@@ -111,9 +139,36 @@ not a safe default: it puts every `.py` file in the tree into the profile's scop
 coverage.py never walks — anything outside an importable package, such as a directory of hook
 scripts — and a file the profile can never know expires it on every run. The error hands back the
 exact command to set a source, and the exact command to instrument everything on purpose if that is
-genuinely what you want.
+genuinely what you want. This applies to `smoke` and to any `downwind` run that has to fall back to
+an instrumented full-suite run — see below.
 
-### `smoke-optimiser downwind` (Change-based selection)
+## Downwind
+
+`smoke-optimiser downwind` selects **dynamically**, from your working-tree diff rather than a fixed
+list. It answers, for the files you changed, which tests can possibly be affected — and where it
+cannot answer, it runs everything. That makes its promise categorical rather than statistical: it
+never skips a test that could catch a regression in what you touched, which is what makes it safe
+to use as a precommit or pre-push gate rather than only a fast-but-lossy smoke check.
+
+### How it works
+
+`downwind` reuses the same profile `smoke` records — it needs no separate profiling step of its
+own. From that profile it already has two maps: which tests executed which files
+(`files_covered`), and which modules import which other modules (the import graph). Given `git
+diff`, it unions:
+
+- every test that has ever executed a changed file, and
+- every test whose module transitively imports a changed file — this is what makes selection
+  correct for files that only ever run at import time, such as a constants module, a Pydantic
+  model, or a package re-export, which no test "executes" directly but every importer depends on.
+
+Two cases exit `0` without running pytest at all: a clean working tree, and a change the profile
+says no test reaches — the latter with a warning naming the files, since it can also mean the
+profile is missing a route to the suite rather than that the files are genuinely untested.
+Otherwise it runs pytest itself and exits with pytest's own exit code, so a failing selected test
+fails the commit and a collection error never reads as a successful selective run.
+
+### Command-line arguments
 
 | Argument | Description | Default |
 | :--- | :--- | :--- |
@@ -123,12 +178,7 @@ genuinely what you want.
 | `--regenerate-on-fallback` / `--no-regenerate-on-fallback` | Run a full-suite fallback under instrumentation, rewriting the profile it fell back from. | `True` |
 | `--src` | Source directory/package to instrument when a fallback regenerates the profile. | discovered |
 
-Its exit code is pytest's own, so a failing selected test fails the commit and a collection error
-never reads as a successful selective run. Two cases exit 0 without running pytest at all: a clean
-tree, and a change the profile says no test reaches — the latter with a warning naming the files,
-since it can also mean the profile is missing a route to the suite.
-
-#### A fallback repairs the map it fell back from
+### A fallback repairs the map it fell back from
 
 When `downwind` cannot answer — a profile that is missing, from an older build, unreadable, or one
 whose maps have gone stale — it runs the full suite **under profiling instrumentation** and rewrites
@@ -168,7 +218,7 @@ the run and names the settings to fix.
 Pass `--no-regenerate-on-fallback` (or set `regenerate_on_fallback = false`) to run the fallback
 plain and be told how to rebuild the profile yourself.
 
-#### Data files
+### Data files
 
 Profiling records which files each test opens and which directories it globs, so a changed data
 file is answered rather than assumed about. A changed fixture selects the tests that read it; a
@@ -197,7 +247,10 @@ Patterns are matched against the repository-relative path and against the bare f
 add a full-suite run, which is why this is safe to configure where a list of paths to *ignore*
 would not be: a wrong entry costs time rather than correctness.
 
-### `pytest` (Plugin)
+## `pytest` plugin
+
+`smoke-optimiser` registers a pytest plugin that filters collection down to whichever selection
+file a mode wrote.
 
 | Argument | Description | Default |
 | :--- | :--- | :--- |
@@ -208,10 +261,4 @@ would not be: a wrong entry costs time rather than correctness.
 
 `--smoke` and `--downwind` cannot be used together: running both would select only the tests in
 both, which keeps neither promise.
-
-## How it works
-
-1. **Profiling**: It runs your suite with `pytest-cov` and a custom hook to map every single branch execution to specific tests.
-2. **Analysis**: It calculates the "efficiency" of every test (New Branches Covered / Duration).
-3. **Greedy Selection**: It iteratively picks the most efficient test until your coverage target or time cap is reached.
-4. **Redundancy Reporting**: It identifies "Coverage-equivalent groups" — sets of tests that cover the exact same logic.
+</content>
