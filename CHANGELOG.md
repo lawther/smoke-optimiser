@@ -16,6 +16,13 @@
   recording the coverage targets and test paths the profiling run measured. A version 1
   profile is rejected on load -- re-run the profiling phase to regenerate it.
 
+## [0.3.1](https://github.com/lawther/smoke-optimiser/compare/v0.3.0...v0.3.1) (2026-09-10)
+
+
+### Bug Fixes
+
+* **ci:** skip re-publishing a PyPI file that already exists ([cc0c9bf](https://github.com/lawther/smoke-optimiser/commit/cc0c9bf5be40c6ac41d529b571e7521496104490))
+
 ## [0.3.0](https://github.com/lawther/smoke-optimiser/compare/v0.2.0...v0.3.0) (2026-09-10)
 
 
