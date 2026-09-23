@@ -16,6 +16,18 @@
   recording the coverage targets and test paths the profiling run measured. A version 1
   profile is rejected on load -- re-run the profiling phase to regenerate it.
 
+## [0.3.2](https://github.com/lawther/smoke-optimiser/compare/v0.3.1...v0.3.2) (2026-09-23)
+
+
+### Features
+
+* **downwind:** anchor the profile on the repository, the project on its pyproject ([df2df9d](https://github.com/lawther/smoke-optimiser/commit/df2df9d64ef081f53d1d5c27c3377e2fd67f64c5))
+
+
+### Documentation
+
+* say which directory to run smoke in, now that it need not be the repo root ([1991946](https://github.com/lawther/smoke-optimiser/commit/1991946a79c76fee731f254d68380cee47bb0f20))
+
 ## [0.3.1](https://github.com/lawther/smoke-optimiser/compare/v0.3.0...v0.3.1) (2026-09-10)
 
 
