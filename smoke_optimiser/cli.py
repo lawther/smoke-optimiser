@@ -25,6 +25,7 @@ from smoke_optimiser.config import (
 from smoke_optimiser.downwind.command import run_downwind
 from smoke_optimiser.optimiser.filters import apply_filters
 from smoke_optimiser.optimiser.greedy import optimise
+from smoke_optimiser.paths import resolve_project_paths_or_invocation_dir
 from smoke_optimiser.profiler.models import ProfilingData
 from smoke_optimiser.profiler.persistence import load_profile, save_profile
 from smoke_optimiser.profiler.runner import (
@@ -51,7 +52,7 @@ def _split_comma_list(items: list[str] | None) -> list[str]:
     return result
 
 
-def _load_profiling_data(profile_path: Path) -> ProfilingData:
+def _load_profiling_data(profile_path: Path, project_offset: str) -> ProfilingData:
     """Load the profile the optimisation phase ranks, or explain its absence."""
     if not profile_path.exists():
         typer.secho(
@@ -61,7 +62,7 @@ def _load_profiling_data(profile_path: Path) -> ProfilingData:
         )
         raise typer.Exit(code=1)
 
-    return load_profile(profile_path)
+    return load_profile(profile_path, project_offset)
 
 
 def _report_invalid_configuration(err: ValidationError) -> None:
@@ -248,16 +249,20 @@ def smoke(  # noqa: PLR0913 # special case for this function since Typer works t
         "profile_path": profile_path,
     }
 
-    project_root = Path.cwd()
+    # Outside a git repository the repository root falls back to the invocation
+    # directory. Sound, because a profile recorded there has no diff to be compared
+    # against and no working-tree denominator -- its paths need only be consistent
+    # with each other, and this command still ranks tests perfectly well.
+    paths = resolve_project_paths_or_invocation_dir(Path.cwd())
     try:
-        file_config = load_file_config(project_root)
-        config = resolve_config(file_config, cli_overrides, project_root)
+        file_config = load_file_config(paths.invocation_dir)
+        config = resolve_config(file_config, cli_overrides, paths.invocation_dir)
     except ValidationError as err:
         _report_invalid_configuration(err)
         raise typer.Exit(code=1) from None
 
     profiling_data = None
-    profile_file = project_root / config.profile_path
+    profile_file = paths.invocation_dir / config.profile_path
 
     # Phase 1: Profiling
     if config.mode != OperationMode.OPTIMISE_ONLY:
@@ -267,7 +272,7 @@ def smoke(  # noqa: PLR0913 # special case for this function since Typer works t
             # command was asked to measure the suite, not to judge it, and a failing
             # test is still a profiled test. downwind, which runs the suite because
             # the developer needed it run, keeps the code instead.
-            profiling_data = run_profiling(config.for_profiling(), project_root).data
+            profiling_data = run_profiling(config.for_profiling(), paths).data
         except (ProfilingIncompleteError, ProfilingUnavailableError) as exc:
             typer.secho(f"❌ Error: {exc}", fg=typer.colors.RED, err=True)
             raise typer.Exit(code=1) from None
@@ -276,7 +281,7 @@ def smoke(  # noqa: PLR0913 # special case for this function since Typer works t
     # Phase 2: Optimisation
     if config.mode != OperationMode.PROFILE_ONLY:
         if profiling_data is None:
-            profiling_data = _load_profiling_data(profile_file)
+            profiling_data = _load_profiling_data(profile_file, paths.project_offset)
 
         _optimise_and_report(config, profiling_data)
 

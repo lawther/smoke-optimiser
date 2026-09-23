@@ -8,13 +8,13 @@ the pytest plugin. What lives here is the order they happen in, the two
 queries only this layer can make -- git and the filesystem -- and the report
 a developer reads when the tool declines to select.
 
-IT REFUSES TO RUN OUTSIDE THE REPOSITORY ROOT. git reports repo-relative
-paths and the profile's paths are relative to the directory it was profiled
-from, so the two agree only where those coincide. Assuming it would mean a
-mismatch selecting nothing for a file plenty of tests depend on, and looking
-perfectly healthy doing it -- so the requirement is checked rather than
-hoped for. so-746 removes the restriction by making the profile's paths
-repo-relative outright.
+IT RUNS ANYWHERE INSIDE THE REPOSITORY. git reports repo-relative paths and
+so does the profile, so the two agree wherever the command was invoked. What
+the invocation directory decides is something else: which pyproject.toml
+supplies the configuration, where the profile and selection file live, and the
+cwd pytest itself is given -- so a project in a subdirectory of a larger repo
+gets its own rootdir, testpaths and pythonpath. Only git's absence is refused,
+because without a diff there is nothing to select from.
 
 THE FULL SUITE IS STILL RUN THROUGH ``--downwind``. A refusal writes a
 selection file carrying its blind spots and no node ids; the plugin then
@@ -45,7 +45,7 @@ from __future__ import annotations
 import shlex
 import subprocess
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
@@ -56,11 +56,11 @@ from smoke_optimiser.downwind.blind_spots import BlindSpotReason, in_report_orde
 from smoke_optimiser.downwind.changes import (
     GitStatusError,
     changed_files,
-    repository_root,
     tracked_files,
 )
 from smoke_optimiser.downwind.maps import DownwindMaps
 from smoke_optimiser.downwind.rules import DownwindRefusal, downwind_of
+from smoke_optimiser.paths import ProjectPaths, resolve_project_paths
 from smoke_optimiser.profiler.persistence import (
     ProfileFault,
     ProfileUnusableError,
@@ -148,23 +148,6 @@ def _report_git_failure(exc: GitStatusError) -> None:
         "   downwind selects from your working-tree diff, so with no diff to read there is\n"
         "   nothing it can honestly select. Run it from inside a git repository, or use\n"
         "   `pytest` directly to run the whole suite.",
-        fg=typer.colors.RED,
-        err=True,
-    )
-
-
-def _report_wrong_directory(invocation_dir: Path, repo_root: Path) -> None:
-    """Refuse a subdirectory, and say why the answer would otherwise be wrong."""
-    typer.secho(
-        f"❌ Error: downwind must run from the repository root, not {invocation_dir}.",
-        fg=typer.colors.RED,
-        err=True,
-    )
-    typer.secho(
-        "   git reports paths relative to the repository root while the profile's paths are\n"
-        "   relative to where it was profiled from, so run it anywhere else and the two stop\n"
-        "   agreeing -- selecting nothing for a file plenty of tests depend on, and looking\n"
-        f"   perfectly healthy doing it.\n   Hint: cd {repo_root}",
         fg=typer.colors.RED,
         err=True,
     )
@@ -278,11 +261,16 @@ def _drop_own_artefacts(
     developer did to the tree -- so a project that has not gitignored them would otherwise see
     every downwind run force the full suite over changes it made to itself the run before.
 
-    Both sides are resolved against ``repo_root`` before comparing: ``config``'s paths may be
-    given relative (the common case) or absolute, while ``changed`` always reports paths relative
-    to ``repo_root``, and joining an absolute path onto ``repo_root`` is a no-op either way.
+    The two sides live in DIFFERENT path spaces, and that is the point. ``config``'s paths
+    are already absolute by the time they reach here, anchored on the invocation directory
+    where the pyproject.toml that names them is; ``changed`` reports paths relative to the
+    repository root, as git does. Resolving both to absolute paths is what lets them be
+    compared at all -- anchor the artefacts on the repository root while they actually live
+    in a subdirectory and the comparison never matches, so the profile this tool just
+    rewrote reads as a working-tree change on the next run, every run refuses, and every
+    refusal rewrites it again.
     """
-    profile = (repo_root / config.profile_path).resolve()
+    profile = config.profile_path.resolve()
     own_artefacts = {
         profile,
         # A fallback that rebuilt an unreadable profile leaves this beside it, and a
@@ -290,19 +278,19 @@ def _drop_own_artefacts(
         # this the run that repaired the map creates a permanent untracked change and
         # every run after it falls back again.
         profile.with_name(profile.name + CORRUPT_PROFILE_SUFFIX),
-        (repo_root / config.downwind_file_path).resolve(),
+        config.downwind_file_path.resolve(),
     }
     return frozenset(file for file in changed if (repo_root / file.path).resolve() not in own_artefacts)
 
 
-def _select(profile: ProfilingData, repo_root: Path, config: DownwindConfig) -> _Selection:
+def _select(profile: ProfilingData, paths: ProjectPaths, config: DownwindConfig) -> _Selection:
     """Ask the rules, having made the two queries only this layer can make."""
     maps = DownwindMaps.from_profile(profile)
-    changed = _drop_own_artefacts(changed_files(repo_root), repo_root, config)
+    changed = _drop_own_artefacts(changed_files(paths.repo_root), paths.repo_root, config)
     # The tree, not the diff, and narrowed by the predicate the profile was
     # captured under. Applying anything less than the whole predicate would
     # compare the maps against files they could never have contained.
-    existing = files_in_scope(tracked_files(repo_root), profile.scope)
+    existing = files_in_scope(tracked_files(paths.repo_root), profile.scope)
 
     answer = downwind_of(maps, changed, existing, config.environment_files)
     refused = isinstance(answer, DownwindRefusal)
@@ -326,18 +314,23 @@ def _write_selection(selection: _Selection, profile: ProfilingData, config: Down
     write_downwind_suite(suite, config.downwind_file_path)
 
 
-def _run_pytest(repo_root: Path, extra_args: list[str]) -> int:
+def _run_pytest(invocation_dir: Path, extra_args: list[str]) -> int:
     """Run pytest and hand back its exit code untouched.
 
     Untouched because this command gates a commit: a collection error, a
     usage error and a failing test must all keep the non-zero code that
     stops the commit, and none of them may be reinterpreted as a successful
     selective run.
+
+    In the INVOCATION directory, not the repository root. pytest resolves its
+    rootdir, ``testpaths`` and ``pythonpath`` from the pyproject.toml it finds,
+    and the node ids in the selection file are rootdir-relative -- so running it
+    anywhere else would hand it neither its configuration nor ids it recognises.
     """
     command = [sys.executable, "-m", "pytest", *extra_args]
     typer.secho(f"🏃 {' '.join(command[2:])}", fg=typer.colors.CYAN)
     # Built from sys.executable plus the user's own configured arguments.
-    return subprocess.run(command, cwd=repo_root, check=False).returncode  # noqa: S603
+    return subprocess.run(command, cwd=invocation_dir, check=False).returncode  # noqa: S603
 
 
 def _report_absent_profile(config: DownwindConfig) -> None:
@@ -364,6 +357,18 @@ def _report_outdated_profile(config: DownwindConfig, message: str) -> None:
         typer.secho(
             f"⚠️ Warning: the profile at {config.profile_path} was written by a different build of "
             "smoke-optimiser, so it cannot be read. Running the full suite under instrumentation to replace it.",
+            fg=typer.colors.YELLOW,
+            err=True,
+        )
+        return
+    typer.secho(f"❌ Error: {message}", fg=typer.colors.RED, err=True)
+
+
+def _report_misplaced_profile(config: DownwindConfig, message: str) -> None:
+    """A profile from elsewhere in the repository: benign, and fixed by rebuilding here."""
+    if config.regenerate_on_fallback:
+        typer.secho(
+            f"⚠️ Warning: {message}\n   Running the full suite under instrumentation to replace it.",
             fg=typer.colors.YELLOW,
             err=True,
         )
@@ -403,7 +408,7 @@ def _preserve_unreadable_profile(config: DownwindConfig, message: str) -> None:
     )
 
 
-def _load_profile(config: DownwindConfig) -> ProfilingData | None:
+def _load_profile(config: DownwindConfig, project_offset: str) -> ProfilingData | None:
     """The profile to select from, or None when the run must fall back instead.
 
     None means "nothing to select from, and a fresh profile would fix that" --
@@ -415,7 +420,7 @@ def _load_profile(config: DownwindConfig) -> ProfilingData | None:
         return None
 
     try:
-        return read_profile(config.profile_path)
+        return read_profile(config.profile_path, project_offset)
     except ProfileUnusableError as exc:
         if exc.fault is ProfileFault.MISCONFIGURED:
             # The one fault a fallback cannot repair: regenerating produces another
@@ -425,6 +430,8 @@ def _load_profile(config: DownwindConfig) -> ProfilingData | None:
             raise _DownwindHaltError from None
         if exc.fault is ProfileFault.UNREADABLE:
             _preserve_unreadable_profile(config, exc.message)
+        elif exc.fault is ProfileFault.MISPLACED:
+            _report_misplaced_profile(config, exc.message)
         else:
             _report_outdated_profile(config, exc.message)
         return None
@@ -533,7 +540,7 @@ def _report_failed_regeneration(config: DownwindConfig, message: str) -> None:
 
 def _regenerate(
     config: DownwindConfig,
-    repo_root: Path,
+    paths: ProjectPaths,
     downwind_args: list[str],
     extra_args: list[str],
     replaced: ProfilingData | None,
@@ -569,7 +576,7 @@ def _regenerate(
     )
 
     try:
-        run = run_profiling(profiling, repo_root)
+        run = run_profiling(profiling, paths)
     except ProfilingUnavailableError as exc:
         # Nothing ran at all, so the tests the developer is waiting on still have to.
         typer.secho(
@@ -579,7 +586,7 @@ def _regenerate(
             fg=typer.colors.YELLOW,
             err=True,
         )
-        return _run_pytest(repo_root, [*downwind_args, *extra_args])
+        return _run_pytest(paths.invocation_dir, [*downwind_args, *extra_args])
     except ProfilingIncompleteError as exc:
         _report_failed_regeneration(config, str(exc))
         # A suite that reached a verdict keeps it: those tests really did fail, which
@@ -597,7 +604,7 @@ def _regenerate(
 
 
 def _run_full_suite(
-    config: DownwindConfig, repo_root: Path, extra_args: list[str], replaced: ProfilingData | None
+    config: DownwindConfig, paths: ProjectPaths, extra_args: list[str], replaced: ProfilingData | None
 ) -> int:
     """Run everything, instrumented wherever that is switched on.
 
@@ -610,24 +617,42 @@ def _run_full_suite(
     downwind_args = ["--downwind", f"--downwind-file-path={config.downwind_file_path}"] if replaced is not None else []
 
     if not config.regenerate_on_fallback:
-        return _run_pytest(repo_root, [*downwind_args, *extra_args])
+        return _run_pytest(paths.invocation_dir, [*downwind_args, *extra_args])
 
-    return _regenerate(config, repo_root, downwind_args, extra_args, replaced)
+    return _regenerate(config, paths, downwind_args, extra_args, replaced)
 
 
-def _resolve_repo_root(invocation_dir: Path) -> Path:
-    """The repository root, which must be where the command was invoked."""
+def _anchored(config: DownwindConfig, invocation_dir: Path) -> DownwindConfig:
+    """The same config with its artefact paths made absolute, once, here.
+
+    Both are configured relative to the pyproject.toml that names them, which is
+    the invocation directory's. Left relative they would be resolved against the
+    process's cwd by every reader and against a root by every comparison -- and
+    those agree only while the two coincide, which is the assumption this whole
+    command has stopped making. Joining an absolute configured path is a no-op,
+    so a project that spelled either one absolutely is unaffected.
+    """
+    return replace(
+        config,
+        profile_path=invocation_dir / config.profile_path,
+        downwind_file_path=invocation_dir / config.downwind_file_path,
+    )
+
+
+def _resolve_paths(invocation_dir: Path) -> ProjectPaths:
+    """Both roots, or a halt: without git there is no diff to select from.
+
+    The invocation directory need only be INSIDE the repository, not equal to
+    its root. What it must not be is outside a repository altogether, which is
+    the one thing this refuses -- and it refuses rather than falling back to the
+    full suite, because a selection command that cannot read the diff has been
+    asked a question it has no way to answer.
+    """
     try:
-        repo_root = repository_root(invocation_dir)
+        return resolve_project_paths(invocation_dir)
     except GitStatusError as exc:
         _report_git_failure(exc)
         raise _DownwindHaltError from None
-
-    if repo_root.resolve() != invocation_dir.resolve():
-        _report_wrong_directory(invocation_dir, repo_root)
-        raise _DownwindHaltError
-
-    return repo_root
 
 
 def run_downwind(config: DownwindConfig, invocation_dir: Path) -> int:
@@ -637,18 +662,19 @@ def run_downwind(config: DownwindConfig, invocation_dir: Path) -> int:
     pytest ran, and 1 for the failures that stop it running at all.
     """
     try:
-        repo_root = _resolve_repo_root(invocation_dir)
-        profile = _load_profile(config)
+        paths = _resolve_paths(invocation_dir)
+        config = _anchored(config, paths.invocation_dir)
+        profile = _load_profile(config, paths.project_offset)
     except _DownwindHaltError:
         return EXIT_ERROR
 
     extra_args = shlex.split(config.pytest_args)
 
     if profile is None:
-        return _run_full_suite(config, repo_root, extra_args, replaced=None)
+        return _run_full_suite(config, paths, extra_args, replaced=None)
 
     try:
-        selection = _select(profile, repo_root, config)
+        selection = _select(profile, paths, config)
     except GitStatusError as exc:
         _report_git_failure(exc)
         return EXIT_ERROR
@@ -657,7 +683,7 @@ def run_downwind(config: DownwindConfig, invocation_dir: Path) -> int:
 
     if selection.refused:
         _report_refusal(selection, config)
-        return _run_full_suite(config, repo_root, extra_args, replaced=profile)
+        return _run_full_suite(config, paths, extra_args, replaced=profile)
 
     if not selection.node_ids:
         # Nothing to filter to, so pytest would collect nothing and exit 5 --
@@ -667,6 +693,6 @@ def run_downwind(config: DownwindConfig, invocation_dir: Path) -> int:
 
     _report_selection(selection)
     return _run_pytest(
-        repo_root,
+        paths.invocation_dir,
         ["--downwind", f"--downwind-file-path={config.downwind_file_path}", *extra_args],
     )

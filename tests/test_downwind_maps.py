@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import UTC, datetime
 
 import pytest
@@ -7,6 +8,7 @@ from smoke_optimiser.environment import MachineEnvironment
 from smoke_optimiser.profiler.models import (
     ImportEdge,
     ImportGraph,
+    ProfileAnchor,
     ProfilingData,
     ProfilingMeta,
     ProfilingOutcome,
@@ -72,6 +74,7 @@ def _profile(
             resolution_errors=resolution_errors,
             error_samples=(),
         ),
+        anchor=ProfileAnchor(),
     )
 
 
@@ -369,3 +372,50 @@ def test_tests_at_or_below_does_not_match_a_sibling_sharing_a_name_prefix() -> N
     maps = DownwindMaps.from_profile(profile)
 
     assert maps.tests_at_or_below("tests/sub") == frozenset({"tests/sub/test_in.py::test_one"})
+
+
+def _in_a_subdirectory(profile: ProfilingData, prefix: str) -> ProfilingData:
+    """The same profile, as a run from ``prefix`` inside the repository recorded it."""
+    return replace(profile, anchor=ProfileAnchor(project_offset=prefix, node_id_prefix=prefix))
+
+
+def test_a_node_id_is_keyed_by_its_repository_relative_file() -> None:
+    # The monorepo case. pytest's rootdir is api/, so it reports
+    # 'tests/test_x.py::test_x' while git reports 'api/tests/test_x.py'. Without
+    # the prefix the maps hold both spellings at once and knows() denies the one
+    # git will actually hand them, so every commit touching a test file refuses.
+    profile = _in_a_subdirectory(
+        _profile(
+            tests={"tests/test_x.py::test_x": _outcome("tests/test_x.py::test_x", frozenset({"api/src/a.py"}))},
+            measured_files=frozenset({"api/src/a.py"}),
+        ),
+        "api",
+    )
+
+    maps = DownwindMaps.from_profile(profile)
+
+    assert maps.knows("api/tests/test_x.py")
+    assert not maps.knows("tests/test_x.py")
+    # The KEY moved into the repository's path space; the node id it holds did not,
+    # because that is the spelling pytest will be asked to collect.
+    assert maps.tests_in_module("api/tests/test_x.py") == frozenset({"tests/test_x.py::test_x"})
+
+
+def test_conftest_scoping_reads_the_same_repository_relative_paths() -> None:
+    # A changed conftest is scoped by directory, and the directory comes from git
+    # -- so tests_at_or_below has to be asked in git's spelling too, not pytest's.
+    profile = _in_a_subdirectory(
+        _profile(
+            tests={
+                "tests/sub/test_in.py::test_one": _outcome("tests/sub/test_in.py::test_one", frozenset()),
+                "tests/test_out.py::test_two": _outcome("tests/test_out.py::test_two", frozenset()),
+            },
+            measured_files=frozenset(),
+        ),
+        "api",
+    )
+
+    maps = DownwindMaps.from_profile(profile)
+
+    assert maps.tests_at_or_below("api/tests/sub") == frozenset({"tests/sub/test_in.py::test_one"})
+    assert maps.tests_at_or_below("tests/sub") == frozenset()

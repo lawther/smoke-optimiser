@@ -64,9 +64,20 @@ suite itself, instrumented, to produce one before it selects anything. Every run
 your current working-tree diff against that profile, writes the result to `.downwind.json`, and
 runs pytest against it (equivalent to `pytest --downwind` once `.downwind.json` is current — plain
 `pytest --downwind` on its own would just replay whatever selection is already on disk, stale or
-not). It exits with pytest's own exit code, so it can gate a commit, and it must be run from the
-repository root: git reports repo-relative paths and the profile's paths are relative to where it
-was profiled from, so anywhere else the two stop agreeing.
+not). It exits with pytest's own exit code, so it can gate a commit.
+
+Run it from **the directory holding your project's `pyproject.toml`**, which need not be the
+repository root. Both commands take their configuration from that directory, write
+`.smoke_profiling_data.json` and `.downwind.json` beside it, and give pytest that directory as its
+cwd — so a project living in `api/` of a larger repository gets its own `rootdir`, `testpaths` and
+`pythonpath`. Every path the profile stores is relative to the **repository** root, which is what
+lets git's output and the profile's maps agree wherever you invoked from. Change which directory
+you run in and the profile records the fact, so the next run rebuilds rather than quietly matching
+nothing.
+
+If your project lives in a subdirectory, invoke it so that the cwd actually changes — `uv
+--directory api run smoke-optimiser downwind`, not `uv --project api run ...`, which discovers the
+project without leaving the repository root.
 
 ## Smoke suite
 
@@ -131,7 +142,7 @@ whichever step answers **says so on stderr** — what a profile instruments deci
 know, so a value you did not choose is never applied silently:
 
 1. `[tool.coverage.run] source` (or `source_pkgs`) in `pyproject.toml` — your own explicit answer.
-2. A `src/` directory at the repository root.
+2. A `src/` directory beside that `pyproject.toml`.
 3. A package named after the project in `pyproject.toml`.
 
 If none of them answers, the run **stops** rather than instrumenting the whole repository. That is

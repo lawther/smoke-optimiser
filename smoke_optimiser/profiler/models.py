@@ -6,9 +6,9 @@ from typing import Any, NamedTuple
 from pydantic import BaseModel, Field
 
 from smoke_optimiser.environment import MachineEnvironment
-from smoke_optimiser.profiler.scope import ProfileScope
+from smoke_optimiser.profiler.scope import WHOLE_REPOSITORY, ProfileScope
 
-PROFILE_SCHEMA_VERSION = 5
+PROFILE_SCHEMA_VERSION = 6
 """Schema version this build writes to a profiling data file.
 
 Bumped whenever ProfilingDataFile's shape changes in a way that makes an
@@ -23,7 +23,7 @@ class ProfilingOutcome:
     """Individual test outcome with duration and coverage.
 
     Attributes:
-        files_covered: Project-relative paths of every measured file this test
+        files_covered: Repository-relative paths of every measured file this test
             executed, whether or not that file contains any branch. A file of
             straight-line code -- constants, re-exports, model declarations --
             contributes no branch ids at all, so ``branches_covered`` cannot
@@ -48,7 +48,7 @@ class ProfilingOutcome:
 
 
 class ImportEdge(NamedTuple):
-    """One module depending on another, as project-relative file paths."""
+    """One module depending on another, as repository-relative file paths."""
 
     importer: str
     imported: str
@@ -129,6 +129,38 @@ class ReadObservations:
 
 
 @dataclass(frozen=True)
+class ProfileAnchor:
+    """Where the run that recorded this profile stood inside the repository.
+
+    Every path in a profile is relative to the repository root, which makes the
+    file checkout-independent -- but only for a run that stands where this one
+    did. A profile captured from ``api/`` and read by a run in the repository
+    root describes a path space the reader is not in, and would match nothing
+    while reporting a healthy zero.
+
+    Both offsets are relative, never absolute, so a profile copied into a fresh
+    git worktree of the same repository still selects: worktrees are the same
+    path space, and an absolute root would make that an error rather than a
+    question anyone is still free to answer.
+
+    Attributes:
+        project_offset: The invocation directory relative to the repository
+            root, which is also where the profile and the selection file live.
+            :data:`WHOLE_REPOSITORY` when the project IS the repository root.
+        node_id_prefix: pytest's rootdir relative to the repository root. Node
+            ids are rootdir-relative and everything else here is repo-relative,
+            so this is what puts the file a node id names into the same space as
+            the coverage paths beside it. Read from ``config.rootpath`` inside
+            the profiled process, NOT from ``config.invocation_params.dir``:
+            positional arguments are cwd-relative and node ids are not, and the
+            two coincide only until they do not.
+    """
+
+    project_offset: str = WHOLE_REPOSITORY
+    node_id_prefix: str = WHOLE_REPOSITORY
+
+
+@dataclass(frozen=True)
 class ProfilingMeta:
     """Metadata for a profiling run.
 
@@ -163,7 +195,7 @@ class ProfilingData:
     """Complete profiling data for a test suite.
 
     Attributes:
-        measured_files: Project-relative paths of every file coverage measured,
+        measured_files: Repository-relative paths of every file coverage measured,
             including files no test executed. A changed file that is absent
             here is one coverage never saw at all, which is a different thing
             from a file no test happens to run.
@@ -185,6 +217,9 @@ class ProfilingData:
             a regenerated profile would know about, which is what makes
             comparing the tree against the maps meaningful rather than a
             comparison every profile fails on its own non-Python files.
+        anchor: Where inside the repository the run that recorded this stood.
+            Without it a profile captured from another subdirectory matches
+            nothing and reports a healthy zero.
     """
 
     meta: ProfilingMeta
@@ -193,6 +228,7 @@ class ProfilingData:
     measured_files: frozenset[str]
     import_graph: ImportGraph
     scope: ProfileScope
+    anchor: ProfileAnchor
     unattributable_branches: frozenset[str] = frozenset()
     reads: ReadObservations = ReadObservations()
     present_files: frozenset[str] = frozenset()
@@ -250,6 +286,22 @@ class ProfileScopeModel(BaseModel):
         )
 
 
+class ProfileAnchorModel(BaseModel):
+    """Pydantic model for ProfileAnchor validation."""
+
+    project_offset: str
+    node_id_prefix: str
+
+    def to_profile_anchor(self) -> ProfileAnchor:
+        """Convert to the internal frozen dataclass."""
+        return ProfileAnchor(project_offset=self.project_offset, node_id_prefix=self.node_id_prefix)
+
+    @classmethod
+    def from_profile_anchor(cls, anchor: ProfileAnchor) -> "ProfileAnchorModel":
+        """Build the model that writes ``anchor`` to the profile."""
+        return cls(project_offset=anchor.project_offset, node_id_prefix=anchor.node_id_prefix)
+
+
 class OutcomeRecordModel(BaseModel):
     """One test's outcome as the profiling hook writes it to the outcomes file."""
 
@@ -275,6 +327,10 @@ class OutcomesFileModel(BaseModel):
         scope: The coverage targets and test paths this process resolved. Every
             process writes them; a serial run and an xdist worker resolve the
             same command line, so the runner unions them.
+        node_id_prefix: pytest's rootdir relative to the repository root, as
+            this process resolved it. Every process resolves the same one, so
+            the runner checks they agree rather than unioning: two prefixes
+            would mean two path spaces in one set of maps.
     """
 
     worker: str | None
@@ -282,6 +338,7 @@ class OutcomesFileModel(BaseModel):
     outcomes: dict[str, OutcomeRecordModel]
     collection_errors: list[str]
     scope: ProfileScopeModel
+    node_id_prefix: str
 
 
 class ImportEdgeModel(BaseModel):
@@ -424,6 +481,7 @@ class ProfilingDataFile(BaseModel):
     measured_files: list[str]
     import_graph: ImportGraphModel
     scope: ProfileScopeModel
+    anchor: ProfileAnchorModel
     unattributable_branches: list[str] = Field(default_factory=list)
     reads: ReadObservationsModel = Field(default_factory=ReadObservationsModel)
     present_files: list[str] = Field(default_factory=list)
@@ -464,6 +522,7 @@ class ProfilingDataFile(BaseModel):
             measured_files=frozenset(self.measured_files),
             import_graph=self.import_graph.to_import_graph(),
             scope=self.scope.to_profile_scope(),
+            anchor=self.anchor.to_profile_anchor(),
             unattributable_branches=frozenset(self.unattributable_branches),
             reads=self.reads.to_read_observations(),
             present_files=frozenset(self.present_files),

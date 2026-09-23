@@ -36,7 +36,7 @@ class CovSourceOrigin(Enum):
     """Taken from the project's own [tool.coverage.run] source or source_pkgs."""
 
     SRC_LAYOUT = "src_layout"
-    """Guessed from a src/ directory at the repository root."""
+    """Guessed from a src/ directory beside the project's pyproject.toml."""
 
     PROJECT_NAME = "project_name"
     """Guessed from a package named after the project in pyproject.toml."""
@@ -228,9 +228,9 @@ class PyProjectConfig(BaseModel):
     tool: ToolConfig | None = None
 
 
-def _read_pyproject(project_root: Path) -> PyProjectConfig | None:
+def _read_pyproject(invocation_dir: Path) -> PyProjectConfig | None:
     """Parse pyproject.toml, or say why it could not be read and carry on."""
-    pyproject_path = project_root / "pyproject.toml"
+    pyproject_path = invocation_dir / "pyproject.toml"
     if not pyproject_path.exists():
         return None
     try:
@@ -274,17 +274,17 @@ def _cov_target_from_coverage_config(data: PyProjectConfig | None) -> Discovered
     )
 
 
-def _cov_target_from_project_name(data: PyProjectConfig | None, project_root: Path) -> DiscoveredCovSource | None:
+def _cov_target_from_project_name(data: PyProjectConfig | None, invocation_dir: Path) -> DiscoveredCovSource | None:
     """A package named after the project, which is the commonest flat layout."""
     if data is None or data.project is None or not data.project.name:
         return None
     normalised = data.project.name.replace("-", "_")
-    if not (project_root / normalised).is_dir():
+    if not (invocation_dir / normalised).is_dir():
         return None
     return DiscoveredCovSource(value=normalised, origin=CovSourceOrigin.PROJECT_NAME)
 
 
-def _discover_cov_target(project_root: Path) -> DiscoveredCovSource:
+def _discover_cov_target(invocation_dir: Path) -> DiscoveredCovSource:
     """Work out what to instrument, and remember how that answer was reached.
 
     Explicit configuration first, guesses after, and no answer at all rather than
@@ -292,25 +292,31 @@ def _discover_cov_target(project_root: Path) -> DiscoveredCovSource:
     .py file in the tree in scope, including the ones coverage.py never walks, and
     a profile that can never know them is a profile that has permanently expired.
     """
-    data = _read_pyproject(project_root)
+    data = _read_pyproject(invocation_dir)
 
     from_coverage = _cov_target_from_coverage_config(data)
     if from_coverage is not None:
         return from_coverage
 
-    if (project_root / "src").is_dir():
+    if (invocation_dir / "src").is_dir():
         return DiscoveredCovSource(value="src", origin=CovSourceOrigin.SRC_LAYOUT)
 
-    from_name = _cov_target_from_project_name(data, project_root)
+    from_name = _cov_target_from_project_name(data, invocation_dir)
     if from_name is not None:
         return from_name
 
     return DiscoveredCovSource(value=WHOLE_REPOSITORY, origin=CovSourceOrigin.UNDISCOVERED)
 
 
-def load_file_config(project_root: Path) -> FileConfig | None:
-    """Load configuration from pyproject.toml in project root."""
-    pyproject_path = project_root / "pyproject.toml"
+def load_file_config(invocation_dir: Path) -> FileConfig | None:
+    """Load configuration from the pyproject.toml the command was invoked beside.
+
+    The invocation directory, not the repository root. A project in a
+    subdirectory keeps its settings beside the ``[tool.coverage.run]`` and
+    ``[tool.pytest.ini_options]`` they belong with, rather than in a file the
+    repository root may not even have.
+    """
+    pyproject_path = invocation_dir / "pyproject.toml"
     if not pyproject_path.exists():
         return None
 
@@ -350,11 +356,11 @@ def _apply_cli_overrides(file_config: FileConfig | None, cli_overrides: dict[str
 def resolve_downwind_config(
     file_config: FileConfig | None,
     cli_overrides: dict[str, Any],
-    project_root: Path,
+    invocation_dir: Path,
 ) -> DownwindConfig:
     """Merge defaults, file config and CLI overrides for the downwind command.
 
-    Takes ``project_root`` for the same reason :func:`resolve_config` does: a
+    Takes ``invocation_dir`` for the same reason :func:`resolve_config` does: a
     fallback run has to instrument something, and a project that never set
     ``cov_source`` needs the same heuristic discovery the smoke path gets
     rather than a different answer on the downwind path.
@@ -363,7 +369,7 @@ def resolve_downwind_config(
     discovered = (
         DiscoveredCovSource(value=resolved.cov_source, origin=CovSourceOrigin.CONFIGURED)
         if resolved.cov_source is not None
-        else _discover_cov_target(project_root)
+        else _discover_cov_target(invocation_dir)
     )
     return DownwindConfig(
         profile_path=resolved.profile_path,
@@ -387,7 +393,7 @@ def resolve_downwind_config(
 def resolve_config(
     file_config: FileConfig | None,
     cli_overrides: dict[str, Any],
-    project_root: Path,
+    invocation_dir: Path,
 ) -> ResolvedConfig:
     """Merge default config, file config, and CLI overrides into a final ResolvedConfig."""
     resolved = _apply_cli_overrides(file_config, cli_overrides)
@@ -408,7 +414,7 @@ def resolve_config(
     discovered = (
         DiscoveredCovSource(value=resolved.cov_source, origin=CovSourceOrigin.CONFIGURED)
         if resolved.cov_source is not None
-        else _discover_cov_target(project_root)
+        else _discover_cov_target(invocation_dir)
     )
 
     return ResolvedConfig(

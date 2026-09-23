@@ -18,6 +18,7 @@ import pytest
 
 from smoke_optimiser.config import CovSourceOrigin, DownwindConfig, ProfilingRunConfig
 from smoke_optimiser.downwind.command import run_downwind
+from smoke_optimiser.paths import ProjectPaths
 from smoke_optimiser.profiler.models import PROFILE_SCHEMA_VERSION
 from smoke_optimiser.profiler.runner import (
     ProfilingIncompleteError,
@@ -116,6 +117,7 @@ def _profile_where_the_change_reaches_no_test() -> dict[str, Any]:
             "resolution_errors": 0,
             "error_samples": [],
         },
+        "anchor": {"project_offset": ".", "node_id_prefix": "."},
     }
 
 
@@ -223,6 +225,77 @@ def test_rewriting_its_own_artefacts_is_not_treated_as_a_change(
         selection = json.load(f)
     assert selection["changed_files"] == []
     assert selection["blind_spots"] == []
+
+
+@pytest.fixture
+def monorepo_with_tracked_own_artefacts(tmp_path: Path) -> Path:
+    """The same early state, with the project one directory down and the paths relative.
+
+    Relative is the point: an absolute profile_path would resolve identically
+    whatever root anything joined it onto, so it could not catch the anchoring
+    this fixture exists to pin. Returns the REPOSITORY root.
+    """
+    repo = tmp_path / "repo"
+    project = repo / "api"
+    (project / "src").mkdir(parents=True)
+    (project / "tests").mkdir()
+    (project / "src" / "a.py").write_text("from src import b\n")
+    (project / "src" / "b.py").write_text("x = 1\n")
+    (project / "tests" / "test_x.py").write_text("def test_x():\n    assert True\n")
+    profile = _profile_where_the_change_reaches_no_test()
+    profile["measured_files"] = ["api/src/a.py", "api/src/b.py"]
+    profile["import_graph"]["edges"] = [
+        {"importer": "api/src/b.py", "imported": "api/src/a.py"},
+        {"importer": "api/src/a.py", "imported": "api/src/b.py"},
+    ]
+    profile["import_graph"]["unattributed_modules"] = ["api/tests/test_x.py"]
+    profile["scope"] = {
+        "coverage_roots": ["api/src"],
+        "test_roots": ["api/tests"],
+        "test_file_patterns": ["test_*.py"],
+        "include_namespace_packages": False,
+    }
+    profile["anchor"] = {"project_offset": "api", "node_id_prefix": "api"}
+    (project / "profile.json").write_text(json.dumps(profile))
+    (project / ".downwind.json").write_text("{}")
+
+    _git(repo, "init")
+    _git(repo, "add", ".")
+    _git(repo, "-c", "user.email=t@example.com", "-c", "user.name=t", "commit", "-m", "initial")
+    return repo
+
+
+def test_own_artefacts_in_a_subdirectory_are_still_not_treated_as_a_change(
+    monorepo_with_tracked_own_artefacts: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The artefacts are found where the project is, not where the repository starts.
+
+    git reports them as api/profile.json while the config names profile.json, so a
+    comparison that anchored the configured path on the repository root would look
+    for repo/profile.json, match nothing, and read the file this tool rewrote last
+    run as an unattributable change. Every run would then refuse to the full suite
+    and rewrite the artefacts again -- a permanent full suite that looks like
+    ordinary operation, which is exactly what it did before it was told the two
+    roots apart.
+    """
+    project = monorepo_with_tracked_own_artefacts / "api"
+    profile = _profile_where_the_change_reaches_no_test()
+    profile["anchor"] = {"project_offset": "api", "node_id_prefix": "api"}
+    (project / "profile.json").write_text(json.dumps(profile) + "\n")
+    (project / ".downwind.json").write_text('{"rewritten": true}')
+
+    config = replace(
+        _config(project),
+        profile_path=Path("profile.json"),
+        downwind_file_path=Path(".downwind.json"),
+    )
+    with patch("smoke_optimiser.downwind.command._run_pytest") as run_pytest:
+        exit_code = run_downwind(config, project)
+
+    assert exit_code == EXIT_OK
+    run_pytest.assert_not_called()
+    assert "No changes in the working tree" in capsys.readouterr().out
 
 
 def test_a_clean_tree_says_nothing_changed_rather_than_warning_about_untested_files(
@@ -364,7 +437,7 @@ def test_a_refusal_that_regenerates_profiles_the_full_suite_and_saves_what_it_re
     run_pytest.assert_not_called()
     save.assert_called_once()
     assert save.call_args.args[1] == repo / "profile.json"
-    assert run_profiling.call_args.args[1] == repo
+    assert run_profiling.call_args.args[1] == ProjectPaths(repo_root=repo, invocation_dir=repo)
 
 
 def test_the_instrumented_fallback_still_carries_the_downwind_flags(

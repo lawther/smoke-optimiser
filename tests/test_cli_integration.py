@@ -7,6 +7,7 @@ from smoke_optimiser.cli import app
 from smoke_optimiser.profiler.models import ProfilingData
 from smoke_optimiser.profiler.persistence import load_profile
 from smoke_optimiser.profiler.runner import ProfilingRun
+from smoke_optimiser.profiler.scope import WHOLE_REPOSITORY
 
 runner = CliRunner()
 
@@ -57,7 +58,7 @@ def test_an_ordinary_run_leaves_the_profile_behind_for_downwind(
 
         assert result.exit_code == 0
         assert (tmp_path / ".smoke_profiling_data.json").exists()
-        assert load_profile(tmp_path / ".smoke_profiling_data.json") == profiled_suite
+        assert load_profile(tmp_path / ".smoke_profiling_data.json", WHOLE_REPOSITORY) == profiled_suite
 
 
 @patch("smoke_optimiser.cli.run_profiling")

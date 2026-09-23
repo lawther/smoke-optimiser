@@ -17,12 +17,14 @@ from pydantic import ValidationError
 
 from smoke_optimiser.config import CovSourceOrigin, ProfilingRunConfig
 from smoke_optimiser.downwind.changes import GitStatusError, working_tree_files
+from smoke_optimiser.paths import ProjectPaths
 from smoke_optimiser.profiler.coverage_db import CoverageIngestError, build_profiling_data
 from smoke_optimiser.profiler.import_tracer import ImportGraphIngestError, merge_graphs, read_graph
 from smoke_optimiser.profiler.models import (
     ImportGraph,
     OutcomeRecordModel,
     OutcomesFileModel,
+    ProfileAnchor,
     ProfilingData,
     ProfilingMeta,
     ReadMap,
@@ -33,7 +35,7 @@ from smoke_optimiser.profiler.read_tracer import (
     merge_read_maps,
     read_read_map,
 )
-from smoke_optimiser.profiler.scope import ProfileScope
+from smoke_optimiser.profiler.scope import WHOLE_REPOSITORY, ProfileScope
 
 # An environment variable's value, named so the mapping the profiling subprocess
 # runs under says what it carries rather than being an anonymous dict of strings.
@@ -81,6 +83,7 @@ class IterationOutcomes(NamedTuple):
     xdist_workers: int
     collection_errors: frozenset[str]
     scope: ProfileScope
+    node_id_prefix: str
 
 
 # What each pytest exit code means for a profiling run. OK and TESTS_FAILED are absent
@@ -150,6 +153,7 @@ class SuiteObservations(NamedTuple):
     import_graph: ImportGraph
     scope: ProfileScope
     read_map: ReadMap
+    node_id_prefix: str
     returncode: int
     """How the last pytest invocation exited. Kept because a caller may be running
     the suite for its own sake and not only to profile it, and would otherwise have
@@ -177,12 +181,13 @@ from pathlib import Path
 
 import pytest
 
+from smoke_optimiser.paths import offset_from
 from smoke_optimiser.profiler.import_tracer import ImportTracer, write_graph
 from smoke_optimiser.profiler.read_tracer import ReadTracer, write_read_map
 from smoke_optimiser.profiler.scope import resolve_scope
 
 _TRACER = ImportTracer()
-_READS = ReadTracer(Path(os.environ.get('SMOKE_PROJECT_ROOT', os.getcwd())))
+_READS = ReadTracer(Path(os.environ.get('SMOKE_REPO_ROOT', os.getcwd())))
 _COLLECTION_ERRORS = []
 
 
@@ -250,7 +255,7 @@ def pytest_runtest_makereport(item, call):
 def pytest_unconfigure(config):
     _TRACER.uninstall()
     _READS.uninstall()
-    root = Path(os.environ.get('SMOKE_PROJECT_ROOT', str(config.rootpath)))
+    root = Path(os.environ.get('SMOKE_REPO_ROOT', str(config.rootpath)))
     graph_file = os.environ.get('SMOKE_IMPORT_GRAPH_JSON')
     if graph_file:
         write_graph(_TRACER.snapshot(root, sys.modules), Path(_worker_path(graph_file)))
@@ -275,9 +280,14 @@ def pytest_unconfigure(config):
         args=config.args,
         test_file_patterns=config.getini('python_files'),
         invocation_dir=Path(str(config.invocation_params.dir)),
-        project_root=root,
+        repo_root=root,
         include_namespace_packages=include_namespace_packages,
     )
+
+    # ROOTDIR, not invocation_params.dir. Node ids are rootdir-relative while
+    # pytest's positional arguments are cwd-relative, so resolve_scope above is
+    # right to use the other one -- and the two coincide only until they do not.
+    node_id_prefix = offset_from(root, Path(str(config.rootpath)))
 
     if hasattr(config, '_smoke_outcomes'):
         # Under pytest-xdist every worker runs this hook. They must not share one
@@ -305,6 +315,7 @@ def pytest_unconfigure(config):
                 'test_file_patterns': list(scope.test_file_patterns),
                 'include_namespace_packages': scope.include_namespace_packages,
             },
+            'node_id_prefix': node_id_prefix,
         }
         with open(outcomes_file, 'w') as f:
             json.dump(payload, f)
@@ -429,7 +440,7 @@ def check_prerequisites(config: ProfilingRunConfig) -> None:
         typer.secho("💡 Use --allow-ordered to suppress this check.", fg=typer.colors.YELLOW, err=True)
 
 
-def _get_git_commit(project_root: Path) -> str | None:
+def _get_git_commit(repo_root: Path) -> str | None:
     """Best-effort git commit retrieval."""
     git_path = shutil.which("git")
     if not git_path:
@@ -438,7 +449,7 @@ def _get_git_commit(project_root: Path) -> str | None:
     try:
         result = subprocess.run(  # noqa: S603
             [git_path, "rev-parse", "HEAD"],
-            cwd=project_root,
+            cwd=repo_root,
             capture_output=True,
             text=True,
             check=False,
@@ -471,6 +482,7 @@ def _read_iteration_outcomes(paths: Sequence[Path]) -> IterationOutcomes:
     workers = 1
     collection_errors: set[str] = set()
     scopes: list[ProfileScope] = []
+    prefixes: list[str] = []
 
     for path in paths:
         try:
@@ -487,6 +499,7 @@ def _read_iteration_outcomes(paths: Sequence[Path]) -> IterationOutcomes:
         merged.update(written.outcomes)
         collection_errors.update(written.collection_errors)
         scopes.append(written.scope.to_profile_scope())
+        prefixes.append(written.node_id_prefix)
         if written.worker_count:
             workers = max(workers, written.worker_count)
         path.unlink()
@@ -496,7 +509,29 @@ def _read_iteration_outcomes(paths: Sequence[Path]) -> IterationOutcomes:
         xdist_workers=workers,
         collection_errors=frozenset(collection_errors),
         scope=_merge_scopes(scopes),
+        node_id_prefix=_agreed_node_id_prefix(prefixes),
     )
+
+
+def _agreed_node_id_prefix(prefixes: Sequence[str]) -> str:
+    """The one rootdir prefix every process reported, or refuse the run.
+
+    Unlike the scope this is not unioned. The prefix decides which path space
+    the file a node id names is read in, so two of them would put one set of
+    maps in two spaces at once -- the exact failure this prefix exists to
+    prevent, arriving from the other direction. Every process parses the same
+    rootdir, so disagreement means something is wrong that guessing would hide.
+    """
+    distinct = set(prefixes)
+    if len(distinct) > 1:
+        listed = ", ".join(sorted(distinct))
+        msg = (
+            f"the profiling hook reported {len(distinct)} different pytest rootdirs ({listed}). "
+            "Node ids are rootdir-relative, so one profile cannot be keyed by two of them without "
+            "silently selecting nothing for half the tree."
+        )
+        raise OutcomesIngestError(msg)
+    return next(iter(distinct), WHOLE_REPOSITORY)
 
 
 def _merge_scopes(scopes: Sequence[ProfileScope]) -> ProfileScope:
@@ -521,7 +556,7 @@ def _merge_scopes(scopes: Sequence[ProfileScope]) -> ProfileScope:
 
 
 def _warn_about_an_unbounded_test_scope(scope: ProfileScope) -> None:
-    """Say what a project loses by leaving pytest pointed at the repository root.
+    """Say what a project loses by leaving pytest pointed at its whole tree.
 
     The profile still works, so this is not fatal -- but the guarantee it carries
     is narrower than the user has any way of knowing, so the steps that widen it
@@ -540,7 +575,7 @@ def _warn_about_an_unbounded_test_scope(scope: ProfileScope) -> None:
     )
     typer.secho(
         "\U0001f4a1 To fix:\n"
-        "  1. Create a tests/ directory at the repository root and move every test file into it.\n"
+        "  1. Create a tests/ directory beside your pyproject.toml and move every test file into it.\n"
         '  2. Add testpaths = ["tests"] under [tool.pytest.ini_options] in pyproject.toml.\n'
         "  3. Re-run smoke-optimiser to regenerate the profile.",
         fg=typer.colors.YELLOW,
@@ -639,7 +674,7 @@ def _read_iteration_read_map(paths: Sequence[Path]) -> ReadMap:
     return merge_read_maps(maps)
 
 
-def _present_files(project_root: Path) -> frozenset[str]:
+def _present_files(repo_root: Path) -> frozenset[str]:
     """Every non-ignored file in the working tree as the run starts.
 
     The profile's denominator, so that a file nothing touched can be told apart
@@ -658,7 +693,7 @@ def _present_files(project_root: Path) -> frozenset[str]:
     than under-selects.
     """
     try:
-        return working_tree_files(project_root)
+        return working_tree_files(repo_root)
     except GitStatusError as exc:
         typer.secho(
             f"\u26a0\ufe0f Warning: could not list the working tree ({exc.detail.strip()}), so the profile "
@@ -672,7 +707,7 @@ def _present_files(project_root: Path) -> frozenset[str]:
 
 def _profiling_env(
     temp_dir: Path,
-    project_root: Path,
+    paths: ProjectPaths,
     coverage_db: Path,
     artefacts: HookArtefacts,
 ) -> dict[str, EnvVarValue]:
@@ -681,7 +716,7 @@ def _profiling_env(
 
     current_pythonpath = env.get("PYTHONPATH", EnvVarValue(""))
     # Add temp_dir to PYTHONPATH so pytest can load _smoke_hook
-    parts = [str(temp_dir), str(project_root)]
+    parts = [str(temp_dir), str(paths.invocation_dir)]
     if current_pythonpath:
         parts.append(current_pythonpath)
     env["PYTHONPATH"] = EnvVarValue(os.pathsep.join(parts))
@@ -691,8 +726,8 @@ def _profiling_env(
     env["SMOKE_READ_MAP_JSON"] = EnvVarValue(str(artefacts.read_map_json))
     env["COVERAGE_FILE"] = EnvVarValue(str(coverage_db))
     # The graph's paths must be relative to the same root as the coverage data, which
-    # pytest's own rootdir is not obliged to match.
-    env["SMOKE_PROJECT_ROOT"] = EnvVarValue(str(project_root.resolve()))
+    # pytest's own rootdir is not obliged to match -- and in a monorepo does not.
+    env["SMOKE_REPO_ROOT"] = EnvVarValue(str(paths.repo_root.resolve()))
 
     # smoke-optimiser may itself be running inside someone else's xdist worker, whose
     # worker variables would otherwise be inherited by this serial child and recorded
@@ -740,13 +775,19 @@ def _build_pytest_command(config: ProfilingRunConfig, coveragerc: Path) -> list[
 
 def _run_iteration(
     pytest_cmd: list[str],
-    project_root: Path,
+    invocation_dir: Path,
     env: dict[str, EnvVarValue],
     artefacts: HookArtefacts,
 ) -> IterationResult:
-    """Run the suite once and collect everything that iteration left behind."""
+    """Run the suite once and collect everything that iteration left behind.
+
+    In the INVOCATION directory, not the repository root: pytest resolves its
+    rootdir, ``testpaths`` and ``pythonpath`` from the pyproject.toml it finds,
+    and a project living in a subdirectory of a larger repository would
+    otherwise be handed none of its own configuration.
+    """
     # the command is built from sys.executable and user-provided args in a local CLI tool
-    run = subprocess.run(pytest_cmd, cwd=project_root, check=False, env=env)  # noqa: S603
+    run = subprocess.run(pytest_cmd, cwd=invocation_dir, check=False, env=env)  # noqa: S603
 
     # The files are read whatever the exit code, both to leave the temp directory clean
     # for the next iteration and because the outcomes file is what carries the
@@ -787,7 +828,7 @@ def _run_iteration(
 def _accumulate_iterations(
     config: ProfilingRunConfig,
     pytest_cmd: list[str],
-    project_root: Path,
+    invocation_dir: Path,
     env: dict[str, EnvVarValue],
     artefacts: HookArtefacts,
 ) -> SuiteObservations:
@@ -810,6 +851,7 @@ def _accumulate_iterations(
     graphs: list[ImportGraph] = []
     read_maps: list[ReadMap] = []
     scopes: list[ProfileScope] = []
+    prefixes: list[str] = []
     # The loop below always runs at least once, and every path out of it either
     # raises or has assigned this, so the initial value is never the one reported.
     returncode = int(pytest.ExitCode.OK)
@@ -818,7 +860,7 @@ def _accumulate_iterations(
         if config.iterations > 1:
             typer.secho(f"  \U0001f504 Iteration {i + 1}/{config.iterations}...", fg=typer.colors.CYAN)
 
-        result = _run_iteration(pytest_cmd, project_root, env, artefacts)
+        result = _run_iteration(pytest_cmd, invocation_dir, env, artefacts)
         returncode = result.returncode
 
         if result.outcomes.collection_errors:
@@ -861,12 +903,18 @@ def _accumulate_iterations(
         graphs.append(result.import_graph)
         read_maps.append(result.read_map)
         scopes.append(result.outcomes.scope)
+        prefixes.append(result.outcomes.node_id_prefix)
 
         for nodeid, record in result.outcomes.outcomes.items():
             all_durations[nodeid].append(record.duration)
             # Use the last run's outcome/markers (should be consistent)
             final_outcomes[nodeid] = record.passed
             final_markers[nodeid] = frozenset(record.markers)
+
+    try:
+        node_id_prefix = _agreed_node_id_prefix(prefixes)
+    except OutcomesIngestError as exc:
+        _fail(str(exc), returncode)
 
     return SuiteObservations(
         durations={nodeid: sum(durations) / len(durations) for nodeid, durations in all_durations.items()},
@@ -877,12 +925,18 @@ def _accumulate_iterations(
         import_graph=merge_graphs(graphs),
         scope=_merge_scopes(scopes),
         read_map=merge_read_maps(read_maps),
+        node_id_prefix=node_id_prefix,
         returncode=returncode,
     )
 
 
-def run_profiling(config: ProfilingRunConfig, project_root: Path) -> ProfilingRun:
-    """Run the test suite under coverage instrumentation and collect results."""
+def run_profiling(config: ProfilingRunConfig, paths: ProjectPaths) -> ProfilingRun:
+    """Run the test suite under coverage instrumentation and collect results.
+
+    Takes both roots because the run spans them: every path it records is
+    relative to the repository root, while the suite itself runs in the
+    invocation directory, where the project's own pytest configuration is.
+    """
     check_prerequisites(config)
 
     with tempfile.TemporaryDirectory() as temp_dir_str:
@@ -901,12 +955,12 @@ def run_profiling(config: ProfilingRunConfig, project_root: Path) -> ProfilingRu
 
         # Before the first iteration, so the denominator names the tree the suite was
         # actually profiled against rather than whatever it became while it ran.
-        present_files = _present_files(project_root)
+        present_files = _present_files(paths.repo_root)
 
-        env = _profiling_env(temp_dir, project_root, coverage_db, artefacts)
+        env = _profiling_env(temp_dir, paths, coverage_db, artefacts)
         pytest_cmd = _build_pytest_command(config, coveragerc)
 
-        observed = _accumulate_iterations(config, pytest_cmd, project_root, env, artefacts)
+        observed = _accumulate_iterations(config, pytest_cmd, paths.invocation_dir, env, artefacts)
 
         # Read per-test coverage straight out of coverage.py's SQLite database
         results = SuiteRunResults(
@@ -920,16 +974,17 @@ def run_profiling(config: ProfilingRunConfig, project_root: Path) -> ProfilingRu
             read_map=observed.read_map,
             present_files=present_files,
         )
+        anchor = ProfileAnchor(project_offset=paths.project_offset, node_id_prefix=observed.node_id_prefix)
         _warn_about_an_unbounded_test_scope(results.scope)
         try:
-            data = build_profiling_data(coverage_db, project_root, results, config_file=coveragerc)
+            data = build_profiling_data(coverage_db, paths.repo_root, results, anchor, config_file=coveragerc)
         except CoverageIngestError as exc:
             _fail(str(exc), observed.returncode)
 
         # Fill in the missing metadata
         final_meta = ProfilingMeta(
             timestamp=datetime.now(UTC),
-            commit=_get_git_commit(project_root),
+            commit=_get_git_commit(paths.repo_root),
             python_version=sys.version,
             coverage_version=data.meta.coverage_version,
             command=" ".join(sys.argv),
@@ -946,6 +1001,7 @@ def run_profiling(config: ProfilingRunConfig, project_root: Path) -> ProfilingRu
                 measured_files=data.measured_files,
                 import_graph=data.import_graph,
                 scope=data.scope,
+                anchor=data.anchor,
                 unattributable_branches=data.unattributable_branches,
                 reads=data.reads,
                 present_files=data.present_files,

@@ -8,6 +8,7 @@ from smoke_optimiser.environment import MachineEnvironment
 from smoke_optimiser.profiler.models import (
     PROFILE_SCHEMA_VERSION,
     ImportGraph,
+    ProfileAnchor,
     ProfilingData,
     ProfilingMeta,
     ReadMap,
@@ -98,6 +99,7 @@ def raw_profile() -> RawProfileFactory:
                 "resolution_errors": 0,
                 "error_samples": [],
             },
+            "anchor": {"project_offset": ".", "node_id_prefix": "."},
         }
 
     return _build
@@ -147,4 +149,5 @@ def profiled_suite() -> ProfilingData:
             test_roots=frozenset({"tests"}),
             test_file_patterns=("test_*.py",),
         ),
+        anchor=ProfileAnchor(),
     )

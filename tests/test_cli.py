@@ -11,10 +11,16 @@ from typer.testing import CliRunner
 from smoke_optimiser.cli import _reject_parallel_durations, app
 from smoke_optimiser.config import CovSourceOrigin, OperationMode, ProfilingRunConfig, ResolvedConfig
 from smoke_optimiser.environment import MachineEnvironment
-from smoke_optimiser.profiler.models import PROFILE_SCHEMA_VERSION, ImportGraph, ProfilingData, ProfilingMeta
+from smoke_optimiser.profiler.models import (
+    PROFILE_SCHEMA_VERSION,
+    ImportGraph,
+    ProfileAnchor,
+    ProfilingData,
+    ProfilingMeta,
+)
 from smoke_optimiser.profiler.persistence import load_profile
 from smoke_optimiser.profiler.runner import ProfilingRun
-from smoke_optimiser.profiler.scope import ProfileScope
+from smoke_optimiser.profiler.scope import WHOLE_REPOSITORY, ProfileScope
 from tests.conftest import RawProfileFactory
 
 runner = CliRunner()
@@ -156,7 +162,7 @@ def test_a_profile_with_a_current_schema_version_but_missing_fields_reports_a_co
     )
 
     with pytest.raises(typer.Exit):
-        load_profile(profile)
+        load_profile(profile, WHOLE_REPOSITORY)
 
     stderr = capsys.readouterr().err
     assert "Failed to parse profiling data" in stderr
@@ -177,7 +183,7 @@ def test_a_profile_from_an_older_schema_version_reports_a_distinct_error(
     profile.write_text(json.dumps({"schema_version": PROFILE_SCHEMA_VERSION - 1}))
 
     with pytest.raises(typer.Exit):
-        load_profile(profile)
+        load_profile(profile, WHOLE_REPOSITORY)
 
     stderr = capsys.readouterr().err
     assert str(PROFILE_SCHEMA_VERSION - 1) in stderr
@@ -208,7 +214,7 @@ def test_a_profile_from_an_older_schema_version_suggests_the_command_that_wrote_
     )
 
     with pytest.raises(typer.Exit):
-        load_profile(profile)
+        load_profile(profile, WHOLE_REPOSITORY)
 
     stderr = capsys.readouterr().err
     assert "smoke-optimiser smoke --cov=smoke_optimiser" in stderr
@@ -236,7 +242,7 @@ def test_a_profile_recording_no_scope_reports_what_to_configure(
     profile.write_text(json.dumps(raw))
 
     with pytest.raises(typer.Exit):
-        load_profile(profile)
+        load_profile(profile, WHOLE_REPOSITORY)
 
     stderr = capsys.readouterr().err
     assert "no scope roots" in stderr
@@ -284,6 +290,7 @@ def _profile_recorded_with(workers: int) -> ProfilingData:
             resolution_errors=0,
             error_samples=(),
         ),
+        anchor=ProfileAnchor(),
     )
 
 

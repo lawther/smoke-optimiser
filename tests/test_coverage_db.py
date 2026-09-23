@@ -17,7 +17,7 @@ from smoke_optimiser.profiler.coverage_db import (
     build_profiling_data,
     read_coverage_db,
 )
-from smoke_optimiser.profiler.models import ImportGraph, ReadMap, SuiteRunResults
+from smoke_optimiser.profiler.models import ImportGraph, ProfileAnchor, ReadMap, SuiteRunResults
 from smoke_optimiser.profiler.scope import ProfileScope
 
 TEST_POS = "tests/test_app.py::test_pos"
@@ -112,7 +112,7 @@ def test_non_branch_arcs_are_not_counted_as_branches(tmp_path: Path) -> None:
     assert not any(bid.startswith(("app.py:1->", "app.py:3->")) for bid in covered)
 
 
-def test_paths_are_relative_to_the_project_root(tmp_path: Path) -> None:
+def test_paths_are_relative_to_the_repo_root(tmp_path: Path) -> None:
     ingest = read_coverage_db(_standard_db(tmp_path), tmp_path, _durations())
 
     assert all(bid.startswith("app.py:") for bid in ingest.total_branches)
@@ -308,7 +308,7 @@ def test_build_profiling_data_carries_outcomes_and_markers(
         ),
     )
 
-    data = build_profiling_data(db_path, tmp_path, results)
+    data = build_profiling_data(db_path, tmp_path, results, ProfileAnchor())
 
     assert len(data.tests) == EXPECTED_TEST_COUNT
     assert data.tests[TEST_POS].passed is True
@@ -344,7 +344,7 @@ def test_a_test_with_no_recorded_coverage_still_appears(
         ),
     )
 
-    data = build_profiling_data(db_path, tmp_path, results)
+    data = build_profiling_data(db_path, tmp_path, results, ProfileAnchor())
 
     assert data.tests[TEST_NEG].branches_covered == frozenset()
 
@@ -368,19 +368,19 @@ def test_an_empty_schema_table_fails_loudly(tmp_path: Path) -> None:
         read_coverage_db(db_path, tmp_path, _durations())
 
 
-def test_files_outside_the_project_root_keep_their_full_path(tmp_path: Path) -> None:
+def test_files_outside_the_repo_root_keep_their_full_path(tmp_path: Path) -> None:
     # A dependency measured from site-packages has no sensible relative path,
     # so it stays absolute rather than becoming a misleading '../..' chain.
     outside = tmp_path / "outside"
     outside.mkdir()
     app = outside / "app.py"
     app.write_text(APP_SOURCE)
-    project_root = tmp_path / "project"
-    project_root.mkdir()
-    db_path = project_root / ".coverage"
+    repo_root = tmp_path / "project"
+    repo_root.mkdir()
+    db_path = repo_root / ".coverage"
     _write_db(db_path, {f"{TEST_POS}|run": {str(app): {(2, 3)}}})
 
-    ingest = read_coverage_db(db_path, project_root, {TEST_POS: 0.1})
+    ingest = read_coverage_db(db_path, repo_root, {TEST_POS: 0.1})
 
     assert ingest.tests_branches[TEST_POS] == frozenset([f"{app.as_posix()}:2->3"])
 
@@ -447,16 +447,16 @@ def test_a_file_only_executed_at_import_time_is_measured_but_untested(tmp_path: 
     assert ingest.tests_files[TEST_POS] == frozenset(["app.py"])
 
 
-def test_files_outside_the_project_root_keep_their_full_path_in_the_file_set(tmp_path: Path) -> None:
+def test_files_outside_the_repo_root_keep_their_full_path_in_the_file_set(tmp_path: Path) -> None:
     outside = tmp_path / "outside"
     outside.mkdir()
     app = outside / "app.py"
     app.write_text(APP_SOURCE)
-    project_root = tmp_path / "project"
-    project_root.mkdir()
-    db_path = project_root / ".coverage"
+    repo_root = tmp_path / "project"
+    repo_root.mkdir()
+    db_path = repo_root / ".coverage"
     _write_db(db_path, {f"{TEST_POS}|run": {str(app): {(2, 3)}}})
 
-    ingest = read_coverage_db(db_path, project_root, {TEST_POS: 0.1})
+    ingest = read_coverage_db(db_path, repo_root, {TEST_POS: 0.1})
 
     assert ingest.tests_files[TEST_POS] == frozenset([app.as_posix()])

@@ -37,6 +37,7 @@ from coverage.python import PythonFileReporter
 
 from smoke_optimiser.environment import capture_environment
 from smoke_optimiser.profiler.models import (
+    ProfileAnchor,
     ProfilingData,
     ProfilingMeta,
     ProfilingOutcome,
@@ -292,17 +293,17 @@ def _warn_about_unparseable_files(unparseable_files: list[str]) -> None:
     )
 
 
-def _relative_path(path: Path, project_root: Path) -> str:
+def _relative_path(path: Path, repo_root: Path) -> str:
     """Path relative to the project root, so profiles survive a change of machine."""
     try:
-        return path.relative_to(project_root).as_posix()
+        return path.relative_to(repo_root).as_posix()
     except ValueError:
         return path.as_posix()
 
 
 def read_coverage_db(
     coverage_db_path: Path,
-    project_root: Path,
+    repo_root: Path,
     test_durations: dict[str, float],
     config_file: Path | None = None,
 ) -> CoverageIngest:
@@ -331,7 +332,7 @@ def read_coverage_db(
         unparseable_files: list[str] = []
         for file_id, absolute_path in measured_files.items():
             reporter = PythonFileReporter(absolute_path, cov)
-            relative_path = _relative_path(Path(absolute_path), project_root)
+            relative_path = _relative_path(Path(absolute_path), repo_root)
             relative_paths[file_id] = relative_path
             raw_arcs = raw_arcs_by_file.get(file_id, set())
             branches = _file_branches_or_raise(reporter, absolute_path, relative_path, raw_arcs)
@@ -381,12 +382,13 @@ def read_coverage_db(
 
 def build_profiling_data(
     coverage_db_path: Path,
-    project_root: Path,
+    repo_root: Path,
     results: SuiteRunResults,
+    anchor: ProfileAnchor,
     config_file: Path | None = None,
 ) -> ProfilingData:
     """Read coverage data and assemble it into profiling results."""
-    ingest = read_coverage_db(coverage_db_path, project_root, results.durations, config_file)
+    ingest = read_coverage_db(coverage_db_path, repo_root, results.durations, config_file)
 
     tests = {
         test_id: ProfilingOutcome(
@@ -420,6 +422,7 @@ def build_profiling_data(
         measured_files=ingest.measured_files,
         import_graph=results.import_graph,
         scope=results.scope,
+        anchor=anchor,
         unattributable_branches=ingest.unattributable_branches,
         reads=ReadObservations(
             unattributed_reads=results.read_map.unattributed_reads,

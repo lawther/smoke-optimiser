@@ -122,8 +122,8 @@ class ReadTracer:
     recording by flag rather than by removal.
     """
 
-    def __init__(self, project_root: Path) -> None:
-        self._root = Path(project_root).resolve()
+    def __init__(self, repo_root: Path) -> None:
+        self._root = Path(repo_root).resolve()
         self._root_prefix = str(self._root)
         self._reads: dict[str, set[str]] = {}
         self._listings: dict[str, set[str]] = {}

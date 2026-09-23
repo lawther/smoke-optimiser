@@ -105,9 +105,9 @@ def edge_targets(
     return targets
 
 
-def is_project_file(path: Path, project_root: Path) -> bool:
+def is_project_file(path: Path, repo_root: Path) -> bool:
     """Is this a file belonging to the project, rather than to a dependency?"""
-    if not path.is_relative_to(project_root):
+    if not path.is_relative_to(repo_root):
         return False
     return not any(part in EXCLUDED_PATH_PARTS for part in path.parts)
 
@@ -190,7 +190,7 @@ class ImportTracer:
         importlib.import_module = cast("Any", self._real_import_module)
         self._installed = False
 
-    def snapshot(self, project_root: Path, modules: Mapping[str, ModuleType]) -> ImportGraph:
+    def snapshot(self, repo_root: Path, modules: Mapping[str, ModuleType]) -> ImportGraph:
         """Resolve the recorded module names to project files.
 
         Module names are resolved to files only now, at the end of the run, because
@@ -198,7 +198,7 @@ class ImportTracer:
         outside the project -- the standard library, installed dependencies -- is
         dropped: a change there is not an edit this tool can select tests for.
         """
-        root = project_root.resolve()
+        root = repo_root.resolve()
         files: dict[str, str] = {}
         for module_name, module in list(modules.items()):
             file_attr = getattr(module, "__file__", None)

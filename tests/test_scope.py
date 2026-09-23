@@ -38,7 +38,7 @@ def test_a_coverage_source_that_is_a_path_becomes_that_path(tmp_path: Path) -> N
         args=[],
         test_file_patterns=DEFAULT_PATTERNS,
         invocation_dir=tmp_path,
-        project_root=tmp_path,
+        repo_root=tmp_path,
     )
 
     assert scope.coverage_roots == frozenset({"src"})
@@ -65,7 +65,7 @@ def test_a_coverage_source_that_is_a_package_name_resolves_to_its_directory(
         args=[],
         test_file_patterns=DEFAULT_PATTERNS,
         invocation_dir=tmp_path,
-        project_root=tmp_path,
+        repo_root=tmp_path,
     )
 
     assert scope.coverage_roots == frozenset({"src/mypkg"})
@@ -78,7 +78,7 @@ def test_a_coverage_source_outside_the_repository_is_dropped(tmp_path: Path) -> 
         args=[],
         test_file_patterns=DEFAULT_PATTERNS,
         invocation_dir=tmp_path,
-        project_root=tmp_path,
+        repo_root=tmp_path,
     )
 
     assert scope.coverage_roots == frozenset()
@@ -95,7 +95,7 @@ def test_an_unresolvable_coverage_source_is_kept_as_written(tmp_path: Path) -> N
         args=[],
         test_file_patterns=DEFAULT_PATTERNS,
         invocation_dir=tmp_path,
-        project_root=tmp_path,
+        repo_root=tmp_path,
     )
 
     assert scope.coverage_roots == frozenset({"not_a_package_or_path"})
@@ -112,7 +112,7 @@ def test_a_bare_coverage_flag_covers_the_whole_repository(
         args=[],
         test_file_patterns=DEFAULT_PATTERNS,
         invocation_dir=tmp_path,
-        project_root=tmp_path,
+        repo_root=tmp_path,
     )
 
     assert scope.coverage_roots == frozenset({"."})
@@ -124,7 +124,7 @@ def test_a_node_id_argument_contributes_the_file_it_names(tmp_path: Path) -> Non
         args=["tests/test_app.py::test_add"],
         test_file_patterns=DEFAULT_PATTERNS,
         invocation_dir=tmp_path,
-        project_root=tmp_path,
+        repo_root=tmp_path,
     )
 
     assert scope.test_roots == frozenset({"tests/test_app.py"})
@@ -139,7 +139,7 @@ def test_arguments_are_resolved_against_the_invocation_directory(tmp_path: Path)
         args=["tests"],
         test_file_patterns=DEFAULT_PATTERNS,
         invocation_dir=tmp_path / "backend",
-        project_root=tmp_path,
+        repo_root=tmp_path,
     )
 
     assert scope.test_roots == frozenset({"backend/tests"})
@@ -151,7 +151,7 @@ def test_a_scope_naming_nothing_is_empty(tmp_path: Path) -> None:
         args=[],
         test_file_patterns=DEFAULT_PATTERNS,
         invocation_dir=tmp_path,
-        project_root=tmp_path,
+        repo_root=tmp_path,
     )
 
     assert scope.is_empty

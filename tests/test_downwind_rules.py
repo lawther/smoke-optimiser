@@ -25,6 +25,7 @@ from smoke_optimiser.environment import MachineEnvironment
 from smoke_optimiser.profiler.models import (
     ImportEdge,
     ImportGraph,
+    ProfileAnchor,
     ProfilingData,
     ProfilingMeta,
     ProfilingOutcome,
@@ -140,6 +141,7 @@ def _maps(  # noqa: PLR0913 - one parameter per independent map fact; grouping t
             error_samples=(),
         ),
         present_files=present_files,
+        anchor=ProfileAnchor(),
     )
     return DownwindMaps.from_profile(profile)
 

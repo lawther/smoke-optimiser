@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from smoke_optimiser.config import CovSourceOrigin, ProfilingRunConfig
+from smoke_optimiser.paths import ProjectPaths
 from smoke_optimiser.profiler.import_tracer import write_graph
 from smoke_optimiser.profiler.models import ImportGraph, ReadMap
 from smoke_optimiser.profiler.read_tracer import write_read_map
@@ -27,7 +28,7 @@ from smoke_optimiser.profiler.runner import (
     check_prerequisites,
     run_profiling,
 )
-from smoke_optimiser.profiler.scope import ProfileScope
+from smoke_optimiser.profiler.scope import WHOLE_REPOSITORY, ProfileScope
 
 
 def _pytest_command(mock_run: MagicMock) -> list[str]:
@@ -127,7 +128,7 @@ def test_run_profiling_basic(mock_ingest: MagicMock, mock_run: MagicMock, tmp_pa
     mock_ingest.return_value = MagicMock()
 
     with patch("shutil.which", return_value="/usr/bin/pytest"):
-        run_profiling(config, tmp_path)
+        run_profiling(config, _flat(tmp_path))
 
     # Verify pytest command
     cmd = _pytest_command(mock_run)
@@ -168,7 +169,7 @@ def test_cov_report_in_pytest_args_does_not_suppress_the_cov_source(
     mock_ingest.return_value = MagicMock()
 
     with patch("shutil.which", return_value="/usr/bin/pytest"):
-        run_profiling(config, tmp_path)
+        run_profiling(config, _flat(tmp_path))
 
     cmd = _pytest_command(mock_run)
     assert "--cov=smoke_optimiser" in cmd
@@ -189,7 +190,7 @@ def test_an_explicit_cov_source_is_left_alone(mock_ingest: MagicMock, mock_run: 
     mock_ingest.return_value = MagicMock()
 
     with patch("shutil.which", return_value="/usr/bin/pytest"):
-        run_profiling(config, tmp_path)
+        run_profiling(config, _flat(tmp_path))
 
     cmd = _pytest_command(mock_run)
     assert "--cov=chosen_package" in cmd
@@ -200,8 +201,13 @@ THREE_WORKERS = 3
 TWO_WORKERS = 2
 
 
+def _flat(root: Path) -> ProjectPaths:
+    """The layout where the project IS the repository, which is most of them."""
+    return ProjectPaths(repo_root=root, invocation_dir=root)
+
+
 def _fake_pytest_config(
-    project_root: Path,
+    repo_root: Path,
     outcomes: dict[str, Any] | None = None,
     *,
     include_namespace_packages: bool = False,
@@ -215,11 +221,11 @@ def _fake_pytest_config(
     """
     return SimpleNamespace(
         _smoke_outcomes=outcomes if outcomes is not None else {},
-        rootpath=project_root,
+        rootpath=repo_root,
         args=["tests"],
         option=SimpleNamespace(cov_source=["src"]),
         getini=lambda name: ["test_*.py"] if name == "python_files" else [],
-        invocation_params=SimpleNamespace(dir=project_root),
+        invocation_params=SimpleNamespace(dir=repo_root),
         # A real run always has pytest-cov registered under this name; standing in
         # for "no such plugin" here would test a configuration the hook never sees.
         pluginmanager=SimpleNamespace(
@@ -257,6 +263,7 @@ def _write_outcomes(
             "test_file_patterns": ["test_*.py"],
             "include_namespace_packages": False,
         },
+        "node_id_prefix": WHOLE_REPOSITORY,
     }
     path.write_text(json.dumps(payload))
 
@@ -328,10 +335,10 @@ def test_the_profiling_hook_gives_each_xdist_worker_its_own_file(tmp_path: Path)
         }
         with patch.dict(os.environ, env, clear=False):
             # This test's own process may be a profiling run, whose graph file the
-            # exec'd hook would otherwise write into and whose project root the scope
+            # exec'd hook would otherwise write into and whose repository root the scope
             # would otherwise be resolved against.
             os.environ.pop("SMOKE_IMPORT_GRAPH_JSON", None)
-            os.environ.pop("SMOKE_PROJECT_ROOT", None)
+            os.environ.pop("SMOKE_REPO_ROOT", None)
             namespace["pytest_unconfigure"](config)
 
     iteration = _read_iteration_outcomes(_artefact_files(outcomes_json))
@@ -354,7 +361,7 @@ def test_the_profiling_hook_keeps_the_plain_filename_when_serial(tmp_path: Path)
         os.environ.pop("PYTEST_XDIST_WORKER", None)
         os.environ.pop("PYTEST_XDIST_WORKER_COUNT", None)
         os.environ.pop("SMOKE_IMPORT_GRAPH_JSON", None)
-        os.environ.pop("SMOKE_PROJECT_ROOT", None)
+        os.environ.pop("SMOKE_REPO_ROOT", None)
         namespace["pytest_unconfigure"](config)
 
     assert outcomes_json.exists()
@@ -387,7 +394,7 @@ def test_an_outer_xdist_worker_does_not_leak_into_the_profiled_run(
     mock_ingest.return_value = MagicMock()
 
     with patch.dict(os.environ, outer, clear=False), patch("shutil.which", return_value="/usr/bin/pytest"):
-        run_profiling(config, tmp_path)
+        run_profiling(config, _flat(tmp_path))
 
     # subprocess.run is also used for git, so pick out the call that launched pytest.
     pytest_envs = [call.kwargs["env"] for call in mock_run.call_args_list if "env" in call.kwargs]
@@ -486,7 +493,7 @@ def test_a_pytest_run_that_did_not_finish_produces_no_profile(
     mock_run.side_effect = _pytest_exit_codes(INTERRUPTED)
 
     with patch("shutil.which", return_value="/usr/bin/pytest"), pytest.raises(ProfilingIncompleteError):
-        run_profiling(_profiling_config(), tmp_path)
+        run_profiling(_profiling_config(), _flat(tmp_path))
 
     mock_ingest.assert_not_called()
 
@@ -505,7 +512,7 @@ def test_collecting_no_tests_says_so_rather_than_blaming_the_database(
         patch("shutil.which", return_value="/usr/bin/pytest"),
         pytest.raises(ProfilingIncompleteError, match="collected no tests"),
     ):
-        run_profiling(_profiling_config(), tmp_path)
+        run_profiling(_profiling_config(), _flat(tmp_path))
 
     mock_ingest.assert_not_called()
 
@@ -524,7 +531,7 @@ def test_an_exit_code_pytest_does_not_define_is_still_fatal(
         patch("shutil.which", return_value="/usr/bin/pytest"),
         pytest.raises(ProfilingIncompleteError, match=str(KILLED_BY_SIGNAL)),
     ):
-        run_profiling(_profiling_config(), tmp_path)
+        run_profiling(_profiling_config(), _flat(tmp_path))
 
     mock_ingest.assert_not_called()
 
@@ -536,7 +543,7 @@ def test_failing_tests_do_not_stop_the_run(mock_ingest: MagicMock, mock_run: Mag
     mock_run.side_effect = _pytest_exit_codes(1)
 
     with patch("shutil.which", return_value="/usr/bin/pytest"):
-        run_profiling(_profiling_config(), tmp_path)
+        run_profiling(_profiling_config(), _flat(tmp_path))
 
     mock_ingest.assert_called_once()
 
@@ -557,7 +564,7 @@ def test_a_later_iteration_that_did_not_finish_keeps_the_earlier_ones(
     mock_run.side_effect = _pytest_exit_codes(0, INTERRUPTED)
 
     with patch("shutil.which", return_value="/usr/bin/pytest"):
-        run_profiling(_profiling_config(iterations=THREE_ITERATIONS), tmp_path)
+        run_profiling(_profiling_config(iterations=THREE_ITERATIONS), _flat(tmp_path))
 
     # The third iteration is never launched: the run stops at the one that failed.
     assert len([call for call in mock_run.call_args_list if "pytest" in call.args[0]]) == PYTEST_LAUNCHES
@@ -643,7 +650,7 @@ def test_a_missing_import_graph_is_fatal_even_when_pytest_exits_zero(
         patch("shutil.which", return_value="/usr/bin/pytest"),
         pytest.raises(ProfilingIncompleteError, match="import graph"),
     ):
-        run_profiling(_profiling_config(), tmp_path)
+        run_profiling(_profiling_config(), _flat(tmp_path))
 
     mock_ingest.assert_not_called()
 
@@ -671,6 +678,7 @@ def test_a_collection_error_is_fatal_even_when_pytest_exits_zero(
             test_roots=frozenset({"tests"}),
             test_file_patterns=("test_*.py",),
         ),
+        node_id_prefix=WHOLE_REPOSITORY,
     )
 
     with (
@@ -678,7 +686,7 @@ def test_a_collection_error_is_fatal_even_when_pytest_exits_zero(
         patch("smoke_optimiser.profiler.runner._read_iteration_outcomes", return_value=outcomes),
         pytest.raises(ProfilingIncompleteError, match=re.escape("tests/test_broken.py")),
     ):
-        run_profiling(_profiling_config(), tmp_path)
+        run_profiling(_profiling_config(), _flat(tmp_path))
 
     mock_ingest.assert_not_called()
 
@@ -701,7 +709,7 @@ def test_the_profiling_hook_records_files_it_could_not_collect(tmp_path: Path) -
         # This test's own process may be a profiling run, whose graph file the exec'd
         # hook would otherwise write into.
         os.environ.pop("SMOKE_IMPORT_GRAPH_JSON", None)
-        os.environ.pop("SMOKE_PROJECT_ROOT", None)
+        os.environ.pop("SMOKE_REPO_ROOT", None)
         namespace["pytest_unconfigure"](config)
 
     assert _read_iteration_outcomes(_artefact_files(outcomes_json)).collection_errors == frozenset(
@@ -727,7 +735,7 @@ def test_the_profiling_hook_records_the_scope_the_run_resolved(tmp_path: Path) -
         os.environ.pop("PYTEST_XDIST_WORKER", None)
         os.environ.pop("PYTEST_XDIST_WORKER_COUNT", None)
         os.environ.pop("SMOKE_IMPORT_GRAPH_JSON", None)
-        os.environ.pop("SMOKE_PROJECT_ROOT", None)
+        os.environ.pop("SMOKE_REPO_ROOT", None)
         namespace["pytest_unconfigure"](config)
 
     scope = _read_iteration_outcomes(_artefact_files(outcomes_json)).scope
@@ -756,7 +764,7 @@ def test_the_profiling_hook_records_include_namespace_packages_from_the_real_cov
         os.environ.pop("PYTEST_XDIST_WORKER", None)
         os.environ.pop("PYTEST_XDIST_WORKER_COUNT", None)
         os.environ.pop("SMOKE_IMPORT_GRAPH_JSON", None)
-        os.environ.pop("SMOKE_PROJECT_ROOT", None)
+        os.environ.pop("SMOKE_REPO_ROOT", None)
         namespace["pytest_unconfigure"](config)
 
     scope = _read_iteration_outcomes(_artefact_files(outcomes_json)).scope
@@ -880,3 +888,52 @@ def test_a_configured_coverage_source_is_not_announced_back_at_the_user(
         check_prerequisites(config)
 
     assert "coverage source" not in capsys.readouterr().err
+
+
+def test_two_different_rootdirs_in_one_run_are_refused(tmp_path: Path) -> None:
+    """Unlike the scope, the prefix is not unioned.
+
+    The prefix decides which path space the file a node id names is read in, so
+    two of them would put one set of maps in two spaces at once -- the exact
+    failure the prefix exists to prevent, arriving from the other direction.
+    Every process parses the same rootdir, so a disagreement means something is
+    wrong that guessing a winner would hide.
+    """
+    for worker, prefix in (("gw0", "api"), ("gw1", "web")):
+        path = tmp_path / f"outcomes.{worker}.json"
+        _write_outcomes(path, worker, 2, [f"test_{worker}"])
+        payload = json.loads(path.read_text())
+        payload["node_id_prefix"] = prefix
+        path.write_text(json.dumps(payload))
+
+    with pytest.raises(OutcomesIngestError, match="different pytest rootdirs"):
+        _read_iteration_outcomes(_artefact_files(tmp_path / "outcomes.json"))
+
+
+def test_the_hook_reads_the_prefix_from_rootdir_and_not_from_the_invocation_directory(tmp_path: Path) -> None:
+    """The precision trap this change turns on.
+
+    Node ids are ROOTDIR-relative. pytest's positional arguments are cwd-relative,
+    which is why resolve_scope is right to use invocation_params.dir -- and the two
+    coincide until the moment somebody runs pytest from anywhere but its rootdir.
+    Taking the wrong one keys every map by a path git will never report.
+    """
+    namespace: dict[str, Any] = {}
+    exec(PYTEST_HOOK_CODE, namespace)  # noqa: S102 - the hook is only ever a string, so it must be exec'd to be tested
+
+    project = tmp_path / "api"
+    (project / "src").mkdir(parents=True)
+    (project / "tests").mkdir()
+    outcomes_json = tmp_path / "outcomes.json"
+    config = _fake_pytest_config(project)
+    # pytest's rootdir is the project; the command was typed one level up.
+    config.invocation_params = SimpleNamespace(dir=tmp_path)
+
+    env = {"SMOKE_OUTCOMES_JSON": str(outcomes_json), "SMOKE_REPO_ROOT": str(tmp_path)}
+    with patch.dict(os.environ, env, clear=False):
+        os.environ.pop("PYTEST_XDIST_WORKER", None)
+        os.environ.pop("PYTEST_XDIST_WORKER_COUNT", None)
+        os.environ.pop("SMOKE_IMPORT_GRAPH_JSON", None)
+        namespace["pytest_unconfigure"](config)
+
+    assert _read_iteration_outcomes(_artefact_files(outcomes_json)).node_id_prefix == "api"

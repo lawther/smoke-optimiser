@@ -112,7 +112,7 @@ class ProfileScope:
         return WHOLE_REPOSITORY in self.test_roots
 
 
-def _repo_relative(path: Path, project_root: Path) -> str | None:
+def _repo_relative(path: Path, repo_root: Path) -> str | None:
     """Express ``path`` relative to the repository, or None if it is outside it.
 
     Outside means site-packages and anything else beyond the checkout: git will
@@ -120,7 +120,7 @@ def _repo_relative(path: Path, project_root: Path) -> str | None:
     maps.
     """
     try:
-        relative = path.resolve().relative_to(project_root.resolve())
+        relative = path.resolve().relative_to(repo_root.resolve())
     except ValueError:
         return None
     return relative.as_posix()
@@ -139,7 +139,7 @@ def _package_directory(name: str) -> Path | None:
     return Path(spec.origin) if spec.origin else None
 
 
-def _resolve_cov_source(*, source: str | bool, invocation_dir: Path, project_root: Path) -> str | None:
+def _resolve_cov_source(*, source: str | bool, invocation_dir: Path, repo_root: Path) -> str | None:
     """Turn one ``--cov`` value into a repo-relative coverage root.
 
     coverage.py accepts either a path or an importable name, and resolves a name
@@ -154,22 +154,22 @@ def _resolve_cov_source(*, source: str | bool, invocation_dir: Path, project_roo
 
     as_path = invocation_dir / str(source)
     if as_path.exists():
-        return _repo_relative(as_path, project_root)
+        return _repo_relative(as_path, repo_root)
 
     package = _package_directory(str(source))
     if package is not None:
-        return _repo_relative(package, project_root)
+        return _repo_relative(package, repo_root)
 
     return str(source)
 
 
-def _resolve_test_path(arg: str, invocation_dir: Path, project_root: Path) -> str | None:
+def _resolve_test_path(arg: str, invocation_dir: Path, repo_root: Path) -> str | None:
     """Turn one pytest positional argument into a repo-relative test root.
 
     Arguments may name a directory, a file, or a single test by node id; the
     part before ``::`` is the file the maps would know about.
     """
-    return _repo_relative(invocation_dir / arg.split("::", maxsplit=1)[0], project_root)
+    return _repo_relative(invocation_dir / arg.split("::", maxsplit=1)[0], repo_root)
 
 
 def resolve_scope(  # noqa: PLR0913 - each argument is an independent fact about the run; none can be dropped or grouped
@@ -177,7 +177,7 @@ def resolve_scope(  # noqa: PLR0913 - each argument is an independent fact about
     args: Sequence[str],
     test_file_patterns: Sequence[str],
     invocation_dir: Path,
-    project_root: Path,
+    repo_root: Path,
     *,
     include_namespace_packages: bool = False,
 ) -> ProfileScope:
@@ -191,7 +191,7 @@ def resolve_scope(  # noqa: PLR0913 - each argument is an independent fact about
         test_file_patterns: pytest's resolved ``python_files``.
         invocation_dir: The directory pytest was invoked from, which the
             arguments are relative to.
-        project_root: The repository root the profile's paths are relative to.
+        repo_root: The repository root the profile's paths are relative to.
         include_namespace_packages: coverage.py's own setting of the same name
             for this run, read from the ``Coverage`` object actually doing the
             measuring rather than assumed, since a project that has turned it
@@ -205,10 +205,9 @@ def resolve_scope(  # noqa: PLR0913 - each argument is an independent fact about
     source it exercises.
     """
     coverage_roots = {
-        _resolve_cov_source(source=source, invocation_dir=invocation_dir, project_root=project_root)
-        for source in cov_sources
+        _resolve_cov_source(source=source, invocation_dir=invocation_dir, repo_root=repo_root) for source in cov_sources
     }
-    test_roots = {_resolve_test_path(arg, invocation_dir, project_root) for arg in args}
+    test_roots = {_resolve_test_path(arg, invocation_dir, repo_root) for arg in args}
     return ProfileScope(
         coverage_roots=frozenset(root for root in coverage_roots if root is not None),
         test_roots=frozenset(root for root in test_roots if root is not None),

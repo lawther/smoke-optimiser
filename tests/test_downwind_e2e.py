@@ -109,6 +109,36 @@ def profiled_repo(tmp_path: Path) -> Path:
     return project_dir
 
 
+@pytest.fixture
+def profiled_monorepo(tmp_path: Path) -> Path:
+    """A repository whose Python project is one directory of it, profiled from there.
+
+    The layout casey_ai has and most monorepos do: the pyproject.toml that
+    configures pytest is in ``api/``, and the repository root has none at all --
+    so pytest run from the root would find neither ``testpaths`` nor
+    ``pythonpath``, and git run from ``api/`` still reports paths from the root.
+    Returns the REPOSITORY root; the tests below step into ``api`` themselves.
+    """
+    repo_root = tmp_path / "monorepo"
+    repo_root.mkdir()
+    project_dir = repo_root / "api"
+    _write_project(project_dir)
+    # Not a Python file in sight at the root, which is the point: nothing here
+    # can be discovered by walking up from the project.
+    (repo_root / "README.md").write_text("A repository that is not only Python.\n")
+    (project_dir / ".gitignore").write_text(
+        ".smoke_profiling_data.json\n.downwind.json\n__pycache__/\n.smoke_suite.json\n",
+    )
+
+    _git(repo_root, "init")
+    _git(repo_root, "add", ".")
+    _git(repo_root, "-c", "user.email=t@example.com", "-c", "user.name=t", "commit", "-m", "initial")
+
+    result = _run(project_dir, "smoke", "--profile-only", "--allow-ordered", "--src=src")
+    assert result.returncode == EXIT_OK, f"profiling failed: {result.stderr}\nSTDOUT: {result.stdout}"
+    return repo_root
+
+
 def _selection(project_dir: Path) -> DownwindSuiteFile:
     """Read the selection back through its own schema.
 
@@ -199,13 +229,60 @@ def test_a_collection_error_never_reads_as_a_successful_selective_run(profiled_r
     assert result.returncode != EXIT_OK
 
 
-def test_running_from_a_subdirectory_errors_rather_than_selecting(profiled_repo: Path) -> None:
-    """Git's paths and the profile's agree only at the root, so anywhere else must refuse."""
-    result = _run(profiled_repo, "downwind", cwd=profiled_repo / "src")
+def test_a_project_in_a_subdirectory_of_its_repository_still_selects(profiled_monorepo: Path) -> None:
+    """The layout selecting a subset matters most in, end to end.
 
-    assert result.returncode == EXIT_ERROR
-    assert "repository root" in result.stderr
-    assert not (profiled_repo / "src" / ".downwind.json").exists()
+    git reports ``api/src/app.py`` while pytest reports
+    ``tests/test_app.py::test_add``: two path spaces, in one selection. Nothing
+    below is mocked, so this fails if the profile's paths, the node-id prefix or
+    pytest's own rootdir disagree by so much as a directory.
+    """
+    project_dir = profiled_monorepo / "api"
+    (project_dir / "src" / "app.py").write_text(
+        "def add(a, b):\n    if a > 0:\n        return a + b\n    return b + 0\n",
+    )
+
+    result = _run(project_dir, "downwind")
+
+    assert result.returncode == EXIT_OK, f"{result.stderr}\nSTDOUT: {result.stdout}"
+    selection = _selection(project_dir)
+    assert selection.blind_spots == []
+    # git's spelling, relative to the repository root.
+    assert selection.changed_files == ["api/src/app.py"]
+    # pytest's spelling, relative to its own rootdir, so the plugin still matches them.
+    assert set(selection.node_ids) == {
+        "tests/test_app.py::test_add",
+        "tests/test_app.py::test_add_negative",
+    }
+    assert "2 passed" in result.stdout
+    assert "1 deselected" in result.stdout
+
+
+def test_the_artefacts_live_beside_the_project_rather_than_at_the_repository_root(
+    profiled_monorepo: Path,
+) -> None:
+    """Where the pyproject.toml that names them is, so a .gitignore can find them."""
+    project_dir = profiled_monorepo / "api"
+
+    assert (project_dir / ".smoke_profiling_data.json").exists()
+    assert not (profiled_monorepo / ".smoke_profiling_data.json").exists()
+
+
+def test_a_profile_recorded_somewhere_else_in_the_repository_is_refused(profiled_monorepo: Path) -> None:
+    """Repository-relative paths are portable between checkouts, not between projects.
+
+    Moved rather than regenerated, so the file is perfectly valid and current --
+    every path in it simply means something other than what it says. Left
+    unchecked it matches nothing and reports a healthy zero, which is the one
+    failure that looks exactly like success.
+    """
+    project_dir = profiled_monorepo / "api"
+    (project_dir / ".smoke_profiling_data.json").rename(profiled_monorepo / ".smoke_profiling_data.json")
+    (profiled_monorepo / "pyproject.toml").write_text('[project]\nname = "outer"\n')
+
+    result = _run(project_dir, "downwind", cwd=profiled_monorepo)
+
+    assert "recorded from api" in result.stderr
 
 
 def test_a_clean_tree_runs_nothing_and_succeeds(profiled_repo: Path) -> None:

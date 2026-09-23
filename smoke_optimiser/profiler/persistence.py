@@ -27,6 +27,7 @@ from smoke_optimiser.profiler.models import (
     ImportEdgeModel,
     ImportGraphModel,
     MachineModel,
+    ProfileAnchorModel,
     ProfileSchemaMismatchError,
     ProfileScopeMissingError,
     ProfileScopeModel,
@@ -92,6 +93,7 @@ def save_profile(profiling_data: ProfilingData, profile_path: Path) -> None:
         measured_files=list(profiling_data.measured_files),
         import_graph=graph_model,
         scope=ProfileScopeModel.from_profile_scope(profiling_data.scope),
+        anchor=ProfileAnchorModel.from_profile_anchor(profiling_data.anchor),
         unattributable_branches=list(profiling_data.unattributable_branches),
         reads=ReadObservationsModel.from_read_observations(profiling_data.reads),
         present_files=list(profiling_data.present_files),
@@ -110,13 +112,21 @@ def save_profile(profiling_data: ProfilingData, profile_path: Path) -> None:
 class ProfileFault(Enum):
     """What kind of unusable a profile is, which decides who can repair it.
 
-    OUTDATED and UNREADABLE both mean "this file cannot be used and a fresh
-    profile would be", and differ only in whether the file is worth keeping.
-    MISCONFIGURED is the one a fresh profile would not repair.
+    OUTDATED, MISPLACED and UNREADABLE all mean "this file cannot be used and a
+    fresh profile would be". They are told apart because each needs different
+    words: the reader who has to act on the message cannot tell a stale build
+    from a stale directory from a corrupt file by the symptom. MISCONFIGURED is
+    the one a fresh profile would not repair.
     """
 
     OUTDATED = auto()
     """Written by a different build of the tool. Regenerating is the whole fix."""
+
+    MISPLACED = auto()
+    """Recorded from a different directory of this repository, so every path in it
+    means something other than what it says. Perfectly valid and perfectly current;
+    it simply describes a path space this run is not standing in. Regenerating from
+    here is the whole fix."""
 
     UNREADABLE = auto()
     """Corrupt or invalid. Since the write became atomic no run of ours can leave
@@ -141,8 +151,14 @@ class ProfileUnusableError(Exception):
     message: str
 
 
-def read_profile(profile_path: Path) -> ProfilingData:
-    """Load and validate the profile, or raise saying which kind of broken it is."""
+def read_profile(profile_path: Path, project_offset: str) -> ProfilingData:
+    """Load and validate the profile, or raise saying which kind of broken it is.
+
+    ``project_offset`` is where the reading run stands inside the repository.
+    A profile recorded somewhere else describes a path space this run is not in,
+    which is a fault about the file rather than about the project -- so it is
+    reported as OUTDATED and the ordinary fallback rebuilds it.
+    """
     try:
         with profile_path.open("rb") as f:
             raw = json.load(f)
@@ -153,7 +169,7 @@ def read_profile(profile_path: Path) -> ProfilingData:
         ) from None
 
     try:
-        return load_profiling_data_file(raw).to_profiling_data()
+        profile = load_profiling_data_file(raw).to_profiling_data()
     except ProfileSchemaMismatchError as e:
         rerun = (
             f" Re-run this command to regenerate it:\n\n  {e.command}\n"
@@ -177,6 +193,26 @@ def read_profile(profile_path: Path) -> ProfilingData:
             message=f"Failed to parse profiling data ({profile_path}): {e}",
         ) from None
 
+    if profile.anchor.project_offset != project_offset:
+        raise ProfileUnusableError(
+            fault=ProfileFault.MISPLACED,
+            message=_wrong_anchor_message(profile_path, profile.anchor.project_offset, project_offset),
+        )
+    return profile
+
+
+def _wrong_anchor_message(profile_path: Path, recorded: str, current: str) -> str:
+    """Name the mismatch, because every other symptom of it looks like success.
+
+    Its paths are repository-relative, so a profile from another subdirectory
+    parses perfectly and simply matches nothing -- the selection comes back
+    empty and reads as a change no test reaches. Said outright here instead.
+    """
+    return (
+        f"Profiling data ({profile_path}) was recorded from {recorded} and this run is in {current}, "
+        "so every path in it means something other than what it says. Regenerating from here is the fix."
+    )
+
 
 def _no_scope_message(profile_path: Path, error: ProfileScopeMissingError) -> str:
     """Name the misconfiguration, and the three edits that clear it.
@@ -192,7 +228,7 @@ def _no_scope_message(profile_path: Path, error: ProfileScopeMissingError) -> st
         "one exactly like it.\n"
         "   Scope is the coverage targets plus pytest's test paths, so an empty scope means neither "
         "resolved to a path inside this repository. To fix, in order of likelihood:\n"
-        "     1. Profile from the repository root, not from a subdirectory.\n"
+        "     1. Profile from the directory holding the project's pyproject.toml.\n"
         "     2. Point --cov at a directory in the tree rather than at an installed package:\n"
         '        [tool.smoke_optimiser] cov_source = "your_package"   (or --src=your_package)\n'
         "     3. Give pytest a test path inside the repository:\n"
@@ -201,7 +237,7 @@ def _no_scope_message(profile_path: Path, error: ProfileScopeMissingError) -> st
     )
 
 
-def load_profile(profile_path: Path) -> ProfilingData:
+def load_profile(profile_path: Path, project_offset: str) -> ProfilingData:
     """Load and validate the profile, or report why it cannot be used and exit.
 
     A profile that is present but unusable is a broken state rather than an
@@ -210,7 +246,7 @@ def load_profile(profile_path: Path) -> ProfilingData:
     not read -- call :func:`read_profile` and decide from the fault.
     """
     try:
-        return read_profile(profile_path)
+        return read_profile(profile_path, project_offset)
     except ProfileUnusableError as e:
         typer.secho(f"\u274c Error: {e.message}", fg=typer.colors.RED, err=True)
         raise typer.Exit(code=1) from None

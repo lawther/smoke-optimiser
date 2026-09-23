@@ -75,7 +75,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from smoke_optimiser.profiler.scope import parent_directory, under_root
+from smoke_optimiser.profiler.scope import WHOLE_REPOSITORY, parent_directory, under_root
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -93,7 +93,7 @@ class UnknownFileError(KeyError):
     """
 
 
-def _known_files(profile: ProfilingData) -> frozenset[str]:
+def _known_files(profile: ProfilingData, node_id_prefix: str) -> frozenset[str]:
     """Every file the profile knows about at all.
 
     The union of everything coverage measured, whether or not any test
@@ -109,25 +109,42 @@ def _known_files(profile: ProfilingData) -> frozenset[str]:
     """
     graph = profile.import_graph
     graph_files = {edge.importer for edge in graph.edges} | {edge.imported for edge in graph.edges}
-    defining_files = {_defining_file(test_id) for test_id in profile.tests}
+    defining_files = {_defining_file(test_id, node_id_prefix) for test_id in profile.tests}
     return profile.measured_files | graph_files | graph.unattributed_modules | defining_files
 
 
-def _defining_file(test_id: str) -> str:
-    """The file a pytest node id names, which is everything before the first ``::``.
+def _defining_file(test_id: str, node_id_prefix: str) -> str:
+    """The repository-relative file a pytest node id names.
 
-    A node id is ``path::class::test[param]``, and a parametrised id can
-    carry a further ``::`` inside its brackets, so only the first separator
-    delimits the path.
+    The path is everything before the first ``::``: a node id is
+    ``path::class::test[param]``, and a parametrised id can carry a further
+    ``::`` inside its brackets, so only the first separator delimits it.
+
+    That path is relative to pytest's ROOTDIR, while every other path in a
+    profile is relative to the repository root. The prefix is what puts the two
+    in one space. Without it a monorepo's known files hold ``api/auth.py``
+    beside ``tests/test_auth.py``, :meth:`DownwindMaps.knows` denies every
+    changed test file, and the selection refuses to the full suite on most
+    commits -- safe, useless, and indistinguishable from a quiet suite.
+
+    Only the KEY is rewritten. The node ids these maps hold as values stay
+    exactly as pytest reported them, so the selection, ``.downwind.json`` and
+    ``.smoke_suite.json`` all carry ids pytest still recognises, and nothing
+    has to remember to strip the prefix back off.
     """
-    return test_id.split("::", maxsplit=1)[0]
+    path = test_id.split("::", maxsplit=1)[0]
+    if node_id_prefix == WHOLE_REPOSITORY:
+        return path
+    return f"{node_id_prefix}/{path}"
 
 
-def _tests_in_module_by_file(profile: ProfilingData, known_files: frozenset[str]) -> dict[str, frozenset[str]]:
+def _tests_in_module_by_file(
+    profile: ProfilingData, known_files: frozenset[str], node_id_prefix: str
+) -> dict[str, frozenset[str]]:
     """Invert the profile's node ids into file -> the tests DEFINED in it."""
     defined: dict[str, set[str]] = {}
     for test_id in profile.tests:
-        defined.setdefault(_defining_file(test_id), set()).add(test_id)
+        defined.setdefault(_defining_file(test_id, node_id_prefix), set()).add(test_id)
     return {path: frozenset(defined.get(path, ())) for path in known_files}
 
 
@@ -251,12 +268,13 @@ class DownwindMaps:
     @classmethod
     def from_profile(cls, profile: ProfilingData) -> DownwindMaps:
         """Build every map from a loaded profile, once."""
-        known_files = _known_files(profile)
+        node_id_prefix = profile.anchor.node_id_prefix
+        known_files = _known_files(profile, node_id_prefix)
         graph = profile.import_graph
         return cls(
             _tests_by_file=_tests_by_file(profile, known_files),
             _dependents_by_file=_dependents_by_file(profile, known_files),
-            _tests_in_module_by_file=_tests_in_module_by_file(profile, known_files),
+            _tests_in_module_by_file=_tests_in_module_by_file(profile, known_files, node_id_prefix),
             _known_files=known_files,
             _unattributed_modules=graph.unattributed_modules,
             _resolution_errors=graph.resolution_errors,
