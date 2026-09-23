@@ -38,7 +38,8 @@ This will make the `smoke-optimiser` command available in your environment and r
 ### `smoke` mode
 
 1. **Profile your suite**:
-   Run the optimiser in your project root. It will automatically detect your source code and profile your tests and build
+   Run the optimiser in the directory holding your project's `pyproject.toml`, which need not be the
+   repository root. It will automatically detect your source code and profile your tests and build
    an optimised smoke test suite.
    ```bash
    uv run smoke-optimiser smoke
