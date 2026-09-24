@@ -1,7 +1,5 @@
 """Print a branch coverage summary from a coverage.py JSON report."""
 
-# ruff: noqa: INP001
-
 from __future__ import annotations
 
 import sys
