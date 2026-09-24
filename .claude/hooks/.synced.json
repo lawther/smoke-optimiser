@@ -1,0 +1,41 @@
+{
+  "schema": 1,
+  "comment": "Written by agent_rules sync_hooks.py: what it put in this repo. Do not hand-edit.",
+  "managed": [
+    {
+      "event": "PreToolUse",
+      "matcher": "Bash",
+      "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/block-override-flags.sh"
+    },
+    {
+      "event": "PreToolUse",
+      "matcher": "Bash",
+      "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/check_bead_model.py"
+    },
+    {
+      "event": "PreToolUse",
+      "matcher": "Bash|Write|Edit",
+      "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/check_diary_prose.py"
+    },
+    {
+      "event": "PreToolUse",
+      "matcher": "Bash",
+      "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/validate_dep_type.py"
+    }
+  ],
+  "files": [
+    "_shell_tokenise.py",
+    "block-override-flags.sh",
+    "block_override_flags.py",
+    "check_bead_model.py",
+    "check_diary_prose.py",
+    "validate_dep_type.py"
+  ],
+  "commands": [
+    {
+      "event": "SessionStart",
+      "matcher": "",
+      "command": "bd prime --memories-only --hook-json"
+    }
+  ]
+}

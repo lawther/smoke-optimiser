@@ -4,11 +4,43 @@
       {
         "hooks": [
           {
-            "command": "bd prime --hook-json",
+            "command": "bd prime --memories-only --hook-json",
             "type": "command"
           }
         ],
         "matcher": ""
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/block-override-flags.sh",
+            "type": "command",
+            "statusMessage": "Checking for override flags..."
+          },
+          {
+            "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/check_bead_model.py",
+            "type": "command",
+            "statusMessage": "Checking bead model label..."
+          },
+          {
+            "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/validate_dep_type.py",
+            "type": "command",
+            "statusMessage": "Checking dependency type..."
+          }
+        ]
+      },
+      {
+        "matcher": "Bash|Write|Edit",
+        "hooks": [
+          {
+            "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/check_diary_prose.py",
+            "type": "command",
+            "statusMessage": "Checking for diary prose..."
+          }
+        ]
       }
     ]
   }
