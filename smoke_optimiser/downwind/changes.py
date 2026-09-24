@@ -20,11 +20,17 @@ half of what downwind selection asks of git -- the tree rather than the diff
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 from enum import Enum
 from pathlib import Path
 from typing import NamedTuple
+
+# Cleared before every git call: git sets these for a hook's children, and they override
+# `cwd`, silently redirecting the query to whatever repo they point at instead of `directory`.
+# That matters whenever downwind runs from inside a git hook -- this repo's own included.
+_GIT_ENV_VARS_TO_CLEAR = ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_PREFIX")
 
 
 class GitStatusError(RuntimeError):
@@ -86,10 +92,12 @@ def _run_git(arguments: list[str], directory: Path) -> str:
     if git_path is None:
         raise GitStatusError(command=printable, directory=directory, detail="git was not found on PATH")
 
+    env = {key: value for key, value in os.environ.items() if key not in _GIT_ENV_VARS_TO_CLEAR}
     try:
         result = subprocess.run(  # noqa: S603
             [git_path, *arguments],
             cwd=directory,
+            env=env,
             capture_output=True,
             text=True,
             check=False,

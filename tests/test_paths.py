@@ -14,6 +14,8 @@ from smoke_optimiser.paths import (
 )
 from smoke_optimiser.profiler.scope import WHOLE_REPOSITORY
 
+from .conftest import git_subprocess_env
+
 
 def test_a_project_at_the_repository_root_has_no_offset() -> None:
     paths = ProjectPaths(repo_root=Path("/repo"), invocation_dir=Path("/repo"))
@@ -40,7 +42,7 @@ def test_discovery_inside_a_repository_finds_the_top_level(tmp_path: Path) -> No
     project = tmp_path / "api"
     project.mkdir()
     # git comes from PATH and the arguments are this test's own literals
-    subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)  # noqa: S607
+    subprocess.run(["git", "init"], cwd=tmp_path, env=git_subprocess_env(), check=True, capture_output=True)  # noqa: S607
 
     paths = resolve_project_paths(project)
 

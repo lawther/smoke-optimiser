@@ -26,6 +26,8 @@ from smoke_optimiser.profiler.runner import (
     ProfilingUnavailableError,
 )
 
+from .conftest import git_subprocess_env
+
 EXIT_OK = 0
 EXIT_ERROR = 1
 EXIT_COLLECTION_ERROR = 2
@@ -33,7 +35,7 @@ EXIT_COLLECTION_ERROR = 2
 
 def _git(repo: Path, *args: str) -> None:
     # git comes from PATH and the arguments are this test's own literals
-    subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True)  # noqa: S603, S607
+    subprocess.run(["git", *args], cwd=repo, env=git_subprocess_env(), check=True, capture_output=True)  # noqa: S603, S607
 
 
 def _config(repo: Path, *, regenerate: bool = False) -> DownwindConfig:

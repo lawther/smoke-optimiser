@@ -1,3 +1,4 @@
+import os
 from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
@@ -18,6 +19,21 @@ from smoke_optimiser.profiler.scope import ProfileScope
 type RawProfileFactory = Callable[[], dict[str, Any]]
 
 pytest_plugins = ["pytester"]
+
+# Cleared before every git call a fixture makes against a throwaway repo. Git sets these
+# for a hook's children, and they override `cwd`, silently redirecting the command to
+# whatever repo they point at -- the real one, when the suite itself runs as a git hook
+# (this repo's own .githooks/pre-commit included) -- instead of the fixture's temp repo.
+_GIT_ENV_VARS_TO_CLEAR = ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_PREFIX")
+
+
+def git_subprocess_env() -> dict[str, str]:
+    """The environment a fixture's own git calls should run with.
+
+    Every test helper that shells out to git for a throwaway fixture repo should pass
+    this as ``env=``, so an ambient hook context cannot redirect it to the real repo.
+    """
+    return {key: value for key, value in os.environ.items() if key not in _GIT_ENV_VARS_TO_CLEAR}
 
 
 @pytest.fixture

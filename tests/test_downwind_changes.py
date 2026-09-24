@@ -13,9 +13,20 @@ from smoke_optimiser.downwind.changes import (
     working_tree_files,
 )
 
+from .conftest import git_subprocess_env
 
-def _git(repo: Path, *args: str) -> None:
-    subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True, text=True)  # noqa: S603, S607
+
+def _git(repo: Path, *args: str, check: bool = True) -> None:
+    # git comes from PATH, deliberately
+    command = ["git", *args]
+    subprocess.run(  # noqa: S603
+        command,
+        cwd=repo,
+        env=git_subprocess_env(),
+        check=check,
+        capture_output=True,
+        text=True,
+    )
 
 
 @pytest.fixture
@@ -166,7 +177,7 @@ def test_merge_conflict_is_modified(repo: Path) -> None:
     _git(repo, "checkout", "-q", "-")
     (repo / "f.py").write_text("mainline\n")
     _git(repo, "commit", "-q", "-a", "-m", "mainline")
-    subprocess.run(["git", "merge", "other"], cwd=repo, check=False, capture_output=True, text=True)  # noqa: S607
+    _git(repo, "merge", "other", check=False)
 
     assert changed_files(repo) == frozenset({ChangedFile("f.py", ChangeKind.MODIFIED)})
 

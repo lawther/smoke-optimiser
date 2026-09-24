@@ -17,6 +17,8 @@ import pytest
 from smoke_optimiser.downwind.blind_spots import BlindSpotReason
 from smoke_optimiser.reports.downwind_suite import DownwindSuiteFile, read_downwind_suite
 
+from .conftest import git_subprocess_env
+
 EXIT_OK = 0
 EXIT_TESTS_FAILED = 1
 EXIT_ERROR = 1
@@ -24,7 +26,14 @@ EXIT_ERROR = 1
 
 def _git(project_dir: Path, *args: str) -> None:
     # git comes from PATH and the arguments are this test's own literals
-    subprocess.run(["git", *args], cwd=project_dir, check=True, capture_output=True)  # noqa: S603, S607
+    command = ["git", *args]
+    subprocess.run(  # noqa: S603
+        command,
+        cwd=project_dir,
+        env=git_subprocess_env(),
+        check=True,
+        capture_output=True,
+    )
 
 
 def _env(project_dir: Path) -> dict[str, str]:

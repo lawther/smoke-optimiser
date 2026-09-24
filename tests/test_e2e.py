@@ -8,6 +8,8 @@ from smoke_optimiser.downwind.maps import DownwindMaps
 from smoke_optimiser.profiler.models import load_profiling_data_file
 from smoke_optimiser.profiler.scope import files_in_scope
 
+from .conftest import git_subprocess_env
+
 
 def test_end_to_end_flow(tmp_path: Path) -> None:
     """Test the full flow.
@@ -168,7 +170,15 @@ def test_never_collected():
 def _git_ls_files(project_dir: Path) -> list[str]:
     """Every tracked file, which is what the expiry check enumerates."""
     # git comes from PATH and there is no user input in the arguments
-    listed = subprocess.run(["git", "ls-files"], cwd=project_dir, capture_output=True, text=True, check=True)  # noqa: S607
+    command = ["git", "ls-files"]
+    listed = subprocess.run(  # noqa: S603
+        command,
+        cwd=project_dir,
+        env=git_subprocess_env(),
+        capture_output=True,
+        text=True,
+        check=True,
+    )
     return listed.stdout.split()
 
 
@@ -297,7 +307,14 @@ def test_double():
 
 def _git(project_dir: Path, *args: str) -> None:
     # git comes from PATH and the arguments are this test's own literals
-    subprocess.run(["git", *args], cwd=project_dir, check=True, capture_output=True)  # noqa: S603, S607  # noqa: S607
+    command = ["git", *args]
+    subprocess.run(  # noqa: S603
+        command,
+        cwd=project_dir,
+        env=git_subprocess_env(),
+        check=True,
+        capture_output=True,
+    )
 
 
 def test_a_profile_regenerated_against_an_unchanged_tree_is_not_expired(tmp_path: Path) -> None:

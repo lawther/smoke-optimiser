@@ -396,8 +396,14 @@ def test_an_outer_xdist_worker_does_not_leak_into_the_profiled_run(
     with patch.dict(os.environ, outer, clear=False), patch("shutil.which", return_value="/usr/bin/pytest"):
         run_profiling(config, _flat(tmp_path))
 
-    # subprocess.run is also used for git, so pick out the call that launched pytest.
-    pytest_envs = [call.kwargs["env"] for call in mock_run.call_args_list if "env" in call.kwargs]
+    # subprocess.run is also used for git, and git calls now pass env=... too (so the
+    # repo's own git queries can strip GIT_DIR and friends) -- pick out the pytest launch
+    # by its lack of capture_output, which every git call passes and the pytest launch does not.
+    pytest_envs = [
+        call.kwargs["env"]
+        for call in mock_run.call_args_list
+        if "env" in call.kwargs and "capture_output" not in call.kwargs
+    ]
     assert pytest_envs
     for child_env in pytest_envs:
         assert "PYTEST_XDIST_WORKER" not in child_env
