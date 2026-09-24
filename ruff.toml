@@ -1,0 +1,17 @@
+# smoke-optimiser's own ruff config. `extend` pulls in the fleet's shared config, synced
+# here verbatim by agent_rules' sync_lint_config.py (ar-vlz) -- do not hand-edit
+# ruff_shared.toml. Everything below is smoke-optimiser-only.
+extend = "ruff_shared.toml"
+
+[lint]
+# The shared ignore list drops these three for the fleet at large; smoke-optimiser enforced
+# them before joining and keeps doing so here.
+extend-select = ["EM101", "EM102", "TRY003"]
+
+[lint.extend-per-file-ignores]
+"tests/*" = [
+    "S101", # assert: allow use of assert statements in test files
+]
+# agent_rules' own script, deployed verbatim fleet-wide -- not smoke-optimiser's code, so
+# not held to the stricter bar above.
+"scripts/analyse_ai_readiness.py" = ["EM101", "TRY003"]

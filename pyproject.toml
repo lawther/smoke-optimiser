@@ -44,22 +44,6 @@ smoke-optimiser = "smoke_optimiser.__main__:main"
 [project.entry-points."pytest11"]
 smoke_optimiser = "smoke_optimiser.plugin"
 
-[tool.ruff]
-line-length = 120
-lint.select = [ "ALL"]
-lint.ignore = [
-    "COM812", # missing-trailing-comma: ruff's own docs recommend against it alongside the formatter, which already enforces this
-    "D100", # missing docstring in public module
-    "D101", # missing docstring in public class
-    "D102", # missing docstring in public method
-    "D103", # missing docstring in public function
-    "D104", # missing docstring in public package
-    "D105", # missing docstring in magic method
-    "D107", # missing docstring in __init__
-]
-lint.per-file-ignores = { "tests/*" = ["S101"], "scripts/*" = ["S603", "S607"] }
-lint.pydocstyle.convention = "google"
-
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
@@ -103,10 +87,7 @@ dev = [
     "pytest-randomly~=4.0",
     "pytest-timeout~=2.4",
     "ruff>=0.15.16",
+    "tiktoken>=0.14.0",
     "ty>=0.0.44",
 ]
-
-[tool.ty.rules]
-possibly-missing-submodule = "error"
-unused-type-ignore-comment = "error"
 
