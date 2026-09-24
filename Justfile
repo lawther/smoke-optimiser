@@ -1,6 +1,18 @@
+# BEGIN SHARED RECIPES (DEFAULT) sha256:18670817947290ab
+# Generated from agent_rules/snippets/default.just. Do not edit inside this block:
+#      edit snippets/default.just, then run `just sync-justfile-recipes` in agent_rules.
+
 # List available recipes
 default:
     @just --list
+
+# END SHARED RECIPES (DEFAULT)
+
+# The runner the shared ai_readiness recipes call; declared in agent_rules/repos.toml.
+uv_run := "uv run"
+
+# The directory the shared downwind recipe cds into; declared in agent_rules/repos.toml.
+python_project_dir := "."
 
 # Run all checks (lint, typecheck, test)
 check: lint typecheck test
@@ -95,3 +107,58 @@ setup-git-hooks:
     @git config core.hooksPath .githooks
     @chmod +x .githooks/pre-commit
     @echo "✅ Git hooks set up!"
+
+# BEGIN SHARED RECIPES (AI_READINESS) sha256:925735e38c225a7b
+# Generated from agent_rules/snippets/ai_readiness.just. Do not edit inside this block:
+#      edit snippets/ai_readiness.just, then run `just sync-justfile-recipes` in agent_rules.
+
+# Analyse project source files to evaluate AI agent readiness
+analyse-ai-readiness *args:
+    @{{uv_run}} scripts/analyse_ai_readiness.py {{args}}
+
+# Check source file size thresholds for AI agent readiness (fails if threshold breached)
+check-ai-readiness *args:
+    @{{uv_run}} scripts/analyse_ai_readiness.py --fail-on {{args}}
+
+# END SHARED RECIPES (AI_READINESS)
+
+# BEGIN SHARED RECIPES (CHECK_HOOKS_DRIFT) sha256:b59ea25e66824683
+# Generated from agent_rules/snippets/check_hooks_drift.just. Do not edit inside this block:
+#      edit snippets/check_hooks_drift.just, then run `just sync-justfile-recipes` in agent_rules.
+
+# Verify .claude/hooks/ still matches agent_rules/hooks/. Requires the
+# agent_rules repo as a sibling checkout; local/pre-commit only for now.
+# Wiring this into CI needs agent_rules reachable there — see agent_rules-403.
+check-hooks-drift:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [[ ! -x ../agent_rules/sync_hooks.py ]]; then
+        echo "error: ../agent_rules/sync_hooks.py not found — clone the agent_rules repo as a sibling" >&2
+        exit 2
+    fi
+    ../agent_rules/sync_hooks.py check .
+
+# END SHARED RECIPES (CHECK_HOOKS_DRIFT)
+
+# BEGIN SHARED RECIPES (DOWNWIND) sha256:8af83ba867138284
+# Generated from agent_rules/snippets/downwind.just. Do not edit inside this block:
+#      edit snippets/downwind.just, then run `just sync-justfile-recipes` in agent_rules.
+
+# Run every test downwind of the working-tree diff; full suite when it cannot tell.
+downwind:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd "{{python_project_dir}}"
+    # CI never persists the profile (it is gitignored), so a regenerated one dies with
+    # the runner -- every run would pay for instrumentation nothing ever reads. A missing
+    # profile still runs the full suite, which is the backstop CI is for.
+    #
+    # Spelled as two calls rather than an array of flags: under `set -u`, bash 3.2 --
+    # which is what macOS ships -- treats expanding an empty array as an unbound variable.
+    if [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then
+        uv run smoke-optimiser downwind --no-regenerate-on-fallback
+    else
+        uv run smoke-optimiser downwind
+    fi
+
+# END SHARED RECIPES (DOWNWIND)
