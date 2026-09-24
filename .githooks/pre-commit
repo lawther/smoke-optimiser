@@ -1,9 +1,14 @@
 #!/bin/sh
-# Git pre-commit hook — runs the full Justfile precommit suite before each commit.
+# Git pre-commit hook — runs the full justfile precommit suite before each commit.
 #
 # This file is version-controlled in .githooks/. To activate it on a fresh clone:
 #
 #   git config core.hooksPath .githooks
 #
 # Or run: just setup-git-hooks
+#
+# check-hooks-drift runs here, not inside `just precommit`, because CI calls
+# `just precommit` directly with no ../agent_rules sibling checkout to check
+# against -- see agent_rules-8ym, agent_rules-bwr.
+just check-hooks-drift
 just precommit
