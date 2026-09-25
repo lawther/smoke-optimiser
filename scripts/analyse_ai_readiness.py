@@ -1,3 +1,10 @@
+# /// script
+# requires-python = ">=3.12"
+# dependencies = [
+#     "rich>=15.0.0",
+#     "tiktoken>=0.14.0",
+# ]
+# ///
 """Analyse and list source files in the project to evaluate AI agent readiness."""
 
 from __future__ import annotations
