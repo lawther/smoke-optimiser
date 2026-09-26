@@ -33,7 +33,8 @@ format:
 
 # Run type checks
 typecheck:
-    uv run ty check
+    uv run ty check --exclude scripts/analyse_ai_readiness.py
+    just lint-pep723
 
 # Run tests
 test:
@@ -71,7 +72,8 @@ precommit:
         uv run ruff check --fix
         just extra-lints
         xargs -r -0 git add < "$staged_list"
-        uv run ty check
+        uv run ty check --exclude scripts/analyse_ai_readiness.py
+        just lint-pep723
         uv run pytest
     ) > "$tmpfile" 2>&1
     status=$?
@@ -162,3 +164,18 @@ downwind:
     fi
 
 # END SHARED RECIPES (DOWNWIND)
+
+# BEGIN SHARED RECIPES (PEP723) sha256:90afb09325f1476f
+# Generated from agent_rules/snippets/pep723.just. Do not edit inside this block:
+#      edit snippets/pep723.just, then run `just sync-justfile-recipes` in agent_rules.
+
+# Type-check this repo's PEP 723 scripts in an ephemeral env built from each script's own
+# inline metadata, since ty resolves imports against the project's .venv and has no notion
+# of PEP 723 isolation -- checking the script via the project's own `ty check` fails or
+# silently passes depending on whether the project's .venv happens to already carry the
+# same packages. Drop this recipe, and this file's exclusion from the main `ty check`
+# invocation, once astral-sh/ty#691 lands.
+lint-pep723:
+    @uvx --with-requirements scripts/analyse_ai_readiness.py ty check scripts/analyse_ai_readiness.py
+
+# END SHARED RECIPES (PEP723)
