@@ -36,7 +36,10 @@ dependencies = [
 
 [project.optional-dependencies]
 machine = ["psutil~=7.0"]
-dev = ["ruff~=0.15.16", "pytest"]
+dev = [
+    "ruff>=0.16.9",
+    "pytest",
+]
 
 [project.scripts]
 smoke-optimiser = "smoke_optimiser.__main__:main"
@@ -86,7 +89,7 @@ dev = [
     "psutil>=7.2.2",
     "pytest-randomly~=4.0",
     "pytest-timeout~=2.4",
-    "ruff>=0.15.16",
-    "ty>=0.0.44",
+    "ruff>=0.16.9",
+    "ty>=0.0.84",
 ]
 

@@ -102,6 +102,7 @@ _NO_READS = _ReadFacts()
 
 def _maps(  # noqa: PLR0913 - one parameter per independent map fact; grouping them further would
     # mean a test could no longer state the single fact it is about
+    *,
     tests: dict[str, frozenset[str]],
     measured_files: frozenset[str],
     edges: frozenset[ImportEdge] = frozenset(),

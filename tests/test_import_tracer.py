@@ -102,7 +102,7 @@ def test_dependencies_inside_the_project_root_are_not_project_files() -> None:
 class _ExplodingScope(dict[str, Any]):
     """A globals mapping that fails the way a hostile __getattr__ might."""
 
-    def get(self, key: str, default: object = None) -> object:
+    def get(self, key: object, default: object = None) -> object:
         del key, default
         msg = "no globals for you"
         raise RuntimeError(msg)

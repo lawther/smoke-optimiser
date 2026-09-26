@@ -9,7 +9,7 @@ from pathlib import Path
 try:
     import psutil
 except ImportError:
-    psutil = None  # ty: ignore[invalid-assignment] - psutil is an optional dependency
+    psutil = None
 
 
 @dataclass(frozen=True)
