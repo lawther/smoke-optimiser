@@ -21,6 +21,12 @@
 target-version = "py313"
 line-length = 120
 
+# Ruff 0.16 added "*.md" to its default `include`, so `ruff format` now reformats Python
+# code fences inside Markdown files (e.g. re-spacing inline comments) the same as it does
+# real source. Docs are docs, not code: excluding "*.md" here opts every fleet repo back
+# out of that reformatting. `ruff check` already ignores Markdown regardless.
+extend-exclude = ["*.md"]
+
 [lint]
 # ml-lints (python-lint-hooks) emits ML-prefixed codes ruff does not know about. Declaring
 # them external stops RUF100 reading their `# noqa: ML001` directives as unused.
