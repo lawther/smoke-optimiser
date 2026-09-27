@@ -179,3 +179,21 @@ lint-pep723:
     @uvx --with-requirements scripts/analyse_ai_readiness.py ty check scripts/analyse_ai_readiness.py
 
 # END SHARED RECIPES (PEP723)
+
+# BEGIN SHARED RECIPES (LINEAR_HISTORY) sha256:06d5bf7ed4629f17
+# Generated from agent_rules/snippets/linear_history.just. Do not edit inside this block:
+#      edit snippets/linear_history.just, then run `just sync-justfile-recipes` in agent_rules.
+
+# Sets this repo's own local git config to prefer linear history, overriding whatever
+# a clone's global config says. `pull.rebase` and `merge.ff` live in .git/config, which
+# git deliberately never lets a repo commit -- so this is the one-off `setup-git-hooks`
+# already asks a fresh clone to run, not something a sync can write for you. Actual
+# enforcement (for a clone that skips this, or whose global config wins some other way)
+# is the `pre-merge-commit` and `pre-push` hooks in .githooks/, which reject merge
+# commits regardless of what these two settings say.
+setup-linear-history:
+    @git config pull.rebase true
+    @git config merge.ff only
+    @echo "Linear history preferences set for this clone"
+
+# END SHARED RECIPES (LINEAR_HISTORY)
