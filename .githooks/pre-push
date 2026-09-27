@@ -1,0 +1,44 @@
+#!/bin/sh
+# Git pre-push hook — refuses to push any merge commit.
+#
+# `pre-merge-commit` stops a merge commit being created locally, but that is not the
+# only way one reaches a push: `--no-verify` bypasses it, GUI clients often skip hooks
+# entirely, and a merge commit made on a branch that never had these hooks installed
+# can still be pulled in and pushed on from here. This is the last checkpoint before
+# local history becomes shared, so it re-checks from scratch rather than trusting that
+# the earlier hook already caught it.
+#
+# Only scans the commits actually being pushed (local ref vs. its remote-tracking
+# state), not the whole repo history, so it stays fast regardless of repo age.
+#
+# This file is version-controlled in .githooks/. To activate it on a fresh clone:
+#
+#   git config core.hooksPath .githooks
+#
+# Or run: just setup-git-hooks
+remote_name="$1"
+zero_sha="0000000000000000000000000000000000000000"
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+    # A deleted ref pushes no commits.
+    if [ "$local_sha" = "$zero_sha" ]; then
+        continue
+    fi
+
+    if [ "$remote_sha" = "$zero_sha" ]; then
+        # New branch: nothing to diff against on this remote yet, so check every
+        # commit not already known on some other branch of it.
+        merges=$(git rev-list --min-parents=2 "$local_sha" --not --remotes="$remote_name")
+    else
+        merges=$(git rev-list --min-parents=2 "$remote_sha..$local_sha")
+    fi
+
+    if [ -n "$merges" ]; then
+        echo "error: this repo requires linear history -- refusing to push merge commit(s) on $local_ref:" >&2
+        echo "$merges" | sed 's/^/    /' >&2
+        echo "Rebase instead of merging, then push again." >&2
+        exit 1
+    fi
+done
+
+exit 0

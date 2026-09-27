@@ -1,0 +1,18 @@
+#!/bin/sh
+# Git pre-merge-commit hook — refuses any merge that is about to create a merge commit.
+#
+# Fires only when `git merge` cannot fast-forward, which `merge.ff = only` (see
+# `just setup-linear-history`) already stops before it gets this far. This hook is the
+# belt-and-braces backstop for when that local preference is missing or overridden --
+# a clone whose global config was never set to match, or `git merge --no-ff` used
+# deliberately. Rebase onto the target instead of merging it in.
+#
+# This file is version-controlled in .githooks/. To activate it on a fresh clone:
+#
+#   git config core.hooksPath .githooks
+#
+# Or run: just setup-git-hooks
+echo "error: this repo requires linear history -- merge commits are rejected." >&2
+echo "Rebase your branch onto the target instead of merging it in:" >&2
+echo "    git fetch && git rebase origin/main" >&2
+exit 1
