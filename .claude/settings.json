@@ -39,6 +39,11 @@
             "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/check_diary_prose.py",
             "type": "command",
             "statusMessage": "Checking for diary prose..."
+          },
+          {
+            "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/check_no_em_dash.py",
+            "type": "command",
+            "statusMessage": "Checking for em dashes..."
           }
         ]
       }

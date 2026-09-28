@@ -21,6 +21,11 @@
       "event": "PreToolUse",
       "matcher": "Bash",
       "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/validate_dep_type.py"
+    },
+    {
+      "event": "PreToolUse",
+      "matcher": "Bash|Write|Edit",
+      "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/check_no_em_dash.py"
     }
   ],
   "files": [
@@ -30,6 +35,7 @@
     "block_override_flags.py",
     "check_bead_model.py",
     "check_diary_prose.py",
+    "check_no_em_dash.py",
     "validate_dep_type.py"
   ],
   "commands": [
