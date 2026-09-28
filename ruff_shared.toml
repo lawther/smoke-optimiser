@@ -68,11 +68,17 @@ convention = "google"
     "INP001", # implicit-namespace-package: hooks are standalone scripts run by path, never imported
     "S603",   # subprocess-without-shell-equals-true: hooks invoke `bd` with shell=False, deliberately
     "S607",   # start-process-with-partial-path: `bd` is resolved via PATH, deliberately
+    "UP017",  # datetime-timezone-utc: hooks run under whatever `python3` is first on PATH, not this
+              # repo's own pinned interpreter -- macOS still ships 3.9 at /usr/bin/python3, which
+              # predates `datetime.UTC` (3.11)
 ]
 "../.claude/hooks/**" = [
     "INP001", # implicit-namespace-package: hooks are standalone scripts run by path, never imported
     "S603",   # subprocess-without-shell-equals-true: hooks invoke `bd` with shell=False, deliberately
     "S607",   # start-process-with-partial-path: `bd` is resolved via PATH, deliberately
+    "UP017",  # datetime-timezone-utc: hooks run under whatever `python3` is first on PATH, not this
+              # repo's own pinned interpreter -- macOS still ships 3.9 at /usr/bin/python3, which
+              # predates `datetime.UTC` (3.11)
 ]
 "scripts/**" = [
     "INP001", # implicit-namespace-package: dev scripts are run by path, never imported
