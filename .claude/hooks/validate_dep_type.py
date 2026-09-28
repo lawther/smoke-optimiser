@@ -38,11 +38,36 @@ interpreter before any project environment is guaranteed.
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import re
 import shlex
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from types import ModuleType
+
+
+def _load_hook_log() -> ModuleType:
+    """The sibling `_hook_log.py`, loaded by path.
+
+    See `check_diary_prose.py`'s module docstring for why: this file is synced standalone
+    into several repos' `.claude/hooks/`, and a static type checker there won't resolve a
+    plain sibling import.
+    """
+    path = Path(__file__).resolve().parent / "_hook_log.py"
+    spec = importlib.util.spec_from_file_location("_hook_log", path)
+    if spec is None or spec.loader is None:
+        message = f"cannot load the hook logger from {path}"
+        raise RuntimeError(message)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+_hook_log = _load_hook_log()
 
 _TYPE_FLAGS = frozenset({"-t", "--type"})
 _FILE_FLAGS = frozenset({"-f", "--file"})
@@ -85,10 +110,12 @@ _BLOCKED_BY_WHY = (
 
 
 def allow() -> None:
+    _hook_log.log_decision("validate_dep_type.py", "PreToolUse", "Bash", "allow")
     sys.exit(0)
 
 
 def deny(reason: str) -> None:
+    _hook_log.log_decision("validate_dep_type.py", "PreToolUse", "Bash", "deny", reason)
     json.dump(
         {
             "hookSpecificOutput": {
