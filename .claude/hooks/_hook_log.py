@@ -22,7 +22,7 @@ from __future__ import annotations
 import json
 import os
 import sys
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 _DEFAULT_LOG_DIR = Path.home() / ".agent_rules" / "logs"
@@ -36,7 +36,7 @@ def _log_dir() -> Path:
 def log_decision(hook: str, event: str, tool_name: str, decision: str, reason: str | None = None) -> None:
     """Best-effort append of one decision record. Never raises."""
     try:
-        now = datetime.now(UTC)
+        now = datetime.now(timezone.utc)
         record = {
             "timestamp": now.isoformat(),
             "repo": Path.cwd().name,
