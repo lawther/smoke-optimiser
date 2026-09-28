@@ -63,6 +63,21 @@ _shell_tokenise = _load_shell_tokenise()
 command_segments = _shell_tokenise.command_segments
 parse = _shell_tokenise.parse
 
+
+def _load_hook_log() -> ModuleType:
+    """The sibling `_hook_log.py`, loaded by path -- see `_load_shell_tokenise()` above."""
+    path = Path(__file__).resolve().parent / "_hook_log.py"
+    spec = importlib.util.spec_from_file_location("_hook_log", path)
+    if spec is None or spec.loader is None:
+        message = f"cannot load the hook logger from {path}"
+        raise RuntimeError(message)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+_hook_log = _load_hook_log()
+
 _FORCE_FLAG = "--force"
 _SHORT_FORCE_FLAG = "-f"
 _LEASE_FLAG_PREFIX = "--force-with-lease"
@@ -152,7 +167,9 @@ def main(argv: list[str]) -> None:
     # syntax that a real shell would reject too, not ordinary prose slipping through.
     rule = UNPARSEABLE if result.truncated else violated_rule(command_segments(result.tokens))
     if rule is None:
+        _hook_log.log_decision("block_override_flags.py", "PreToolUse", "Bash", "allow")
         return
+    _hook_log.log_decision("block_override_flags.py", "PreToolUse", "Bash", "deny", rule.reason)
     json.dump(
         {
             "hookSpecificOutput": {

@@ -24,6 +24,7 @@
     }
   ],
   "files": [
+    "_hook_log.py",
     "_shell_tokenise.py",
     "block-override-flags.sh",
     "block_override_flags.py",

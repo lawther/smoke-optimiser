@@ -81,6 +81,21 @@ _shell_tokenise = _load_shell_tokenise()
 command_segments = _shell_tokenise.command_segments
 tokenise = _shell_tokenise.tokenise
 
+
+def _load_hook_log() -> ModuleType:
+    """The sibling `_hook_log.py`, loaded by path -- see `_load_shell_tokenise()` above."""
+    path = Path(__file__).resolve().parent / "_hook_log.py"
+    spec = importlib.util.spec_from_file_location("_hook_log", path)
+    if spec is None or spec.loader is None:
+        message = f"cannot load the hook logger from {path}"
+        raise RuntimeError(message)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+_hook_log = _load_hook_log()
+
 _BD_BODY_COMMANDS = frozenset({"create", "new", "q", "update"})
 
 # Issue fields the rule governs. `--reason` is absent on purpose: a close reason is one of
@@ -167,11 +182,13 @@ _THE_TEST = (
 )
 
 
-def allow() -> None:
+def allow(tool_name: str) -> None:
+    _hook_log.log_decision("check_diary_prose.py", "PreToolUse", tool_name, "allow")
     sys.exit(0)
 
 
-def deny(reason: str) -> None:
+def deny(reason: str, tool_name: str) -> None:
+    _hook_log.log_decision("check_diary_prose.py", "PreToolUse", tool_name, "deny", reason)
     json.dump(
         {
             "hookSpecificOutput": {
@@ -316,13 +333,13 @@ def main() -> None:
     else:
         found = None
     if found is not None:
-        deny(found)
+        deny(found, tool_name)
         return
-    allow()
+    allow(tool_name)
 
 
 if __name__ == "__main__":
     try:
         main()
     except Exception:  # noqa: BLE001 - a hook bug must fail open, not block every write
-        allow()
+        allow("unknown")

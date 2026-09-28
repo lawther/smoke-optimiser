@@ -103,6 +103,21 @@ _shell_tokenise = _load_shell_tokenise()
 command_segments = _shell_tokenise.command_segments
 tokenise = _shell_tokenise.tokenise
 
+
+def _load_hook_log() -> ModuleType:
+    """The sibling `_hook_log.py`, loaded by path -- see `_load_shell_tokenise()` above."""
+    path = Path(__file__).resolve().parent / "_hook_log.py"
+    spec = importlib.util.spec_from_file_location("_hook_log", path)
+    if spec is None or spec.loader is None:
+        message = f"cannot load the hook logger from {path}"
+        raise RuntimeError(message)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+_hook_log = _load_hook_log()
+
 _MODEL_LABEL_RE = re.compile(r"^model:(?P<family>\w+)$")
 _MODEL_FAMILY_RE = re.compile(r"opus|sonnet|haiku|fable", re.IGNORECASE)
 _BD_SHOW_TIMEOUT_SECS = 15
@@ -140,10 +155,12 @@ class Mismatch(NamedTuple):
 
 
 def allow() -> None:
+    _hook_log.log_decision("check_bead_model.py", "PreToolUse", "Bash", "allow")
     sys.exit(0)
 
 
 def deny(reason: str) -> None:
+    _hook_log.log_decision("check_bead_model.py", "PreToolUse", "Bash", "deny", reason)
     json.dump(
         {
             "hookSpecificOutput": {
