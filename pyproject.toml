@@ -89,6 +89,7 @@ dev = [
     "psutil>=7.2.2",
     "pytest-randomly~=4.0",
     "pytest-timeout~=2.4",
+    "pytest-xdist~=3.8",
     "ruff>=0.16.9",
     "ty>=0.0.84",
 ]

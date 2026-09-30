@@ -171,10 +171,30 @@ def test_plugin_filtering(pytester: pytest.Pytester, tmp_path: Path, monkeypatch
     result.stdout.fnmatch_lines(["*1 passed, 1 deselected*"])
 
 
+# A selected test missing from collection must be reported the same way under
+# every configuration a project can have. Warnings-as-errors turned the old
+# warnings.warn into an exception inside collection, and xdist turned that into
+# an INTERNALERROR with no tests run; under xdist only the workers collect, so
+# the report also has to reach the controller's terminal. Each case is
+# (extra pytest arguments, ini file contents).
+_RUN_CONFIGURATIONS = pytest.mark.parametrize(
+    ("extra_args", "ini"),
+    [
+        pytest.param((), "", id="plain"),
+        pytest.param((), "[pytest]\nfilterwarnings = error\n", id="warnings-as-errors"),
+        pytest.param(("-n", "2"), "", id="xdist"),
+        pytest.param(("-n", "2"), "[pytest]\nfilterwarnings = error\n", id="xdist-warnings-as-errors"),
+    ],
+)
+
+
+@_RUN_CONFIGURATIONS
 def test_plugin_missing_test_warning(
     pytester: pytest.Pytester,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    extra_args: tuple[str, ...],
+    ini: str,
 ) -> None:
     suite_data = {
         "version": 1,
@@ -209,15 +229,20 @@ def test_plugin_missing_test_warning(
     suite_file.write_text(json.dumps(suite_data))
 
     pytester.makepyfile(test_app="def test_exists(): pass")
+    if ini:
+        pytester.makeini(ini)
 
     monkeypatch.setenv("PYTHONPATH", str(Path.cwd()))
-    result = pytester.runpytest_subprocess("--smoke", f"--smoke-file-path={suite_file}")
+    result = pytester.runpytest_subprocess("--smoke", f"--smoke-file-path={suite_file}", *extra_args)
+    assert result.ret == pytest.ExitCode.NO_TESTS_COLLECTED
     result.stdout.fnmatch_lines(
         [
-            "*smoke-optimiser: ⚠️ Warning: smoke test not found in collection: test_app.py::test_missing*",
-            "*1 deselected*",
+            "*⚠️ Warning: 1 smoke tests not found in collection:*",
+            "*test_app.py::test_missing*",
+            "*smoke-optimiser smoke*",
         ],
     )
+    result.stdout.no_fnmatch_line("*INTERNALERROR*")
 
 
 def test_plugin_no_smoke_flag(pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -385,24 +410,34 @@ def test_plugin_downwind_a_deleted_selected_module_is_not_a_warning(
     result.stdout.no_fnmatch_line("*not found in collection*")
 
 
+@_RUN_CONFIGURATIONS
 def test_plugin_downwind_missing_test_warning(
     pytester: pytest.Pytester,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    extra_args: tuple[str, ...],
+    ini: str,
 ) -> None:
+    # The selected test that does exist still runs: a stale id is reported,
+    # not allowed to stop the tests the selection got right.
     suite_file = tmp_path / "downwind.json"
-    suite_file.write_text(json.dumps(_downwind_data(["test_app.py::test_missing"])))
+    suite_file.write_text(json.dumps(_downwind_data(["test_app.py::test_exists", "test_app.py::test_missing"])))
 
-    pytester.makepyfile(test_app="def test_exists(): pass")
+    pytester.makepyfile(test_app="def test_exists(): pass\ndef test_other(): pass")
+    if ini:
+        pytester.makeini(ini)
 
     monkeypatch.setenv("PYTHONPATH", str(Path.cwd()))
-    result = pytester.runpytest_subprocess("--downwind", f"--downwind-file-path={suite_file}")
+    result = pytester.runpytest_subprocess("--downwind", f"--downwind-file-path={suite_file}", *extra_args)
+    assert result.ret == pytest.ExitCode.OK
     result.stdout.fnmatch_lines(
         [
-            "*smoke-optimiser: ⚠️ Warning: downwind test not found in collection*: test_app.py::test_missing*",
-            "*1 deselected*",
+            "*⚠️ Warning: 1 downwind tests not found in collection*",
+            "*test_app.py::test_missing*",
+            "*smoke-optimiser smoke --profile-only*",
         ],
     )
+    result.stdout.no_fnmatch_line("*INTERNALERROR*")
 
 
 def test_plugin_downwind_blind_spot_runs_full_suite(

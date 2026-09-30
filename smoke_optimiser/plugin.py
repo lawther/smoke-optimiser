@@ -1,5 +1,5 @@
-import warnings
 from pathlib import Path
+from typing import NamedTuple, Protocol
 
 import pytest
 from pydantic import ValidationError
@@ -21,6 +21,29 @@ _smoke_suite_key = pytest.StashKey[SmokeSuiteFile]()
 
 # Cache for the loaded downwind selection
 _downwind_suite_key = pytest.StashKey[DownwindSuiteFile]()
+
+
+class _MissingTests(NamedTuple):
+    """Selected node ids that pytest did not collect, and what to say about them."""
+
+    test_ids: tuple[str, ...]
+    description: str
+    remedy: str
+
+
+_missing_tests_key = pytest.StashKey[_MissingTests]()
+
+
+class _XdistWorkerNode(Protocol):
+    """The part of xdist's WorkerController this plugin reads: the controller's config."""
+
+    config: pytest.Config
+
+
+_SMOKE_MISSING = "smoke tests not found in collection"
+_SMOKE_REMEDY = "Run `smoke-optimiser smoke` to select the suite again."
+_DOWNWIND_MISSING = "downwind tests not found in collection (removed or renamed since profiling)"
+_DOWNWIND_REMEDY = "Run `smoke-optimiser smoke --profile-only` to rebuild the profile."
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
@@ -158,8 +181,45 @@ def pytest_configure(config: pytest.Config) -> None:
             config.stash[_downwind_suite_key] = downwind
 
 
+def _is_xdist_worker(config: pytest.Config) -> bool:
+    return hasattr(config, "workerinput")
+
+
+def _record_missing(config: pytest.Config, selected_ids: set[str], collected_ids: set[str]) -> None:
+    """Stash the selected ids pytest did not collect, for the terminal summary to report.
+
+    Reported rather than raised through ``warnings.warn``: a project running
+    warnings as errors would turn that warning into an exception inside
+    collection, and under xdist into an INTERNALERROR with no tests run. A
+    line in the summary behaves the same under every configuration.
+
+    Whichever process owns the terminal records it. Without xdist that is
+    this one, from its own collection. Under xdist only the workers collect,
+    so the controller records it from what each worker reports it collected,
+    in :func:`pytest_xdist_node_collection_finished`.
+    """
+    if config.getoption("--smoke"):
+        description, remedy = _SMOKE_MISSING, _SMOKE_REMEDY
+    else:
+        description, remedy = _DOWNWIND_MISSING, _DOWNWIND_REMEDY
+    missing = tuple(sorted(selected_ids - collected_ids))
+    if missing:
+        config.stash[_missing_tests_key] = _MissingTests(test_ids=missing, description=description, remedy=remedy)
+
+
+def _selected_ids(config: pytest.Config) -> set[str]:
+    """The node ids the active selection names, whichever flag selected them."""
+    suite = config.stash.get(_smoke_suite_key, None)
+    if config.getoption("--smoke") and suite:
+        return {t.test_id for t in suite.smoke_tests}
+    downwind = config.stash.get(_downwind_suite_key, None)
+    if config.getoption("--downwind") and downwind and not downwind.blind_spots:
+        return set(downwind.node_ids)
+    return set()
+
+
 def _filter_to_smoke_suite(config: pytest.Config, suite: SmokeSuiteFile, items: list[pytest.Item]) -> None:
-    """Deselect everything outside the smoke suite, and warn about missing tests."""
+    """Deselect everything outside the smoke suite, and record missing tests."""
     smoke_test_ids = {t.test_id for t in suite.smoke_tests}
     selected = [item for item in items if item.nodeid in smoke_test_ids]
     deselected = [item for item in items if item.nodeid not in smoke_test_ids]
@@ -168,16 +228,12 @@ def _filter_to_smoke_suite(config: pytest.Config, suite: SmokeSuiteFile, items: 
         config.hook.pytest_deselected(items=deselected)
     items[:] = selected
 
-    found_ids = {item.nodeid for item in selected}
-    for test_id in sorted(smoke_test_ids - found_ids):
-        warnings.warn(
-            f"smoke-optimiser: ⚠️ Warning: smoke test not found in collection: {test_id}",
-            stacklevel=2,
-        )
+    if not _is_xdist_worker(config):
+        _record_missing(config, smoke_test_ids, {item.nodeid for item in selected})
 
 
 def _filter_to_downwind_suite(config: pytest.Config, downwind: DownwindSuiteFile, items: list[pytest.Item]) -> None:
-    """Deselect everything outside the downwind selection, and warn about missing tests.
+    """Deselect everything outside the downwind selection, and record missing tests.
 
     Skipped entirely when blind_spots is non-empty: the profile could not
     answer for something, the answer is the full suite, and the selection is
@@ -200,13 +256,8 @@ def _filter_to_downwind_suite(config: pytest.Config, downwind: DownwindSuiteFile
         config.hook.pytest_deselected(items=deselected)
     items[:] = selected
 
-    found_ids = {item.nodeid for item in selected}
-    for test_id in sorted(downwind_test_ids - found_ids):
-        warnings.warn(
-            f"smoke-optimiser: ⚠️ Warning: downwind test not found in collection "
-            f"(removed or renamed since profiling): {test_id}",
-            stacklevel=2,
-        )
+    if not _is_xdist_worker(config):
+        _record_missing(config, downwind_test_ids, selected_ids)
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
@@ -220,6 +271,33 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
         downwind = config.stash.get(_downwind_suite_key, None)
         if downwind:
             _filter_to_downwind_suite(config, downwind, items)
+
+
+@pytest.hookimpl(optionalhook=True)
+def pytest_xdist_node_collection_finished(node: _XdistWorkerNode, ids: list[str]) -> None:
+    """On the xdist controller, record the selected ids a worker did not collect.
+
+    ``ids`` is what the worker kept after its own filtering, and every worker
+    collects the same items, so any one of them answers for the run.
+    """
+    selected = _selected_ids(node.config)
+    if selected:
+        _record_missing(node.config, selected, set(ids))
+
+
+def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter) -> None:
+    """Name every selected test pytest did not collect, and how to fix the selection."""
+    missing = terminalreporter.config.stash.get(_missing_tests_key, None)
+    if missing is None:
+        return
+    terminalreporter.write_sep("-", "smoke-optimiser", yellow=True)
+    terminalreporter.write_line(
+        f"⚠️ Warning: {len(missing.test_ids)} {missing.description}:",
+        yellow=True,
+    )
+    for test_id in missing.test_ids:
+        terminalreporter.write_line(f"     {test_id}", yellow=True)
+    terminalreporter.write_line(f"   {missing.remedy}", yellow=True)
 
 
 def pytest_report_header(config: pytest.Config) -> list[str]:
