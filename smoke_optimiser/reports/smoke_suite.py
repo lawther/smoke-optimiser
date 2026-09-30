@@ -4,6 +4,7 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
+from smoke_optimiser import __version__
 from smoke_optimiser.config import ResolvedConfig
 from smoke_optimiser.optimiser.models import SmokeResult
 from smoke_optimiser.profiler.models import MachineModel, ProfilingMeta
@@ -52,7 +53,7 @@ class SmokeSuiteFile(BaseModel):
 
     version: int = 1
     generated_at: datetime
-    generator_version: str = "0.1.0"
+    generator_version: str = __version__
     repro_command: str
     machine: MachineModel
     config: SmokeConfigModel

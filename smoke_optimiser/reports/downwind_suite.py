@@ -17,6 +17,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, model_validator
 
+from smoke_optimiser import __version__
 from smoke_optimiser.downwind.blind_spots import WHOLE_MAP_REASONS, BlindSpot, BlindSpotReason
 
 
@@ -87,7 +88,7 @@ class DownwindSuiteFile(BaseModel):
 
     version: int = 3
     generated_at: datetime
-    generator_version: str = "0.1.0"
+    generator_version: str = __version__
     changed_files: list[str]
     node_ids: list[str]
     test_modules: list[str]
