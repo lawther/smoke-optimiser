@@ -130,10 +130,11 @@ def tracked_files(repo_root: Path) -> frozenset[str]:
     filtering, so a scope root of the whole repository does not need
     hand-rolled rules for .venv and its friends.
 
-    A file staged for deletion is still an index entry and so still appears
-    here, which over-selects in the one case it can matter -- a file created
-    and deleted since the profile was captured -- and over-selecting is the
-    safe direction.
+    A file deleted from the worktree but not from the index (``rm`` rather
+    than ``git rm``) is still an index entry and so still appears here, which
+    over-selects in the one case it can matter -- a file created and deleted
+    since the profile was captured -- and over-selecting is the safe
+    direction. A ``git rm`` removes the index entry, so that file does not.
     """
     output = _run_git(["ls-files", "-z"], repo_root)
     return frozenset(path for path in output.split("\0") if path)

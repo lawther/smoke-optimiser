@@ -108,8 +108,10 @@ smoke_optimiser/
 
 `smoke-optimiser downwind` has no modes. It reads the profile, collects the working-tree diff,
 applies the downwind rules, writes `.downwind.json` and runs pytest under `--downwind`, exiting
-with pytest's own exit code so it can gate a commit. It must run from the repository root, since
-that is the only place git's paths and the profile's are relative to the same thing.
+with pytest's own exit code so it can gate a commit. It runs from the directory holding the
+project's pyproject.toml, which need not be the repository root: every path the profile stores is
+relative to the repository root, and the profile records the directory it was captured from so a
+run anywhere else rebuilds it rather than matching nothing.
 
 A changed test module is selected as a file rather than by the node ids the profile recorded in
 it, so pytest runs whatever the module now holds: a test added since profiling runs, and a module
