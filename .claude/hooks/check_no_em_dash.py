@@ -40,7 +40,7 @@ import json
 import re
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 if TYPE_CHECKING:
     from types import ModuleType
@@ -106,14 +106,19 @@ def allow(tool_name: str) -> None:
     sys.exit(0)
 
 
-def deny(reason: str, tool_name: str) -> None:
-    _hook_log.log_decision("check_no_em_dash.py", "PreToolUse", tool_name, "deny", reason)
+class Denial(NamedTuple):
+    reason: str
+    context: str
+
+
+def deny(found: Denial, tool_name: str) -> None:
+    _hook_log.log_denial("check_no_em_dash.py", "PreToolUse", tool_name, found.reason, found.context)
     json.dump(
         {
             "hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
                 "permissionDecision": "deny",
-                "permissionDecisionReason": reason,
+                "permissionDecisionReason": found.reason,
             }
         },
         sys.stdout,
@@ -125,11 +130,13 @@ def strip_fenced_blocks(text: str) -> str:
     return _FENCED_BLOCK_RE.sub("", text)
 
 
-def denial(text: str, source: str, *, strip_code: bool = False) -> str | None:
+def denial(text: str, source: str, *, strip_code: bool = False) -> Denial | None:
     scannable = strip_fenced_blocks(text) if strip_code else text
-    if _EM_DASH not in scannable:
+    position = scannable.find(_EM_DASH)
+    if position == -1:
         return None
-    return f"Blocked: {source} contains an em dash (—). Rewrite with a comma, colon, or period instead."
+    reason = f"Blocked: {source} contains an em dash (—). Rewrite with a comma, colon, or period instead."
+    return Denial(reason=reason, context=_hook_log.surrounding_sentence(scannable, position, position + 1))
 
 
 def flag_values(tokens: list[str], flags: frozenset[str]) -> list[str]:
@@ -173,7 +180,7 @@ def positional_arguments(tokens: list[str]) -> list[str]:
     return positionals
 
 
-def bd_denial(call: list[str]) -> str | None:
+def bd_denial(call: list[str]) -> Denial | None:
     rest = call[1:]
     if not rest:
         return None
@@ -193,7 +200,7 @@ def bd_denial(call: list[str]) -> str | None:
     return None
 
 
-def git_denial(call: list[str]) -> str | None:
+def git_denial(call: list[str]) -> Denial | None:
     rest = call[1:]
     if len(rest) < 1 or rest[0] != "commit":
         return None
@@ -204,7 +211,7 @@ def git_denial(call: list[str]) -> str | None:
     return None
 
 
-def bash_denial(hook_input: dict) -> str | None:
+def bash_denial(hook_input: dict) -> Denial | None:
     command = (hook_input.get("tool_input") or {}).get("command", "")
     for call in command_segments(tokenise(command)):
         if not call:
@@ -224,7 +231,7 @@ def governed_markdown(file_path: str) -> bool:
     return Path(file_path).suffix.lower() in _MARKDOWN_SUFFIXES
 
 
-def file_denial(tool_name: str, hook_input: dict) -> str | None:
+def file_denial(tool_name: str, hook_input: dict) -> Denial | None:
     tool_input = hook_input.get("tool_input") or {}
     file_path = tool_input.get("file_path") or ""
     if not governed_markdown(file_path):

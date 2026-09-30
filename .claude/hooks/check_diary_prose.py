@@ -187,14 +187,14 @@ def allow(tool_name: str) -> None:
     sys.exit(0)
 
 
-def deny(reason: str, tool_name: str) -> None:
-    _hook_log.log_decision("check_diary_prose.py", "PreToolUse", tool_name, "deny", reason)
+def deny(found: Denial, tool_name: str) -> None:
+    _hook_log.log_denial("check_diary_prose.py", "PreToolUse", tool_name, found.reason, found.context)
     json.dump(
         {
             "hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
                 "permissionDecision": "deny",
-                "permissionDecisionReason": reason,
+                "permissionDecisionReason": found.reason,
             }
         },
         sys.stdout,
@@ -211,6 +211,12 @@ def strip_exempt(text: str) -> str:
 class Hit(NamedTuple):
     name: str
     phrase: str
+    context: str
+
+
+class Denial(NamedTuple):
+    reason: str
+    context: str
 
 
 def first_hit(text: str) -> Hit | None:
@@ -218,15 +224,17 @@ def first_hit(text: str) -> Hit | None:
     for pattern in _PATTERNS:
         match = pattern.regex.search(scannable)
         if match is not None:
-            return Hit(name=pattern.name, phrase=match.group(0).strip())
+            context = _hook_log.surrounding_sentence(scannable, match.start(), match.end())
+            return Hit(name=pattern.name, phrase=match.group(0).strip(), context=context)
     return None
 
 
-def denial(text: str, source: str) -> str | None:
+def denial(text: str, source: str) -> Denial | None:
     hit = first_hit(text)
     if hit is None:
         return None
-    return f"Blocked: {source} contains {hit.name} -- `{hit.phrase}`. {_THE_TEST}"
+    reason = f"Blocked: {source} contains {hit.name} -- `{hit.phrase}`. {_THE_TEST}"
+    return Denial(reason=reason, context=hit.context)
 
 
 def flag_values(tokens: list[str], flags: frozenset[str]) -> list[str]:
@@ -274,7 +282,7 @@ def positional_arguments(tokens: list[str]) -> list[str]:
     return positionals
 
 
-def bd_denial(call: list[str]) -> str | None:
+def bd_denial(call: list[str]) -> Denial | None:
     """Denial reason for one `bd ...` invocation, or None if it writes no governed text."""
     rest = call[1:]
     if not rest:
@@ -300,7 +308,7 @@ def governed_markdown(file_path: str) -> bool:
     return path.suffix.lower() in _MARKDOWN_SUFFIXES and path.name.lower() not in _EXEMPT_FILENAMES
 
 
-def bash_denial(hook_input: dict) -> str | None:
+def bash_denial(hook_input: dict) -> Denial | None:
     command = (hook_input.get("tool_input") or {}).get("command", "")
     for call in command_segments(tokenise(command)):
         if call[0] != "bd":
@@ -311,7 +319,7 @@ def bash_denial(hook_input: dict) -> str | None:
     return None
 
 
-def file_denial(tool_name: str, hook_input: dict) -> str | None:
+def file_denial(tool_name: str, hook_input: dict) -> Denial | None:
     tool_input = hook_input.get("tool_input") or {}
     file_path = tool_input.get("file_path") or ""
     if not governed_markdown(file_path):
