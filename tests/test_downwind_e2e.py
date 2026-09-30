@@ -227,10 +227,10 @@ def test_editing_a_python_file_the_run_measured_as_unloaded_selects_nothing(prof
 def test_deleting_a_profiled_test_module_runs_nothing_and_succeeds(profiled_repo: Path) -> None:
     """The field report: the deletion IS the change, so there is nothing left to run.
 
-    Its profiled tests used to be selected by node id, none of them could be
-    collected, and the "not found in collection" warning became an exception
-    under the fixture's warnings-as-errors. Selected as a file, the module
-    collects nothing, and the command says why it ran nothing.
+    Selecting its profiled tests by node id would name tests none of which can
+    be collected, each one a missing-test report on a change that is exactly
+    right. Selected as a file, the module collects nothing, and the command
+    says why it ran nothing.
     """
     _git(profiled_repo, "rm", "tests/test_other.py")
 
