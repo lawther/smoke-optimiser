@@ -16,6 +16,22 @@
   recording the coverage targets and test paths the profiling run measured. A version 1
   profile is rejected on load -- re-run the profiling phase to regenerate it.
 
+## [0.3.3](https://github.com/lawther/smoke-optimiser/compare/v0.3.2...v0.3.3) (2026-09-30)
+
+
+### Bug Fixes
+
+* **downwind:** select a changed test module whole, not by its profiled node ids ([913534b](https://github.com/lawther/smoke-optimiser/commit/913534b510063db18cf0a683b9025bca4eaf2403))
+* **downwind:** strip GIT_DIR and friends before every throwaway-repo git call ([590646d](https://github.com/lawther/smoke-optimiser/commit/590646def8e2211662627730f198d8a9e4a2e7dd))
+* **justfile:** type-check analyse_ai_readiness.py in its own environment ([cc7981a](https://github.com/lawther/smoke-optimiser/commit/cc7981a400914135633c7928ddab0007291312a6))
+* **plugin:** report missing selected tests in the terminal summary, not as warnings ([8fe1a46](https://github.com/lawther/smoke-optimiser/commit/8fe1a4607434094c30561bece5ef64601389d058))
+* **reports:** stamp selection files with the real generator version, not a hardcoded 0.1.0 ([2b3890e](https://github.com/lawther/smoke-optimiser/commit/2b3890e93e7597e7daa2476c922d19ec87c5cdd2))
+
+
+### Documentation
+
+* correct which deletions tracked_files reports, and where downwind runs from ([c096a27](https://github.com/lawther/smoke-optimiser/commit/c096a271a854fba9597ceb53145cb7f37f36cb44))
+
 ## [0.3.2](https://github.com/lawther/smoke-optimiser/compare/v0.3.1...v0.3.2) (2026-09-23)
 
 
