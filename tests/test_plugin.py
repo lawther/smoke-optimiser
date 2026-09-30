@@ -268,12 +268,17 @@ def test_plugin_report_header(pytester: pytest.Pytester, tmp_path: Path, monkeyp
     result.stdout.fnmatch_lines(["*smoke-optimiser: running smoke suite from *smoke.json *1 tests, 80.0% coverage*"])
 
 
-def _downwind_data(node_ids: list[str], blind_spots: list[dict] | None = None) -> dict:
+def _downwind_data(
+    node_ids: list[str],
+    blind_spots: list[dict] | None = None,
+    test_modules: tuple[str, ...] = (),
+) -> dict:
     return {
         "version": DOWNWIND_SUITE_VERSION,
         "generated_at": "2026-09-07T09:00:00Z",
         "changed_files": ["smoke_optimiser/downwind/maps.py"],
         "node_ids": node_ids,
+        "test_modules": list(test_modules),
         "profile": {"commit": "abcdef", "timestamp": "2026-09-07T09:00:00Z"},
         "blind_spots": blind_spots or [],
     }
@@ -331,6 +336,53 @@ def test_plugin_downwind_filtering(pytester: pytest.Pytester, tmp_path: Path, mo
     result = pytester.runpytest_subprocess("--downwind", f"--downwind-file-path={suite_file}")
     result.assert_outcomes(passed=1)
     result.stdout.fnmatch_lines(["*1 passed, 1 deselected*"])
+
+
+def test_plugin_downwind_keeps_every_test_collected_from_a_selected_module(
+    pytester: pytest.Pytester,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A changed test module is selected as a file, so a test written since the
+    # profile was taken -- one no node id could have named -- still runs.
+    suite_file = tmp_path / "downwind.json"
+    suite_file.write_text(json.dumps(_downwind_data([], test_modules=("test_changed.py",))))
+
+    pytester.makepyfile(
+        test_changed="""
+        def test_profiled(): pass
+        def test_written_since(): pass
+        """,
+        test_other="def test_elsewhere(): pass",
+    )
+
+    monkeypatch.setenv("PYTHONPATH", str(Path.cwd()))
+    result = pytester.runpytest_subprocess("--downwind", f"--downwind-file-path={suite_file}")
+    result.assert_outcomes(passed=2, deselected=1)
+
+
+def test_plugin_downwind_a_deleted_selected_module_is_not_a_warning(
+    pytester: pytest.Pytester,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The field report: a test module the diff deleted was in the selection,
+    # and under filterwarnings=error the "not found in collection" warning
+    # became an exception inside collection. A module that collects nothing is
+    # the deletion itself, so it must pass silently even when every warning is
+    # an error -- and the tests that do exist still run.
+    suite_file = tmp_path / "downwind.json"
+    suite_file.write_text(
+        json.dumps(_downwind_data(["test_app.py::test_kept"], test_modules=("tests/test_deleted.py",)))
+    )
+
+    pytester.makepyfile(test_app="def test_kept(): pass")
+    pytester.makeini("[pytest]\nfilterwarnings = error\n")
+
+    monkeypatch.setenv("PYTHONPATH", str(Path.cwd()))
+    result = pytester.runpytest_subprocess("--downwind", f"--downwind-file-path={suite_file}")
+    result.assert_outcomes(passed=1)
+    result.stdout.no_fnmatch_line("*not found in collection*")
 
 
 def test_plugin_downwind_missing_test_warning(
@@ -394,7 +446,12 @@ def test_plugin_downwind_report_header_selected(
     monkeypatch.setenv("PYTHONPATH", str(Path.cwd()))
     result = pytester.runpytest_subprocess("--downwind", f"--downwind-file-path={suite_file}")
     result.stdout.fnmatch_lines(
-        ["*smoke-optimiser: running downwind suite from *downwind.json *1 tests downwind of 1 changed files*"],
+        [
+            (
+                "*smoke-optimiser: running downwind suite from *downwind.json "
+                "*1 tests, plus every test in 0 changed test modules, downwind of 1 changed files*"
+            )
+        ],
     )
     result.stdout.no_fnmatch_line("*coverage*")
 

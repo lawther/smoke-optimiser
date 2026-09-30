@@ -31,7 +31,7 @@ from smoke_optimiser.profiler.models import (
     ProfilingOutcome,
     ReadObservations,
 )
-from smoke_optimiser.profiler.scope import ProfileScope
+from smoke_optimiser.profiler.scope import WHOLE_REPOSITORY, ProfileScope
 
 _MACHINE = MachineEnvironment(
     os=None,
@@ -110,6 +110,7 @@ def _maps(  # noqa: PLR0913 - one parameter per independent map fact; grouping t
     resolution_errors: int = 0,
     read_facts: _ReadFacts = _NO_READS,
     present_files: frozenset[str] = frozenset(),
+    node_id_prefix: str = WHOLE_REPOSITORY,
 ) -> DownwindMaps:
     """Maps over a profile described as node id -> the files that test executed."""
     profile = ProfilingData(
@@ -142,7 +143,7 @@ def _maps(  # noqa: PLR0913 - one parameter per independent map fact; grouping t
             error_samples=(),
         ),
         present_files=present_files,
-        anchor=ProfileAnchor(),
+        anchor=ProfileAnchor(project_offset=node_id_prefix, node_id_prefix=node_id_prefix),
     )
     return DownwindMaps.from_profile(profile)
 
@@ -214,13 +215,81 @@ def test_a_changed_import_time_only_file_selects_the_tests_whose_module_imports_
     assert answer == DownwindSelection(node_ids=frozenset({"tests/test_a.py::test_one", "tests/test_a.py::test_two"}))
 
 
-def test_a_changed_test_file_selects_the_tests_in_that_file() -> None:
+def test_a_changed_test_file_is_selected_whole() -> None:
     # tests/test_a.py is unattributed -- pytest loaded it and nothing imports
     # it -- but it defines tests, which is WHY nothing imports it. Refusing
     # here would cost a full suite for the commonest edit there is.
+    #
+    # It is selected as a FILE, not as the two ids the profile recorded in it:
+    # editing a test module is how tests are added and renamed, so those ids
+    # are exactly what the change made stale. The profiled ids are dropped
+    # rather than listed alongside, because the file already covers them and a
+    # listed id that no longer exists would be reported as missing.
     answer = downwind_of(_standard_maps(), _changed("tests/test_a.py"), _all_existing(), DEFAULT_ENVIRONMENT_FILES)
 
-    assert answer == DownwindSelection(node_ids=frozenset({"tests/test_a.py::test_one", "tests/test_a.py::test_two"}))
+    assert answer == DownwindSelection(node_ids=frozenset(), test_modules=frozenset({"tests/test_a.py"}))
+
+
+def test_a_deleted_test_file_is_selected_whole_and_names_none_of_its_tests() -> None:
+    # The field report: a profiled test module deleted by the diff had every
+    # one of its profiled ids selected, none could be collected, and the
+    # "not found in collection" warning crashed an xdist run under
+    # filterwarnings=error. Selected as a file, it collects nothing, which is
+    # the right answer for a deletion -- and no id is left to go missing.
+    deleted = frozenset({ChangedFile(path="tests/test_a.py", kind=ChangeKind.DELETED)})
+
+    answer = downwind_of(_standard_maps(), deleted, _all_existing() - {"tests/test_a.py"}, DEFAULT_ENVIRONMENT_FILES)
+
+    assert answer == DownwindSelection(node_ids=frozenset(), test_modules=frozenset({"tests/test_a.py"}))
+
+
+def test_a_changed_test_file_keeps_the_ids_of_the_test_modules_that_import_it() -> None:
+    # tests/test_b.py imports a helper from tests/test_a.py. test_b.py did not
+    # change, so its profiled ids are still accurate and stay ids; only the
+    # changed module is taken whole. The covering relation also puts
+    # test_b.py's test downwind, and a test_a.py id that coverage attributes
+    # to test_a.py itself is dropped in favour of the file.
+    maps = _maps(
+        tests={
+            "tests/test_a.py::test_one": frozenset({"src/a.py", "tests/test_a.py"}),
+            "tests/test_b.py::test_three": frozenset({"src/b.py", "tests/test_a.py"}),
+        },
+        measured_files=frozenset({"src/a.py", "src/b.py", "tests/test_a.py", "tests/test_b.py"}),
+        edges=frozenset({ImportEdge(importer="tests/test_b.py", imported="tests/test_a.py")}),
+        unattributed_modules=frozenset({"tests/test_b.py"}),
+    )
+
+    answer = downwind_of(
+        maps,
+        _changed("tests/test_a.py"),
+        frozenset({"src/a.py", "src/b.py", "tests/test_a.py", "tests/test_b.py"}),
+        DEFAULT_ENVIRONMENT_FILES,
+    )
+
+    assert answer == DownwindSelection(
+        node_ids=frozenset({"tests/test_b.py::test_three"}), test_modules=frozenset({"tests/test_a.py"})
+    )
+
+
+def test_a_changed_test_file_is_spelled_as_its_node_ids_spell_it() -> None:
+    # In a monorepo the rootdir is api/, so node ids say tests/test_a.py while
+    # git says api/tests/test_a.py. The plugin matches the selection against
+    # pytest's node ids, so the module must come out in their spelling.
+    profile_maps = _maps(
+        tests={"tests/test_a.py::test_one": frozenset({"api/src/a.py"})},
+        measured_files=frozenset({"api/src/a.py"}),
+        unattributed_modules=frozenset({"api/tests/test_a.py"}),
+        node_id_prefix="api",
+    )
+
+    answer = downwind_of(
+        profile_maps,
+        _changed("api/tests/test_a.py"),
+        frozenset({"api/src/a.py", "api/tests/test_a.py"}),
+        DEFAULT_ENVIRONMENT_FILES,
+    )
+
+    assert answer == DownwindSelection(node_ids=frozenset(), test_modules=frozenset({"tests/test_a.py"}))
 
 
 def test_a_test_module_that_others_import_is_answered_through_the_closure() -> None:

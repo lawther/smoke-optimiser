@@ -111,9 +111,14 @@ applies the downwind rules, writes `.downwind.json` and runs pytest under `--dow
 with pytest's own exit code so it can gate a commit. It must run from the repository root, since
 that is the only place git's paths and the profile's are relative to the same thing.
 
-Two cases exit 0 without invoking pytest: a clean tree, and a change the profile says no test
-reaches. The second warns and names the files, because as well as being a real answer it can mean
-the profile is missing a route to the suite. A missing profile falls back to the full suite with
+A changed test module is selected as a file rather than by the node ids the profile recorded in
+it, so pytest runs whatever the module now holds: a test added since profiling runs, and a module
+the change deleted collects nothing.
+
+Three cases exit 0 without invoking pytest: a clean tree, a change whose only downwind tests were
+in test modules it deleted, and a change the profile says no test reaches. The last warns and names
+the files, because as well as being a real answer it can mean the profile is missing a route to the
+suite. A missing profile falls back to the full suite with
 the command to record one; a profile that exists and cannot be read is an error, since a slow run
 would hide it.
 

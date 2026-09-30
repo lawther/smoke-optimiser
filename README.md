@@ -65,7 +65,9 @@ suite itself, instrumented, to produce one before it selects anything. Every run
 your current working-tree diff against that profile, writes the result to `.downwind.json`, and
 runs pytest against it (equivalent to `pytest --downwind` once `.downwind.json` is current — plain
 `pytest --downwind` on its own would just replay whatever selection is already on disk, stale or
-not). It exits with pytest's own exit code, so it can gate a commit.
+not). It exits with pytest's own exit code, so it can gate a commit. A test module you changed is
+run whole, so a test you have just written runs even though the profile has never seen it, and a
+test module you deleted simply drops out.
 
 Run it from **the directory holding your project's `pyproject.toml`**, which need not be the
 repository root. Both commands take their configuration from that directory, write

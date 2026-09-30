@@ -5,6 +5,7 @@ import pytest
 from pydantic import ValidationError
 
 from smoke_optimiser.downwind.blind_spots import BlindSpotReason
+from smoke_optimiser.downwind.rules import node_id_path
 from smoke_optimiser.reports.downwind_suite import (
     BlindSpotModel,
     DownwindSuiteFile,
@@ -13,7 +14,7 @@ from smoke_optimiser.reports.downwind_suite import (
 from smoke_optimiser.reports.smoke_suite import SmokeSuiteFile, read_smoke_suite
 
 SUPPORTED_VERSIONS: frozenset[int] = frozenset({1})
-SUPPORTED_DOWNWIND_VERSIONS: frozenset[int] = frozenset({2})
+SUPPORTED_DOWNWIND_VERSIONS: frozenset[int] = frozenset({3})
 
 # Cache for the loaded smoke suite
 _smoke_suite_key = pytest.StashKey[SmokeSuiteFile]()
@@ -179,15 +180,21 @@ def _filter_to_downwind_suite(config: pytest.Config, downwind: DownwindSuiteFile
     """Deselect everything outside the downwind selection, and warn about missing tests.
 
     Skipped entirely when blind_spots is non-empty: the profile could not
-    answer for something, the answer is the full suite, and node_ids is
+    answer for something, the answer is the full suite, and the selection is
     empty, so collection is left untouched.
+
+    Only node ids can be missing. A test module is selected as a file, and one
+    that collects nothing -- because the change deleted it, or emptied it --
+    is the change itself rather than a disagreement with the profile.
     """
     if downwind.blind_spots:
         return
 
     downwind_test_ids = set(downwind.node_ids)
-    selected = [item for item in items if item.nodeid in downwind_test_ids]
-    deselected = [item for item in items if item.nodeid not in downwind_test_ids]
+    test_modules = set(downwind.test_modules)
+    selected = [item for item in items if item.nodeid in downwind_test_ids or node_id_path(item.nodeid) in test_modules]
+    selected_ids = {item.nodeid for item in selected}
+    deselected = [item for item in items if item.nodeid not in selected_ids]
 
     if deselected:
         config.hook.pytest_deselected(items=deselected)
@@ -246,9 +253,11 @@ def pytest_report_header(config: pytest.Config) -> list[str]:
                 )
             else:
                 count = len(downwind.node_ids)
+                modules = len(downwind.test_modules)
                 lines.append(
                     f"smoke-optimiser: running downwind suite from {path} "
-                    f"({count} tests downwind of {changed} changed files)",
+                    f"({count} tests, plus every test in {modules} changed test modules, "
+                    f"downwind of {changed} changed files)",
                 )
 
     return lines

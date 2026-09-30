@@ -23,6 +23,7 @@ def test_downwind_suite_roundtrip_selected(tmp_path: Path) -> None:
         generated_at=datetime(2026, 9, 7, 9, 0, 0, tzinfo=UTC),
         changed_files=["smoke_optimiser/downwind/maps.py"],
         node_ids=["tests/test_downwind_maps.py::test_knows"],
+        test_modules=["tests/test_downwind_rules.py"],
         profile=_profile_identity(),
         blind_spots=[],
     )
@@ -31,6 +32,7 @@ def test_downwind_suite_roundtrip_selected(tmp_path: Path) -> None:
 
     loaded = read_downwind_suite(output_file)
     assert loaded.node_ids == ["tests/test_downwind_maps.py::test_knows"]
+    assert loaded.test_modules == ["tests/test_downwind_rules.py"]
     assert loaded.blind_spots == []
     assert loaded.profile.commit == "abcdef"
 
@@ -40,6 +42,7 @@ def test_downwind_suite_roundtrip_blind_spot(tmp_path: Path) -> None:
         generated_at=datetime(2026, 9, 7, 9, 0, 0, tzinfo=UTC),
         changed_files=["smoke_optimiser/new_module.py"],
         node_ids=[],
+        test_modules=[],
         profile=_profile_identity(),
         blind_spots=[BlindSpotModel(reason=BlindSpotReason.UNKNOWN_PATH, file="smoke_optimiser/new_module.py")],
     )
@@ -60,6 +63,7 @@ def test_downwind_suite_resolution_errors_blind_spot_has_no_file(tmp_path: Path)
         generated_at=datetime(2026, 9, 7, 9, 0, 0, tzinfo=UTC),
         changed_files=["smoke_optimiser/downwind/maps.py"],
         node_ids=[],
+        test_modules=[],
         profile=_profile_identity(),
         blind_spots=[
             BlindSpotModel(reason=BlindSpotReason.RESOLUTION_ERRORS, resolution_errors=RESOLUTION_ERROR_COUNT),
@@ -107,6 +111,21 @@ def test_downwind_suite_file_rejects_node_ids_and_blind_spots_both_populated() -
             generated_at=datetime(2026, 9, 7, 9, 0, 0, tzinfo=UTC),
             changed_files=["smoke_optimiser/new_module.py"],
             node_ids=["tests/test_downwind_maps.py::test_knows"],
+            test_modules=[],
+            profile=_profile_identity(),
+            blind_spots=[BlindSpotModel(reason=BlindSpotReason.UNKNOWN_PATH, file="smoke_optimiser/new_module.py")],
+        )
+
+
+def test_downwind_suite_file_rejects_test_modules_and_blind_spots_both_populated() -> None:
+    # A refusal means the full suite. A file that also named test modules
+    # would invite a reader to run those instead.
+    with pytest.raises(ValidationError):
+        DownwindSuiteFile(
+            generated_at=datetime(2026, 9, 7, 9, 0, 0, tzinfo=UTC),
+            changed_files=["smoke_optimiser/new_module.py"],
+            node_ids=[],
+            test_modules=["tests/test_downwind_rules.py"],
             profile=_profile_identity(),
             blind_spots=[BlindSpotModel(reason=BlindSpotReason.UNKNOWN_PATH, file="smoke_optimiser/new_module.py")],
         )

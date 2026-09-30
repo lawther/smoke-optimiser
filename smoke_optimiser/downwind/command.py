@@ -125,6 +125,7 @@ class _Selection:
     """
 
     node_ids: frozenset[str]
+    test_modules: frozenset[str]
     blind_spots: frozenset[BlindSpot]
     changed: frozenset[ChangedFile]
     profile_test_count: int
@@ -221,6 +222,15 @@ def _report_nothing_downwind(selection: _Selection) -> None:
         typer.secho("✅ No changes in the working tree, so nothing is downwind. pytest not run.", fg=typer.colors.GREEN)
         return
 
+    if selection.test_modules:
+        # Every test module selected is gone, and nothing else was reached: the
+        # deletion is the whole change, so there is nothing left to run.
+        typer.secho(
+            f"✅ The only tests downwind were in {len(selection.test_modules)} deleted test modules. pytest not run.",
+            fg=typer.colors.GREEN,
+        )
+        return
+
     typer.secho(
         f"⚠️ Warning: {len(selection.changed)} changed files, and the profile says no test reaches them:",
         fg=typer.colors.YELLOW,
@@ -243,8 +253,8 @@ def _report_nothing_downwind(selection: _Selection) -> None:
 def _report_selection(selection: _Selection) -> None:
     """Say what was considered changed and how much of the suite that comes to."""
     typer.secho(
-        f"🎯 {len(selection.node_ids)} of {selection.profile_test_count} tests downwind of "
-        f"{len(selection.changed)} changed files.",
+        f"🎯 {len(selection.node_ids)} of {selection.profile_test_count} tests, plus every test in "
+        f"{len(selection.test_modules)} changed test modules, downwind of {len(selection.changed)} changed files.",
         fg=typer.colors.CYAN,
         bold=True,
     )
@@ -296,6 +306,7 @@ def _select(profile: ProfilingData, paths: ProjectPaths, config: DownwindConfig)
     refused = isinstance(answer, DownwindRefusal)
     return _Selection(
         node_ids=frozenset() if refused else answer.node_ids,
+        test_modules=frozenset() if refused else answer.test_modules,
         blind_spots=answer.blind_spots if refused else frozenset(),
         changed=changed,
         profile_test_count=len(profile.tests),
@@ -308,6 +319,7 @@ def _write_selection(selection: _Selection, profile: ProfilingData, config: Down
         generated_at=datetime.now(UTC),
         changed_files=sorted(changed.path for changed in selection.changed),
         node_ids=sorted(selection.node_ids),
+        test_modules=sorted(selection.test_modules),
         profile=ProfileIdentityModel(commit=profile.meta.commit, timestamp=profile.meta.timestamp),
         blind_spots=[BlindSpotModel.from_blind_spot(spot) for spot in in_report_order(selection.blind_spots)],
     )
@@ -685,7 +697,12 @@ def run_downwind(config: DownwindConfig, invocation_dir: Path) -> int:
         _report_refusal(selection, config)
         return _run_full_suite(config, paths, extra_args, replaced=profile)
 
-    if not selection.node_ids:
+    # A test module the change deleted is still in the selection, where it
+    # collects nothing, but it cannot be the reason to start pytest. Its path
+    # is a node id's, so it is relative to pytest's rootdir.
+    rootdir = paths.repo_root / profile.anchor.node_id_prefix
+    present_modules = {module for module in selection.test_modules if (rootdir / module).exists()}
+    if not selection.node_ids and not present_modules:
         # Nothing to filter to, so pytest would collect nothing and exit 5 --
         # a failed commit for a change that correctly has nothing to run.
         _report_nothing_downwind(selection)

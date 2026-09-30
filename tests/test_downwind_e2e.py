@@ -59,10 +59,15 @@ def _write_project(project_dir: Path) -> None:
     Kept deliberately separable: nothing in app.py reaches test_other.py by
     any relation, so 'only the tests downwind ran' is a claim the fixture can
     actually make.
+
+    Warnings are errors, as they are in many real projects: anything the
+    plugin signals through ``warnings.warn`` becomes an exception inside
+    collection here, which is how a deleted test module once crashed a run.
     """
     project_dir.mkdir(parents=True)
     (project_dir / "pyproject.toml").write_text(
-        '[project]\nname = "my-project"\n\n[tool.pytest.ini_options]\ntestpaths = ["tests"]\npythonpath = ["."]\n',
+        '[project]\nname = "my-project"\n\n[tool.pytest.ini_options]\ntestpaths = ["tests"]\npythonpath = ["."]\n'
+        'filterwarnings = ["error"]\n',
     )
 
     src = project_dir / "src"
@@ -217,6 +222,54 @@ def test_editing_a_python_file_the_run_measured_as_unloaded_selects_nothing(prof
     assert selection.changed_files == ["tests/unused_helper.py"]
     assert "0 of 3 tests downwind" in result.stdout
     assert "test session starts" not in result.stdout
+
+
+def test_deleting_a_profiled_test_module_runs_nothing_and_succeeds(profiled_repo: Path) -> None:
+    """The field report: the deletion IS the change, so there is nothing left to run.
+
+    Its profiled tests used to be selected by node id, none of them could be
+    collected, and the "not found in collection" warning became an exception
+    under the fixture's warnings-as-errors. Selected as a file, the module
+    collects nothing, and the command says why it ran nothing.
+    """
+    _git(profiled_repo, "rm", "tests/test_other.py")
+
+    result = _run(profiled_repo, "downwind")
+
+    assert result.returncode == EXIT_OK, f"{result.stderr}\nSTDOUT: {result.stdout}"
+    selection = _selection(profiled_repo)
+    assert selection.blind_spots == []
+    assert selection.node_ids == []
+    assert selection.test_modules == ["tests/test_other.py"]
+    assert "1 deleted test modules" in result.stdout
+    assert "test session starts" not in result.stdout
+
+
+def test_deleting_a_test_module_alongside_a_source_edit_runs_the_source_edit_s_tests(profiled_repo: Path) -> None:
+    """The deleted module is in the selection with the rest, and costs nothing there."""
+    _git(profiled_repo, "rm", "tests/test_other.py")
+    (profiled_repo / "src" / "app.py").write_text(
+        "def add(a, b):\n    if a > 0:\n        return a + b\n    return b + 0\n",
+    )
+
+    result = _run(profiled_repo, "downwind")
+
+    assert result.returncode == EXIT_OK, f"{result.stderr}\nSTDOUT: {result.stdout}"
+    assert "2 passed" in result.stdout
+    assert "not found in collection" not in result.stdout
+
+
+def test_a_test_added_to_a_profiled_test_module_runs(profiled_repo: Path) -> None:
+    """No node id in the profile can name a test written since, so the module is selected whole."""
+    test_app = profiled_repo / "tests" / "test_app.py"
+    test_app.write_text(test_app.read_text() + "\n\ndef test_add_zero():\n    assert add(0, 2) == 2\n")
+
+    result = _run(profiled_repo, "downwind")
+
+    assert result.returncode == EXIT_OK, f"{result.stderr}\nSTDOUT: {result.stdout}"
+    assert _selection(profiled_repo).test_modules == ["tests/test_app.py"]
+    assert "3 passed" in result.stdout
+    assert "1 deselected" in result.stdout
 
 
 def test_a_failing_selected_test_fails_the_command(profiled_repo: Path) -> None:

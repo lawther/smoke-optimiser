@@ -36,6 +36,15 @@ its directory; a dead end anywhere else -- a pytest11 plugin belonging to
 the project, a module loaded through machinery the tracer cannot follow --
 has no such rule to fall back on and is a blind spot.
 
+A CHANGED TEST MODULE is selected as a whole file rather than by the node
+ids the profile recorded in it. Editing a test module is how tests are added,
+renamed and removed, so the profile's ids for it are exactly the part of the
+profile the change has made stale: they would miss a test just written, and
+name tests that no longer exist. pytest collects the file as it now stands,
+and a module the change deleted collects nothing, which is the right answer
+for a deletion. Its profiled ids are dropped from the selection, since the
+file covers them.
+
 A changed NON-PYTHON path is answered from the read map instead, by a ladder
 of its own that :func:`_read_answer` documents.
 
@@ -80,7 +89,11 @@ PYTHON_SUFFIX = ".py"
 
 @dataclass(frozen=True)
 class DownwindSelection:
-    """The tests downwind of the change, as node ids.
+    """The tests downwind of the change: node ids, plus test modules taken whole.
+
+    ``test_modules`` are changed test modules, spelled as the path part of a
+    node id so pytest's collection can be matched against them directly. No
+    node id in ``node_ids`` is defined in one of them.
 
     Empty is a real answer, not a refusal: an empty changed set has nothing
     downwind of it, and a changed file no test reaches genuinely selects
@@ -88,6 +101,7 @@ class DownwindSelection:
     """
 
     node_ids: frozenset[str]
+    test_modules: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True)
@@ -117,6 +131,11 @@ DownwindAnswer = DownwindSelection | DownwindRefusal
 
 def _is_conftest(path: str) -> bool:
     return path.rsplit("/", maxsplit=1)[-1] == CONFTEST
+
+
+def node_id_path(test_id: str) -> str:
+    """The file part of a node id, as pytest spells it: everything before the first ``::``."""
+    return test_id.split("::", maxsplit=1)[0]
 
 
 def _blind_spot_reason(maps: DownwindMaps, path: str) -> BlindSpotReason | None:
@@ -175,6 +194,7 @@ class _FileAnswer(NamedTuple):
 
     node_ids: frozenset[str]
     blind_spots: frozenset[BlindSpot]
+    test_modules: frozenset[str] = frozenset()
 
 
 def _tests_downwind_of(maps: DownwindMaps, path: str) -> _FileAnswer:
@@ -191,6 +211,10 @@ def _tests_downwind_of(maps: DownwindMaps, path: str) -> _FileAnswer:
     """
     selected: set[str] = set()
     dead_ends: set[BlindSpot] = set()
+    # Every id the profile holds for one module shares its file part, so any
+    # of them spells the module the way pytest will.
+    own_tests = maps.tests_in_module(path)
+    test_modules = frozenset({node_id_path(next(iter(own_tests)))}) if own_tests else frozenset()
 
     for reached in maps.dependents_of(path) | {path}:
         tests = maps.tests_in_module(reached) | maps.tests_executing(reached)
@@ -207,7 +231,7 @@ def _tests_downwind_of(maps: DownwindMaps, path: str) -> _FileAnswer:
         else:
             dead_ends.add(BlindSpot(reason=BlindSpotReason.TERMINAL_DEAD_END, file=reached))
 
-    return _FileAnswer(node_ids=frozenset(selected), blind_spots=frozenset(dead_ends))
+    return _FileAnswer(node_ids=frozenset(selected), blind_spots=frozenset(dead_ends), test_modules=test_modules)
 
 
 def _inert_answer(maps: DownwindMaps, path: str) -> _FileAnswer:
@@ -330,7 +354,8 @@ def downwind_of(
             with renames already resolved to the old path. No rule reads
             ``ChangeKind``: a deletion is looked up exactly like any other
             change, since the tests that executed a file are the ones a
-            deletion is most likely to break.
+            deletion is most likely to break, and a deleted test module is
+            selected whole like any changed one, which collects nothing.
         existing_files: The tracked files that exist in the working tree now,
             already narrowed to the scope the profile was captured under. A
             file here that the maps do not know is what expires the profile.
@@ -346,6 +371,7 @@ def downwind_of(
     """
     blind_spots: set[BlindSpot] = set()
     node_ids: set[str] = set()
+    test_modules: set[str] = set()
 
     # Paths rather than ChangedFile: no rule reads the kind, and taking the
     # set of them deduplicates a path git reported under two kinds at once.
@@ -363,6 +389,7 @@ def downwind_of(
         answer = _python_answer(maps, path)
         node_ids |= answer.node_ids
         blind_spots |= answer.blind_spots
+        test_modules |= answer.test_modules
 
     if maps.resolution_errors:
         # Blunt on purpose, and in the safe direction: each swallowed failure
@@ -383,4 +410,7 @@ def downwind_of(
 
     if blind_spots:
         return DownwindRefusal(blind_spots=frozenset(blind_spots))
-    return DownwindSelection(node_ids=frozenset(node_ids))
+    return DownwindSelection(
+        node_ids=frozenset(test_id for test_id in node_ids if node_id_path(test_id) not in test_modules),
+        test_modules=frozenset(test_modules),
+    )

@@ -5,6 +5,10 @@ executed a changed file, every test whose module transitively imports one,
 and every test at or below a conftest.py the import closure terminates at --
 never a coverage bet, so it shares nothing with SmokeSuiteFile beyond the
 list of node ids. See so-uom.
+
+A changed test module is carried as a FILE in ``test_modules`` rather than as
+the node ids the profile recorded in it, because the change is what made those
+ids stale. See :mod:`smoke_optimiser.downwind.rules`.
 """
 
 import json
@@ -71,26 +75,29 @@ class ProfileIdentityModel(BaseModel):
 class DownwindSuiteFile(BaseModel):
     """Schema for .downwind.json.
 
-    Version 2 introduced the read map's vocabulary: a changed non-Python path
-    is now answered rather than refused, so NON_PYTHON_FILE is gone and
-    UNATTRIBUTED_READ, ENVIRONMENT_FILE and READ_ERRORS take its place. A
-    version 1 file names a reason this build has no word for, so it is
-    refused by version rather than failing enum validation with nothing
-    actionable to say.
+    ``node_ids`` and ``test_modules`` together are the selection: pytest keeps
+    an item whose node id is listed, or whose node id's file part is one of
+    ``test_modules``. Both are empty whenever ``blind_spots`` is not.
+
+    The version is what an older build refuses on. A file written before
+    ``test_modules`` existed would silently select none of the changed test
+    modules' tests, so it is refused by version rather than read as though the
+    field were empty.
     """
 
-    version: int = 2
+    version: int = 3
     generated_at: datetime
     generator_version: str = "0.1.0"
     changed_files: list[str]
     node_ids: list[str]
+    test_modules: list[str]
     profile: ProfileIdentityModel
     blind_spots: list[BlindSpotModel] = []
 
     @model_validator(mode="after")
-    def _check_node_ids_and_blind_spots_not_both_populated(self) -> "DownwindSuiteFile":
-        if self.node_ids and self.blind_spots:
-            message = "node_ids and blind_spots must not both be non-empty"
+    def _check_selection_and_blind_spots_not_both_populated(self) -> "DownwindSuiteFile":
+        if (self.node_ids or self.test_modules) and self.blind_spots:
+            message = "a selection (node_ids or test_modules) and blind_spots must not both be non-empty"
             raise ValueError(message)
         return self
 
@@ -98,7 +105,7 @@ class DownwindSuiteFile(BaseModel):
 def write_downwind_suite(suite: DownwindSuiteFile, output_path: Path) -> None:
     """Write the downwind selection to a JSON file.
 
-    node_ids is empty whenever blind_spots is non-empty: the full-suite
+    node_ids and test_modules are empty whenever blind_spots is non-empty: the full-suite
     fallback means "collect everything", which pytest already does without
     filtering, so there is nothing an enumerated node id list would add.
     """
