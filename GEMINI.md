@@ -1,4 +1,4 @@
-<!-- BEGIN GLOBAL RULES sha256:a256b9c000039aa1 -->
+<!-- BEGIN GLOBAL RULES sha256:ceb9221975c372c8 -->
 <!-- Generated from agent_rules/global.md. Do not edit inside this block:
      edit global.md, then run `just sync-rules` in agent_rules. -->
 
@@ -90,6 +90,21 @@ hash offered as a reason). Say what the thing does, not what it stopped doing.
 When a tool refuses to do something, that refusal is information, not an obstacle. Never reach for the flag that silences it. **Stop and ask me instead.** This is not negotiable and it is not a judgement call.
 
 A hook already blocks the concrete cases — `bd --force`, `git push --force`/`-f`/`--force-with-lease`, and `--no-verify` — and denies them with the same reasoning stated here. The same rule applies to anything else that exists to bypass a check, whether or not a hook catches it. If you believe a refusal is genuinely wrong, say so and wait — do not act first and explain afterwards. Explaining after the fact is not asking.
+
+# Asking Me Instead of Assuming
+
+- Before starting work on an issue, read it and look for inconsistencies, contradictions
+  and design decisions it leaves open, whether about the product or the code. Put each one
+  to me and wait for my answer. Do not assume.
+- When putting a design decision to me, give each option:
+  - a product reason: how it serves the product, whether through what users see or
+    through what it does to the cost, risk or pace of future change;
+  - a concrete worked example: a real input, call or scenario and what happens under this
+    option;
+  - pros and cons, including the main cost of choosing it.
+- Recommend one, say why, and put it first. Do not hand me an unranked survey.
+- When using `AskUserQuestion`, put the reason, example and pros/cons in each option's
+  `description`. A bare label is not an option.
 
 # Committing Code
 
