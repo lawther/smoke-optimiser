@@ -18,6 +18,12 @@
 # enrolled repo must have those tables deleted, not merely left unused. sync_lint_config.py
 # refuses to write a repo that still carries them.
 
+[src]
+# shared_scripts/ holds PEP 723 scripts that declare their own dependencies, which ty cannot
+# see from the project's .venv. `just lint-pep723` checks them in an ephemeral environment
+# instead (explicitly named files are checked even though they match this exclusion).
+exclude = ["shared_scripts/"]
+
 [rules]
 # A submodule that may not exist is an import that may fail at runtime, not a style matter.
 possibly-missing-submodule = "error"

@@ -86,6 +86,12 @@ convention = "google"
     "S607",   # start-process-with-partial-path: tools are resolved via PATH, deliberately
     "T201",   # print: stdout is a script's output mechanism
 ]
+"shared_scripts/**" = [
+    "INP001", # implicit-namespace-package: dev scripts are run by path, never imported
+    "S603",   # subprocess-without-shell-equals-true: driving other tools is what these are for
+    "S607",   # start-process-with-partial-path: tools are resolved via PATH, deliberately
+    "T201",   # print: stdout is a script's output mechanism
+]
 "../scripts/**" = [
     "INP001", # implicit-namespace-package: dev scripts are run by path, never imported
     "S603",   # subprocess-without-shell-equals-true: driving other tools is what these are for

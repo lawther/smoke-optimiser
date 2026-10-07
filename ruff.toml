@@ -14,4 +14,4 @@ extend-select = ["EM101", "EM102", "TRY003"]
 ]
 # agent_rules' own script, deployed verbatim fleet-wide -- not smoke-optimiser's code, so
 # not held to the stricter bar above.
-"scripts/analyse_ai_readiness.py" = ["EM101", "TRY003"]
+"shared_scripts/analyse_ai_readiness.py" = ["EM101", "TRY003"]
