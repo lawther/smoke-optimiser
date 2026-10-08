@@ -59,7 +59,7 @@ from smoke_optimiser.downwind.changes import (
     tracked_files,
 )
 from smoke_optimiser.downwind.maps import DownwindMaps
-from smoke_optimiser.downwind.rules import DownwindRefusal, downwind_of
+from smoke_optimiser.downwind.rules import DownwindRefusal, downwind_of, node_id_path
 from smoke_optimiser.paths import ProjectPaths, resolve_project_paths
 from smoke_optimiser.profiler.persistence import (
     ProfileFault,
@@ -250,11 +250,23 @@ def _report_nothing_downwind(selection: _Selection) -> None:
     )
 
 
-def _report_selection(selection: _Selection) -> None:
-    """Say what was considered changed and how much of the suite that comes to."""
+def _report_selection(selection: _Selection, present_modules: frozenset[str], profile: ProfilingData) -> None:
+    """Say what was considered changed and how much of the suite that comes to.
+
+    A changed test module runs whole and its profiled ids are not in
+    ``node_ids``, so its tests are counted from the profile instead. That count
+    is the module as last profiled, which is why the headline says so: the
+    edit may have added or removed tests, and pytest's own count is exact.
+    """
+    in_modules = sum(1 for test_id in profile.tests if node_id_path(test_id) in present_modules)
+    breakdown = (
+        f" ({in_modules} of them in {len(present_modules)} changed test modules, counted as last profiled)"
+        if present_modules
+        else ""
+    )
     typer.secho(
-        f"🎯 {len(selection.node_ids)} of {selection.profile_test_count} tests, plus every test in "
-        f"{len(selection.test_modules)} changed test modules, downwind of {len(selection.changed)} changed files.",
+        f"🎯 {len(selection.node_ids) + in_modules} of {selection.profile_test_count} tests "
+        f"downwind of {len(selection.changed)} changed files{breakdown}.",
         fg=typer.colors.CYAN,
         bold=True,
     )
@@ -701,14 +713,14 @@ def run_downwind(config: DownwindConfig, invocation_dir: Path) -> int:
     # collects nothing, but it cannot be the reason to start pytest. Its path
     # is a node id's, so it is relative to pytest's rootdir.
     rootdir = paths.repo_root / profile.anchor.node_id_prefix
-    present_modules = {module for module in selection.test_modules if (rootdir / module).exists()}
+    present_modules = frozenset(module for module in selection.test_modules if (rootdir / module).exists())
     if not selection.node_ids and not present_modules:
         # Nothing to filter to, so pytest would collect nothing and exit 5 --
         # a failed commit for a change that correctly has nothing to run.
         _report_nothing_downwind(selection)
         return 0
 
-    _report_selection(selection)
+    _report_selection(selection, present_modules, profile)
     return _run_pytest(
         paths.invocation_dir,
         ["--downwind", f"--downwind-file-path={config.downwind_file_path}", *extra_args],

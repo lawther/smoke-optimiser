@@ -180,6 +180,47 @@ def test_a_change_no_test_reaches_runs_nothing_and_says_which_files(
     assert selection["changed_files"] == ["src/a.py"]
 
 
+def test_a_changed_test_module_holding_every_downwind_test_is_counted_in_the_headline(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Editing a module and its own test file must not headline as '0 of N tests'.
+
+    The shape casey_ai hit: participant_view.py changed alongside
+    test_guest_router.py, which held every test downwind of it. The changed
+    test module runs whole, so its profiled ids leave node_ids -- and a headline
+    counting only node_ids read '0 of 2124 tests' while 48 were about to run.
+    Here test_x executed src/a.py, and both files change.
+    """
+    profile = _profile_where_the_change_reaches_no_test()
+    profile["tests"]["tests/test_x.py::test_x"]["files_covered"] = ["src/a.py"]
+
+    repo = tmp_path / "repo"
+    (repo / "src").mkdir(parents=True)
+    (repo / "tests").mkdir()
+    (repo / "src" / "a.py").write_text("from src import b\n")
+    (repo / "src" / "b.py").write_text("x = 1\n")
+    (repo / "tests" / "test_x.py").write_text("def test_x():\n    assert True\n")
+    (repo / "profile.json").write_text(json.dumps(profile))
+    (repo / ".gitignore").write_text("profile.json\n.downwind.json\n")
+    _git(repo, "init")
+    _git(repo, "add", ".")
+    _git(repo, "-c", "user.email=t@example.com", "-c", "user.name=t", "commit", "-m", "initial")
+
+    (repo / "src" / "a.py").write_text("from src import b\n\nY = 2\n")
+    (repo / "tests" / "test_x.py").write_text("def test_x():\n    assert 1 == 1\n")
+
+    with patch("smoke_optimiser.downwind.command._run_pytest", return_value=EXIT_OK):
+        exit_code = run_downwind(_config(repo), repo)
+
+    assert exit_code == EXIT_OK
+    out = capsys.readouterr().out
+    # The total includes the changed module's tests, and the breakdown says
+    # where that number came from, since the edit may have changed it.
+    assert "🎯 1 of 1 tests downwind of 2 changed files (1 of them in 1 changed test modules" in out
+    assert "counted as last profiled" in out
+
+
 @pytest.fixture
 def repo_with_tracked_own_artefacts(tmp_path: Path) -> Path:
     """The profile and selection file are tracked, not gitignored -- the common early state.
