@@ -120,6 +120,7 @@ _hook_log = _load_hook_log()
 
 _MODEL_LABEL_RE = re.compile(r"^model:(?P<family>\w+)$")
 _MODEL_FAMILY_RE = re.compile(r"opus|sonnet|haiku|fable", re.IGNORECASE)
+_MODEL_SWITCH_RE = re.compile(r"<local-command-stdout>Set model to `(?P<model>[^`]*)`")
 _BD_SHOW_TIMEOUT_SECS = 15
 
 # Subcommands of `bd` that mint a new issue. `new` is an alias of `create`; `q` is
@@ -277,8 +278,27 @@ def claim_commands(tokens: list[str]) -> list[ClaimCommand]:
     return claims
 
 
+def _switch_family(entry: dict) -> str | None:
+    """The family a `/model` command output entry switched to, or None if it is not one."""
+    if entry.get("type") != "user":
+        return None
+    content = (entry.get("message") or {}).get("content")
+    if not isinstance(content, str):
+        return None
+    switched = _MODEL_SWITCH_RE.search(content)
+    if switched is None:
+        return None
+    match = _MODEL_FAMILY_RE.search(switched.group("model"))
+    return match.group(0).lower() if match else None
+
+
 def current_model_family(transcript_path: str) -> str | None:
-    """Model family (e.g. 'sonnet') of the most recent assistant turn in the transcript."""
+    """Model family (e.g. 'sonnet') in effect: the latest assistant turn or `/model` switch.
+
+    The assistant entry for the tool call being checked is not in the transcript yet when
+    this hook runs, so right after a `/model` switch the latest assistant turn is still the
+    previous model's. The switch itself is recorded, so whichever of the two is newer wins.
+    """
     try:
         with Path(transcript_path).open(encoding="utf-8") as f:
             lines = f.readlines()
@@ -295,6 +315,8 @@ def current_model_family(transcript_path: str) -> str | None:
             entry = json.loads(stripped_line)  # noqa: ML400
         except json.JSONDecodeError:
             continue
+        if switched_family := _switch_family(entry):
+            return switched_family
         if entry.get("type") != "assistant":
             continue
         model_id = (entry.get("message") or {}).get("model")
