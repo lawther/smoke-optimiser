@@ -11,6 +11,12 @@
 # command's status counts, and a check ahead of it can fail unnoticed.
 set -e
 
+# Git exports these to the hook. During `git commit -- <paths>` GIT_INDEX_FILE names a
+# temporary index belonging to THIS repo, and every git command beneath the hook inherits it:
+# a test running `git commit` in a scratch repo would read this repo's index and fail with
+# "Error building trees". Nothing in `just precommit` needs the commit's index.
+unset GIT_INDEX_FILE GIT_PREFIX GIT_DIR GIT_WORK_TREE
+
 # check-hooks-drift runs here, not inside `just precommit`, because CI calls
 # `just precommit` directly with no ../agent_rules sibling checkout to check
 # against -- see agent_rules-8ym, agent_rules-bwr.
