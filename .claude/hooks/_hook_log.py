@@ -57,7 +57,7 @@ def surrounding_sentence(text: str, start: int, end: int) -> str:
     return " ".join(text[window_start:window_end].split())
 
 
-def _append(fields: dict[str, str | None]) -> None:
+def _append(fields: dict[str, str | int | None]) -> None:
     """Best-effort append of one record made of `fields` plus a timestamp and repo. Never raises."""
     try:
         now = datetime.now(timezone.utc)
@@ -100,6 +100,15 @@ def log_denial(hook: str, event: str, tool_name: str, reason: str, context: str)
             "context": context,
         }
     )
+
+
+def log_script_failure(script: str, exit_code: int, stderr_tail: str) -> None:
+    """Best-effort append of a shared script that failed for a reason other than its check.
+
+    Carries `kind` so `hooks_audit.py` can tell it from a decision record, which has none.
+    Never raises.
+    """
+    _append({"kind": "script_failure", "script": script, "exit_code": exit_code, "stderr_tail": stderr_tail})
 
 
 _CLI_MIN_ARGC = 5  # argv[0] + hook, event, tool_name, decision; reason is optional
