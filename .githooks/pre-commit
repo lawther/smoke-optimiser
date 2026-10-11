@@ -7,6 +7,10 @@
 #
 # Or run: just setup-git-hooks
 #
+# `set -e` is what makes a failing check refuse the commit: without it only the last
+# command's status counts, and a check ahead of it can fail unnoticed.
+set -e
+
 # check-hooks-drift runs here, not inside `just precommit`, because CI calls
 # `just precommit` directly with no ../agent_rules sibling checkout to check
 # against -- see agent_rules-8ym, agent_rules-bwr.
