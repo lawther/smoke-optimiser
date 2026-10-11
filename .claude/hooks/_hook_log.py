@@ -1,4 +1,8 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.13"
+# dependencies = []
+# ///
 """Shared decision logger for the fleet's synced hooks.
 
 Every hook's `allow()`/`deny()` calls `log_decision()` here, so each fired decision is
@@ -23,7 +27,7 @@ import json
 import os
 import re
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 _DEFAULT_LOG_DIR = Path.home() / ".agent_rules" / "logs"
@@ -60,7 +64,7 @@ def surrounding_sentence(text: str, start: int, end: int) -> str:
 def _append(fields: dict[str, str | int | None]) -> None:
     """Best-effort append of one record made of `fields` plus a timestamp and repo. Never raises."""
     try:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         record = {"timestamp": now.isoformat(), "repo": Path.cwd().name, **fields}
         log_dir = _log_dir()
         log_dir.mkdir(parents=True, exist_ok=True)

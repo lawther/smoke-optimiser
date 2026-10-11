@@ -1,4 +1,8 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.13"
+# dependencies = []
+# ///
 """PreToolUse(Bash|Write|Edit) guard: keep diary prose out of durable artefacts.
 
 global.md's *What You Write Describes Now, Not the Journey* says every durable artefact --
@@ -35,16 +39,16 @@ matched phrase and restates the test, so the response is to rewrite the sentence
 it genuinely describes present behaviour, to stop and ask rather than reword around the
 pattern.
 
-Standard library only, and no third-party imports: the hook runs under the system
-interpreter before any project environment is guaranteed. `_shell_tokenise` is a sibling
-file in this same directory, always synced alongside this one (see hooks.toml), so it is
-not a third-party dependency -- but it is loaded by path (`_load_shell_tokenise()`) rather
-than a plain `import _shell_tokenise`: this file is synced standalone into `.claude/hooks/`
-in several repos, and some run a static type checker whose module-resolution roots do not
-include that directory, so a literal import naming a sibling module reads as unresolved
-there even though the runtime import (Python always puts a script's own directory on
-`sys.path`) works fine. Loading by path has no import name for a static checker to flag,
-which avoids asking every consuming repo to configure around this file.
+Standard library only, and no third-party imports: the hook runs in its own PEP 723 environment
+(`dependencies = []`), not the project's, so no project package is importable. `_shell_tokenise`
+is a sibling file in this same directory, always synced alongside this one (see hooks.toml), so
+it is not a third-party dependency -- but it is loaded by path (`_load_shell_tokenise()`) rather
+than a plain `import _shell_tokenise`: this file is synced standalone into `.claude/hooks/` in
+several repos, and some run a static type checker whose module-resolution roots do not include
+that directory, so a literal import naming a sibling module reads as unresolved there even
+though the runtime import (Python always puts a script's own directory on `sys.path`) works
+fine. Loading by path has no import name for a static checker to flag, which avoids asking every
+consuming repo to configure around this file.
 """
 
 from __future__ import annotations

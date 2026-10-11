@@ -1,4 +1,8 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.13"
+# dependencies = []
+# ///
 """Shared shell-command tokeniser for the PreToolUse(Bash) guards.
 
 Every guard that inspects a Bash command string needs the same two things: tokens that
@@ -37,8 +41,8 @@ convention) can fail open and check what it could parse, while a guard that is a
 boundary (an override-flag block) can fail closed and refuse to run a command it could not
 fully account for. `tokenise()` is the fail-open convenience wrapper for the former.
 
-Standard library only, and no third-party imports: these hooks run under the system
-interpreter before any project environment is guaranteed.
+Standard library only, and no third-party imports: these hooks run in their own PEP 723
+environment (`dependencies = []`), not the project's, so no project package is importable.
 """
 
 from __future__ import annotations

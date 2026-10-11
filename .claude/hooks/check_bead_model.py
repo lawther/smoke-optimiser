@@ -1,4 +1,8 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.13"
+# dependencies = []
+# ///
 """PreToolUse(Bash) guard: keep each bead's `model:` label present, single and honoured.
 
 Every bead in this project carries exactly one `model:sonnet` or `model:opus` label
@@ -56,16 +60,16 @@ dropped rather than checked, consistent with the rest of this hook (see `main`'s
 exception guard) -- this is a policy nudge, not a safety boundary, so a false block costs
 more than an occasional unlabelled bead slipping past it.
 
-Standard library only, and no third-party imports: the hook runs under the system
-interpreter before any project environment is guaranteed. `_shell_tokenise` is a sibling
-file in this same directory, always synced alongside this one (see hooks.toml), so it is
-not a third-party dependency -- but it is loaded by path (`_load_shell_tokenise()`) rather
-than a plain `import _shell_tokenise`: this file is synced standalone into `.claude/hooks/`
-in several repos, and some run a static type checker whose module-resolution roots do not
-include that directory, so a literal import naming a sibling module reads as unresolved
-there even though the runtime import (Python always puts a script's own directory on
-`sys.path`) works fine. Loading by path has no import name for a static checker to flag,
-which avoids asking every consuming repo to configure around this file.
+Standard library only, and no third-party imports: the hook runs in its own PEP 723 environment
+(`dependencies = []`), not the project's, so no project package is importable. `_shell_tokenise`
+is a sibling file in this same directory, always synced alongside this one (see hooks.toml), so
+it is not a third-party dependency -- but it is loaded by path (`_load_shell_tokenise()`) rather
+than a plain `import _shell_tokenise`: this file is synced standalone into `.claude/hooks/` in
+several repos, and some run a static type checker whose module-resolution roots do not include
+that directory, so a literal import naming a sibling module reads as unresolved there even
+though the runtime import (Python always puts a script's own directory on `sys.path`) works
+fine. Loading by path has no import name for a static checker to flag, which avoids asking every
+consuming repo to configure around this file.
 """
 
 from __future__ import annotations

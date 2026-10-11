@@ -1,4 +1,8 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.13"
+# dependencies = []
+# ///
 """PreToolUse(Bash|Write|Edit) guard: keep the em dash out of prose an agent writes.
 
 Agents reach for the em dash (U+2014) far more than the humans in this fleet's git history
@@ -24,13 +28,13 @@ WHAT IS SCANNED. Two entry points, matching check_diary_prose.py's shape:
 Fenced code blocks are stripped from Write/Edit content before matching, so a sample
 demonstrating the character is not itself a hit.
 
-A hit denies the write. Standard library only, and no third-party imports: this hook runs
-under the system interpreter before any project environment is guaranteed. `_shell_tokenise`
-and `_hook_log` are sibling files in this same directory, always synced alongside this one
-(see hooks.toml), and loaded by path rather than a plain import for the reason
-check_diary_prose.py's docstring gives: this file is synced standalone into `.claude/hooks/`
-in several repos, and a literal import naming a sibling module reads as unresolved to a
-static checker whose roots do not include that directory.
+A hit denies the write. Standard library only, and no third-party imports: this hook runs in its
+own PEP 723 environment (`dependencies = []`), not the project's, so no project package is
+importable. `_shell_tokenise` and `_hook_log` are sibling files in this same directory, always
+synced alongside this one (see hooks.toml), and loaded by path rather than a plain import for
+the reason check_diary_prose.py's docstring gives: this file is synced standalone into
+`.claude/hooks/` in several repos, and a literal import naming a sibling module reads as
+unresolved to a static checker whose roots do not include that directory.
 """
 
 from __future__ import annotations

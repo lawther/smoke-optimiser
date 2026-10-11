@@ -1,4 +1,8 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.13"
+# dependencies = []
+# ///
 """PreToolUse(Bash) guard: reject unrecognised `--type` values on `bd dep add` / `bd link`.
 
 bd's dependency-type enum (per `bd dep add --help`) is: blocks, tracks, related,
@@ -32,8 +36,8 @@ newline-delimited JSON with a `"type"` field per edge. A path argument is read a
 scanned for a `"type"` value outside the enum; `--file -` (stdin) is not inspectable
 from a PreToolUse hook and is deliberately let through unchecked.
 
-Standard library only, and no project imports: the hook runs under the system
-interpreter before any project environment is guaranteed.
+Standard library only, and no project imports: the hook runs in its own PEP 723 environment
+(`dependencies = []`), not the project's, so no project package is importable.
 """
 
 from __future__ import annotations
