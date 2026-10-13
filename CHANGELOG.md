@@ -16,6 +16,13 @@
   recording the coverage targets and test paths the profiling run measured. A version 1
   profile is rejected on load -- re-run the profiling phase to regenerate it.
 
+## [0.3.4](https://github.com/lawther/smoke-optimiser/compare/v0.3.3...v0.3.4) (2026-10-13)
+
+
+### Bug Fixes
+
+* **downwind:** count changed test modules' tests in the selection headline ([d264ff4](https://github.com/lawther/smoke-optimiser/commit/d264ff440790b5e1f34814a65870ba6f8bd1889b))
+
 ## [0.3.3](https://github.com/lawther/smoke-optimiser/compare/v0.3.2...v0.3.3) (2026-09-30)
 
 
