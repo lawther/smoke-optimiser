@@ -1,0 +1,17 @@
+version: 2
+updates:
+  # Security updates only: open-pull-requests-limit 0 switches off routine version-update pull
+  # requests, and the group collects this ecosystem's security fixes into one pull request.
+  # The repository's "Grouped security updates" setting must stay off, because when on it
+  # overrides this group.
+  - package-ecosystem: "uv"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 0
+    commit-message:
+      prefix: "fix(deps)"
+    groups:
+      security:
+        applies-to: security-updates
+        patterns: ["*"]
