@@ -15,3 +15,15 @@ updates:
       security:
         applies-to: security-updates
         patterns: ["*"]
+  # Actions security updates only: no version-update pull requests open for workflow actions.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 0
+    commit-message:
+      prefix: "fix(deps)"
+    groups:
+      security:
+        applies-to: security-updates
+        patterns: ["*"]
