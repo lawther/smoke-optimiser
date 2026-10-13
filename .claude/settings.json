@@ -29,6 +29,11 @@
             "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/validate_dep_type.py",
             "type": "command",
             "statusMessage": "Checking dependency type..."
+          },
+          {
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/require_npm_deps.py",
+            "type": "command",
+            "statusMessage": "Checking npm tooling runs after _npm-deps..."
           }
         ]
       },

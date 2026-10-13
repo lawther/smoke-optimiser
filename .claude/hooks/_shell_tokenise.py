@@ -55,7 +55,7 @@ from typing import NamedTuple
 # these as their own unquoted tokens, so a segment boundary is just "this token, verbatim,
 # outside quotes". A lone "&" backgrounds the command before it and is therefore a
 # separator too; "&&", "&>" and "2>&1" tokenise whole, so including it does not split them.
-_COMMAND_SEPARATORS = frozenset({"&&", "||", ";", "|", "&"})
+COMMAND_SEPARATORS = frozenset({"&&", "||", ";", "|", "&"})
 
 # The separator spliced in where a newline ended a command, so the segmenter above sees a
 # boundary that shlex would otherwise have swallowed as ordinary whitespace.
@@ -172,7 +172,7 @@ def command_segments(tokens: list[str]) -> list[list[str]]:
     """`tokens` split into per-command segments at bare `&&`/`||`/`;`/`|`/`&` tokens."""
     segments: list[list[str]] = [[]]
     for token in tokens:
-        if token in _COMMAND_SEPARATORS:
+        if token in COMMAND_SEPARATORS:
             segments.append([])
         else:
             segments[-1].append(token)
