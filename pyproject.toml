@@ -37,7 +37,7 @@ dependencies = [
 [project.optional-dependencies]
 machine = ["psutil~=7.0"]
 dev = [
-    "ruff>=0.16.9",
+    "ruff>=0.17.3",
     "pytest",
 ]
 
@@ -90,7 +90,7 @@ dev = [
     "pytest-randomly~=4.0",
     "pytest-timeout~=2.4",
     "pytest-xdist~=3.8",
-    "ruff>=0.16.9",
-    "ty>=0.0.84",
+    "ruff>=0.17.3",
+    "ty>=0.0.85",
 ]
 
