@@ -15,9 +15,9 @@
 
 # Pinned rather than inferred. Ruff does infer target-version from `project.requires-python`,
 # but only when a pyproject.toml sits beside the config it resolved -- and it falls back to
-# py3.10 when one does not, silently. python-lint-hooks overrides this to py311 in its own
-# ruff.toml: it publishes `ml-lints`, which the other four repos depend on, so 3.12/3.13-only
-# rewrites would be wrong there.
+# py3.10 when one does not, silently. Repos that must run on 3.12 override this to py312 in
+# their own ruff.toml, so 3.13-only rewrites are not suggested there: python-lint-hooks
+# publishes `ml-lints` (requires-python >=3.12), and ha-scripts runs on AppDaemon's 3.12.
 target-version = "py313"
 line-length = 120
 
