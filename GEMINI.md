@@ -1,4 +1,4 @@
-<!-- BEGIN GLOBAL RULES sha256:ceb9221975c372c8 -->
+<!-- BEGIN GLOBAL RULES sha256:651cf4cda50c2bf1 -->
 <!-- Generated from agent_rules/global.md. Do not edit inside this block:
      edit global.md, then run `just sync-rules` in agent_rules. -->
 
@@ -110,7 +110,7 @@ A hook already blocks the concrete cases — `bd --force`, `git push --force`/`-
 
 - You must always use `git add` to stage files before committing. You should never use `git commit -a`.
 - **Committing is pre-authorised; pushing is not.** You may commit finished work without asking me first — this repository grants that authority, overriding the Beads block's conservative default. Stage deliberately and commit when a change is complete and its checks pass.
-- **Never push.** `git push` is mine alone, every time, no matter how routine the change looks. The same goes for anything else that publishes: creating or updating a PR, pushing tags or notes, and `bd dolt push`. Finish the commit, then tell me what is waiting to go out.
+- **Never push.** `git push` is mine alone, every time, no matter how routine the change looks. The same goes for anything else that publishes: creating or updating a PR, pushing tags or notes, and `bd dolt push`. Finish the commit, then tell me what is waiting to go out. A hook denies these operations; when it fires, ask me to run the command myself.
 - Committing authority is not a licence to widen scope: commit the work I asked for, not unrelated changes you noticed. Leave untracked files alone unless they are part of that work.
 - If a check fails, do not commit. Report the failure — routing around it with `--no-verify` is covered by *Never Override a Refusal* above.
 
