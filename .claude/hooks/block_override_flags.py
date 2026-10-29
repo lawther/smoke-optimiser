@@ -6,9 +6,11 @@
 """Decide whether a shell command exists only to override a refusal.
 
 A tool refusing is information. ``bd --force``, ``git push --force`` and ``--no-verify`` all
-exist to silence a refusal, and silencing one is the user's decision, not the agent's. This
-script is the decision half of the ``PreToolUse`` guard: the wrapper hands it one command
-string as ``argv[1]``, and it prints the deny payload, or nothing at all.
+exist to silence a refusal, and silencing one is the user's decision, not the agent's. So is
+publishing: ``git push``, ``bd dolt push`` and the ``gh pr`` writes are denied outright, because
+a publish cannot be taken back. This script is the decision half of the ``PreToolUse`` guard:
+the wrapper hands it one command string as ``argv[1]``, and it prints the deny payload, or
+nothing at all.
 
 Matching is on shell **tokens**, produced by :mod:`_shell_tokenise`, not on the raw command
 string. A flag inside a quoted argument — a commit message, a ``bd --append-notes`` body,
@@ -21,6 +23,15 @@ that happens to discuss pushing, sitting beside an unrelated `git add` and a `[ 
 test in the same command string, must not be read as a force push. Segment-scoping still
 does not require adjacency *within* a segment — `git push origin main --force` is caught
 however its tokens are ordered — it only stops tokens from unrelated segments colliding.
+
+Publishing is matched more precisely than the force flags: `git stash push` is a local stash, not
+a publish, so the git **subcommand** is found by skipping git's global options (`-C <dir>`,
+`-c k=v`, ...) rather than by looking for the word `push` anywhere. A global option this file
+does not recognise could be hiding a push, so it fails closed.
+
+Short flags are matched the way the command's own parser reads them: a cluster such as `-nm`
+is read left to right and stops at an option that takes a value, so `git commit -nm x` skips
+the gate while `git commit -mn` (a message of "n") does not.
 
 Standard library only, and no third-party imports: the hook runs in its own PEP 723 environment
 (`dependencies = []`), not the project's, so no project package is importable. `_shell_tokenise`
@@ -37,6 +48,7 @@ consuming repo to configure around this file.
 from __future__ import annotations
 
 import importlib.util
+import itertools
 import json
 import sys
 from pathlib import Path
@@ -86,6 +98,52 @@ _FORCE_FLAG = "--force"
 _SHORT_FORCE_FLAG = "-f"
 _LEASE_FLAG_PREFIX = "--force-with-lease"
 _NO_VERIFY_FLAG = "--no-verify"
+# git accepts any unambiguous prefix of a long option; "--no-veri" is the shortest that is
+# not also a prefix of "--no-verbose".
+_NO_VERIFY_MIN_PREFIX = "--no-veri"
+_END_OF_OPTIONS = "--"
+
+_GIT_COMMAND = "git"
+_PUSH = "push"
+_COMMIT = "commit"
+_SUBTREE = "subtree"
+_BD_COMMAND = "bd"
+_BD_CLOSE = "close"
+_DOLT = "dolt"
+_GH_COMMAND = "gh"
+_PR = "pr"
+# The `gh pr` subcommands that write to GitHub. `view`, `list`, `diff`, `checks` and `status` read.
+_GH_PR_WRITES = frozenset({"create", "edit", "merge", "close", "reopen", "ready", "comment", "review"})
+
+# git's global options (before the subcommand) that consume the next token as their value.
+_GIT_VALUE_GLOBAL_OPTIONS = frozenset(
+    {"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--super-prefix", "--config-env"}
+)
+# git's global options that take no value, or only an attached `=value`.
+_GIT_FLAG_GLOBAL_OPTIONS = frozenset(
+    {
+        "-p",
+        "--paginate",
+        "-P",
+        "--no-pager",
+        "--bare",
+        "--no-replace-objects",
+        "--literal-pathspecs",
+        "--glob-pathspecs",
+        "--noglob-pathspecs",
+        "--icase-pathspecs",
+        "--no-optional-locks",
+        "--no-advice",
+        "--exec-path",
+        "--html-path",
+        "--man-path",
+        "--info-path",
+        "-h",
+        "--help",
+        "-v",
+        "--version",
+    }
+)
 
 
 class Rule(NamedTuple):
@@ -118,6 +176,16 @@ SKIPPED_VERIFICATION = Rule(
     ),
 )
 
+PUBLISHES = Rule(
+    name="publish",
+    reason=(
+        "Blocked: this publishes ('git push', 'bd dolt push' or a 'gh pr' write). Publishing "
+        "is the user's alone, every time, however routine the change looks. Finish the commit, "
+        "tell the user what is waiting to go out, and ask them to run it themselves (they can "
+        "type '! <command>' in the prompt)."
+    ),
+)
+
 UNPARSEABLE = Rule(
     name="unparseable command",
     reason=(
@@ -127,6 +195,153 @@ UNPARSEABLE = Rule(
         "try again."
     ),
 )
+
+
+class ShortFlag(NamedTuple):
+    """One short flag to look for in a command's arguments, and how its parser reads clusters."""
+
+    letter: str
+    # Letters that end a cluster because the rest of the cluster is their value (`-mn` is a message "n").
+    value_letters: str
+    # The subset of those whose value is the next token when nothing follows them in the cluster.
+    separate_value_letters: str
+    # Long options whose value is the next token when written without `=`.
+    separate_value_long_options: frozenset[str]
+
+
+COMMIT_NO_VERIFY = ShortFlag(
+    letter="n",
+    value_letters="mFCctuS",
+    separate_value_letters="mFCct",
+    separate_value_long_options=frozenset(
+        {
+            "--message",
+            "--file",
+            "--author",
+            "--date",
+            "--template",
+            "--reuse-message",
+            "--reedit-message",
+            "--fixup",
+            "--squash",
+            "--cleanup",
+            "--trailer",
+            "--pathspec-from-file",
+        }
+    ),
+)
+PUSH_FORCE = ShortFlag(
+    letter="f",
+    value_letters="o",
+    separate_value_letters="o",
+    separate_value_long_options=frozenset({"--repo", "--receive-pack", "--exec", "--push-option"}),
+)
+BD_CLOSE_FORCE = ShortFlag(
+    letter="f",
+    value_letters="r",
+    separate_value_letters="r",
+    separate_value_long_options=frozenset({"--reason", "--reason-file", "--session", "--actor", "--db", "--directory"}),
+)
+
+
+class GitInvocation(NamedTuple):
+    """One `git` in a segment: its subcommand and the arguments after it."""
+
+    subcommand: str
+    args: list[str]
+    # False when a global option this file does not recognise came before the subcommand, so
+    # the subcommand could not be found.
+    understood: bool
+
+
+def _is_command(token: str, name: str) -> bool:
+    """Whether ``token`` runs ``name``, bare or by path (`/usr/bin/git`)."""
+    return Path(token).name == name
+
+
+def _git_invocations(tokens: list[str]) -> list[GitInvocation]:
+    """Every `git` in ``tokens`` with its subcommand found past git's global options."""
+    invocations = []
+    for start, token in enumerate(tokens):
+        if not _is_command(token, _GIT_COMMAND):
+            continue
+        index = start + 1
+        understood = True
+        while index < len(tokens) and tokens[index].startswith("-"):
+            option = tokens[index]
+            name = option.split("=", 1)[0]
+            if name in _GIT_VALUE_GLOBAL_OPTIONS:
+                index += 1 if "=" in option else 2
+            elif name in _GIT_FLAG_GLOBAL_OPTIONS:
+                index += 1
+            elif option.startswith(("-C", "-c")):
+                index += 1  # `-Cdir` / `-ckey=value`, the value attached
+            else:
+                understood = False
+                break
+        subcommand = tokens[index] if index < len(tokens) else ""
+        invocations.append(GitInvocation(subcommand, tokens[index + 1 :], understood))
+    return invocations
+
+
+def _has_short_flag(args: list[str], flag: ShortFlag) -> bool:
+    """Whether ``args`` carry ``flag``, alone or inside a cluster, read the way its parser reads them."""
+    skip_next = False
+    for arg in args:
+        if skip_next:
+            skip_next = False
+        elif arg == _END_OF_OPTIONS:
+            return False
+        elif arg.startswith("--"):
+            skip_next = "=" not in arg and arg in flag.separate_value_long_options
+        elif arg.startswith("-") and len(arg) > 1:
+            for position, letter in enumerate(arg[1:], start=1):
+                if letter == flag.letter:
+                    return True
+                if letter in flag.value_letters:
+                    skip_next = position == len(arg) - 1 and letter in flag.separate_value_letters
+                    break
+    return False
+
+
+def _has_adjacent(tokens: list[str], first: str, second: str) -> bool:
+    return any(a == first and b == second for a, b in itertools.pairwise(tokens))
+
+
+def _publishes(tokens: list[str]) -> bool:
+    """Whether the segment pushes, or writes to a pull request."""
+    for git in _git_invocations(tokens):
+        if not git.understood or git.subcommand == _PUSH:
+            return True
+        if git.subcommand == _SUBTREE and _PUSH in git.args:
+            return True
+    if any(_is_command(token, _BD_COMMAND) for token in tokens) and _has_adjacent(tokens, _DOLT, _PUSH):
+        return True
+    return any(_is_command(token, _GH_COMMAND) for token in tokens) and any(
+        _has_adjacent(tokens, _PR, verb) for verb in _GH_PR_WRITES
+    )
+
+
+def _is_no_verify(token: str) -> bool:
+    """Whether ``token`` is `--no-verify` or an abbreviation git would accept for it."""
+    return token.startswith(_NO_VERIFY_MIN_PREFIX) and _NO_VERIFY_FLAG.startswith(token)
+
+
+def _skips_commit_gate(tokens: list[str]) -> bool:
+    return any(
+        git.subcommand == _COMMIT and _has_short_flag(git.args, COMMIT_NO_VERIFY) for git in _git_invocations(tokens)
+    )
+
+
+def _force_pushes(tokens: list[str]) -> bool:
+    return any(git.subcommand == _PUSH and _has_short_flag(git.args, PUSH_FORCE) for git in _git_invocations(tokens))
+
+
+def _force_closes(tokens: list[str]) -> bool:
+    for index, token in enumerate(tokens):
+        if _is_command(token, _BD_COMMAND) and _BD_CLOSE in tokens[index + 1 :]:
+            return _has_short_flag(tokens[tokens.index(_BD_CLOSE, index) + 1 :], BD_CLOSE_FORCE)
+    return False
 
 
 def violated_rule(segments: list[list[str]]) -> Rule | None:
@@ -144,14 +359,16 @@ def violated_rule(segments: list[list[str]]) -> Rule | None:
             or any(token.startswith(_LEASE_FLAG_PREFIX) for token in tokens)
         )
 
-        if "bd" in present and _FORCE_FLAG in present:
+        if ("bd" in present and _FORCE_FLAG in present) or _force_closes(tokens):
             return BD_FORCE
         # Deliberately loose: any segment naming both 'git' and 'push' alongside a force
         # flag. Over-blocking costs one question; under-blocking costs rewritten history.
-        if "git" in present and "push" in present and forced:
+        if ("git" in present and "push" in present and forced) or _force_pushes(tokens):
             return FORCE_PUSH
-        if _NO_VERIFY_FLAG in present:
+        if any(_is_no_verify(token) for token in tokens) or _skips_commit_gate(tokens):
             return SKIPPED_VERIFICATION
+        if _publishes(tokens):
+            return PUBLISHES
     return None
 
 
