@@ -149,7 +149,7 @@ def _phrase(name: str, pattern: str, flags: int = re.IGNORECASE) -> Pattern:
 _PATTERNS = (
     _phrase(
         "an 'Update:' paragraph",
-        r"^[ \t]*(?:[-*][ \t]*)?(?:\*\*)?update(?:\*\*)?[ \t]*[:—-]",
+        r"^[ \t]*(?:[-*][ \t]*)?(?:\*\*)?update(?:\*\*)?[ \t]*(?:[:—]|-(?=\s|$))",
         re.IGNORECASE | re.MULTILINE,
     ),
     _phrase(
