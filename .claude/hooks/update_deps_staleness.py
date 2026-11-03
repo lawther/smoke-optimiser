@@ -15,6 +15,9 @@ a timezone. A missing or unreadable stamp reads as never run. A fresh one prints
 
 Standard library only: this file is synced standalone into `.claude/hooks/`, and runs in its
 own PEP 723 environment.
+
+A fix-up agent that update_deps.py launches sets AGENT_RULES_NO_STALENESS_NOTICE, so its report
+stays about the one bump.
 """
 
 from __future__ import annotations
@@ -22,10 +25,12 @@ from __future__ import annotations
 import datetime as dt
 import enum
 import json
+import os
 import sys
 from pathlib import Path
 from typing import NamedTuple
 
+QUIET_ENV = "AGENT_RULES_NO_STALENESS_NOTICE"
 STAMP = Path.home() / ".agent_rules" / "update-deps" / "last-run"
 STALE_AFTER = dt.timedelta(weeks=1)
 
@@ -70,6 +75,8 @@ def message(reading: Reading) -> str:
 
 
 def main() -> int:
+    if os.environ.get(QUIET_ENV):
+        return 0
     try:
         text = STAMP.read_text(encoding="utf-8")
     except OSError:
