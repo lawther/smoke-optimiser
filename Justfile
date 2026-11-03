@@ -217,3 +217,20 @@ apply-dependabot *args:
     ../agent_rules/run_shared_script.py --check-failed-exit 3 -- ../agent_rules/apply_dependabot.py . {{args}}
 
 # END SHARED RECIPES (DEPENDABOT)
+
+# BEGIN SHARED RECIPES (UPDATE_DEPS) sha256:20cc8173a6ab50d1
+# Generated from agent_rules/snippets/update_deps.just. Do not edit inside this block:
+#      edit snippets/update_deps.just, then run `just sync-justfile-recipes` in agent_rules.
+
+# Apply this repo's Dependabot security fixes, then upgrade every other dependency locally,
+# one tested commit each. Never pushes.
+update-deps *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [[ ! -x ../agent_rules/update_deps.py ]]; then
+        echo "error: ../agent_rules/update_deps.py not found -- clone the agent_rules repo as a sibling" >&2
+        exit 2
+    fi
+    ../agent_rules/run_shared_script.py --check-failed-exit 3 -- ../agent_rules/update_deps.py . {{args}}
+
+# END SHARED RECIPES (UPDATE_DEPS)
