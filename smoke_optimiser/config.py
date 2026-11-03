@@ -19,6 +19,18 @@ class OperationMode(Enum):
     OPTIMISE_ONLY = "optimise-only"
 
 
+class DownwindSelection(Enum):
+    """What the downwind command runs: the tests the diff reaches, or every test.
+
+    FULL_SUITE answers a different question from any diff -- whether the suite
+    passes on the tree as it stands -- which a clean tree cannot ask through
+    selection, since nothing has changed and so nothing is downwind.
+    """
+
+    FROM_DIFF = "from-diff"
+    FULL_SUITE = "full-suite"
+
+
 class CovSourceOrigin(Enum):
     """Where the coverage source came from.
 
@@ -180,6 +192,9 @@ class DownwindConfig:
             lockfile. Configurable at all, where a list of paths to IGNORE
             would not be, because every entry can only ADD a full-suite run: a
             wrong one costs time rather than correctness.
+        selection: Whether the run selects from the diff or runs everything.
+            Never read from the config file: a project that always wanted the
+            full suite would not be running downwind.
     """
 
     profile_path: Path
@@ -187,6 +202,7 @@ class DownwindConfig:
     pytest_args: str
     regenerate_on_fallback: bool
     profiling: ProfilingRunConfig
+    selection: DownwindSelection
     environment_files: list[str] = field(default_factory=lambda: list(DEFAULT_ENVIRONMENT_FILES))
 
 
@@ -387,6 +403,9 @@ def resolve_downwind_config(
             iterations=1,
         ),
         environment_files=[*DEFAULT_ENVIRONMENT_FILES, *resolved.extra_environment_files],
+        selection=DownwindSelection.FULL_SUITE
+        if cli_overrides.get("full_suite", False)
+        else DownwindSelection.FROM_DIFF,
     )
 
 

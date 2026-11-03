@@ -16,7 +16,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from smoke_optimiser.config import CovSourceOrigin, DownwindConfig, ProfilingRunConfig
+from smoke_optimiser.config import CovSourceOrigin, DownwindConfig, DownwindSelection, ProfilingRunConfig
 from smoke_optimiser.downwind.command import run_downwind
 from smoke_optimiser.paths import ProjectPaths
 from smoke_optimiser.profiler.models import PROFILE_SCHEMA_VERSION
@@ -38,7 +38,9 @@ def _git(repo: Path, *args: str) -> None:
     subprocess.run(["git", *args], cwd=repo, env=git_subprocess_env(), check=True, capture_output=True)  # noqa: S603, S607
 
 
-def _config(repo: Path, *, regenerate: bool = False) -> DownwindConfig:
+def _config(
+    repo: Path, *, regenerate: bool = False, selection: DownwindSelection = DownwindSelection.FROM_DIFF
+) -> DownwindConfig:
     """A downwind config for these tests.
 
     Regeneration is off unless a test asks for it: most of what is exercised here
@@ -57,6 +59,7 @@ def _config(repo: Path, *, regenerate: bool = False) -> DownwindConfig:
             allow_ordered=True,
             iterations=1,
         ),
+        selection=selection,
     )
 
 
@@ -357,6 +360,91 @@ def test_a_clean_tree_says_nothing_changed_rather_than_warning_about_untested_fi
     assert "no test reaches them" not in captured.err
 
 
+def test_a_forced_full_suite_runs_everything_on_a_clean_tree_and_says_why(
+    repo_with_an_untested_module: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The clean-tree baseline: is the suite red on main without my change?
+
+    Selecting from the diff answers that with zero tests and a pass, which is
+    exactly the wrong answer for a caller asking whether main itself is broken.
+    Forced, the run must reach pytest with nothing filtering collection -- no
+    --downwind, since no selection was made and a selection file left by an
+    earlier run must not be read as this run's.
+    """
+    repo = repo_with_an_untested_module
+
+    with patch("smoke_optimiser.downwind.command._run_pytest", return_value=EXIT_OK) as run_pytest:
+        exit_code = run_downwind(_config(repo, selection=DownwindSelection.FULL_SUITE), repo)
+
+    assert exit_code == EXIT_OK
+    run_pytest.assert_called_once()
+    assert not any(arg.startswith("--downwind") for arg in run_pytest.call_args.args[1])
+    assert not (repo / ".downwind.json").exists()
+
+    # The reason names both spellings, so whoever left the variable exported can
+    # find out why every commit is paying for the whole suite.
+    stderr = capsys.readouterr().err
+    assert "--full-suite" in stderr
+    assert "SMOKE_OPTIMISER_FULL_SUITE" in stderr
+
+
+def test_a_forced_full_suite_is_instrumented_like_any_other_full_suite(
+    repo_with_an_untested_module: Path,
+) -> None:
+    """One rule for 'the full suite runs': it repairs the map wherever regeneration is on.
+
+    It also keeps the baseline like for like with the run it is compared
+    against, which was itself an instrumented fallback.
+    """
+    repo = repo_with_an_untested_module
+
+    with (
+        patch(
+            "smoke_optimiser.downwind.command.run_profiling",
+            return_value=ProfilingRun(data=MagicMock(tests={}), returncode=EXIT_OK),
+        ) as run_profiling,
+        patch("smoke_optimiser.downwind.command.save_profile") as save,
+        patch("smoke_optimiser.downwind.command._run_pytest") as run_pytest,
+    ):
+        exit_code = run_downwind(_config(repo, regenerate=True, selection=DownwindSelection.FULL_SUITE), repo)
+
+    assert exit_code == EXIT_OK
+    run_pytest.assert_not_called()
+    save.assert_called_once()
+    assert "--downwind" not in _profiling_call(run_profiling).pytest_args
+
+
+def test_a_forced_full_suite_still_halts_on_a_profile_no_rebuild_can_fix(
+    repo_with_an_untested_module: Path,
+) -> None:
+    """A bump and its baseline must fail the same way for the same reason.
+
+    The profile is still read, so a MISCONFIGURED one (no recorded scope) stops
+    the forced run exactly as it stops an ordinary one -- otherwise a baseline
+    could pass where the run it is checking halted, and blame the bump.
+    """
+    repo = repo_with_an_untested_module
+    profile = json.loads((repo / "profile.json").read_text())
+    profile["scope"] = {
+        "coverage_roots": [],
+        "test_roots": [],
+        "test_file_patterns": [],
+        "include_namespace_packages": False,
+    }
+    (repo / "profile.json").write_text(json.dumps(profile))
+
+    with (
+        patch("smoke_optimiser.downwind.command.run_profiling") as run_profiling,
+        patch("smoke_optimiser.downwind.command._run_pytest") as run_pytest,
+    ):
+        exit_code = run_downwind(_config(repo, regenerate=True, selection=DownwindSelection.FULL_SUITE), repo)
+
+    assert exit_code == EXIT_ERROR
+    run_profiling.assert_not_called()
+    run_pytest.assert_not_called()
+
+
 def test_git_being_unavailable_names_the_command_the_directory_and_what_git_said(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
@@ -534,6 +622,7 @@ def test_the_fallback_profiles_under_the_profiling_arguments_not_the_downwind_on
             allow_ordered=True,
             iterations=1,
         ),
+        selection=DownwindSelection.FROM_DIFF,
     )
 
     with (

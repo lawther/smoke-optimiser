@@ -191,6 +191,20 @@ fails the commit and a collection error never reads as a successful selective ru
 | `--pytest-args` | Extra arguments forwarded to the downwind pytest run. Deliberately separate from the profiling run's, whose coverage flags would otherwise instrument every commit. | `""` |
 | `--regenerate-on-fallback` / `--no-regenerate-on-fallback` | Run a full-suite fallback under instrumentation, rewriting the profile it fell back from. | `True` |
 | `--src` | Source directory/package to instrument when a fallback regenerates the profile. | discovered |
+| `--full-suite` | Run the full suite whatever the diff says. Also set by `SMOKE_OPTIMISER_FULL_SUITE=1`. | `False` |
+
+### Forcing the full suite
+
+On a clean tree nothing is downwind, so `downwind` runs nothing and passes. To ask instead whether
+the suite passes on the tree as it stands — a baseline for "does this fail without my change?" —
+pass `--full-suite`, or set `SMOKE_OPTIMISER_FULL_SUITE=1`. The variable is read by `downwind`
+itself, so `SMOKE_OPTIMISER_FULL_SUITE=1 just precommit` works through a recipe that passes no
+arguments.
+
+A forced run skips the diff and runs exactly as a fallback does, including the instrumentation and
+profile rewrite described below. The profile is still read, so one recording no scope roots stops a
+forced run just as it stops any other. No selection file is written and pytest runs without
+`--downwind`, so the reason is stated on downwind's own output rather than in pytest's header.
 
 ### A fallback repairs the map it fell back from
 

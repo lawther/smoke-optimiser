@@ -22,7 +22,7 @@ from smoke_optimiser.config import (
     resolve_config,
     resolve_downwind_config,
 )
-from smoke_optimiser.downwind.command import run_downwind
+from smoke_optimiser.downwind.command import FULL_SUITE_ENVVAR, FULL_SUITE_FLAG, run_downwind
 from smoke_optimiser.optimiser.filters import apply_filters
 from smoke_optimiser.optimiser.greedy import optimise
 from smoke_optimiser.paths import resolve_project_paths_or_invocation_dir
@@ -287,7 +287,7 @@ def smoke(  # noqa: PLR0913 # special case for this function since Typer works t
 
 
 @app.command()
-def downwind(
+def downwind(  # noqa: PLR0913 # special case for this function since Typer works this way
     *,
     profile_path: Annotated[
         Path | None,
@@ -315,9 +315,18 @@ def downwind(
             help="Source directory/package to instrument when a fallback regenerates the profile.",
         ),
     ] = None,
+    full_suite: Annotated[
+        bool,
+        typer.Option(
+            FULL_SUITE_FLAG,
+            envvar=FULL_SUITE_ENVVAR,
+            help="Run the full suite whatever the diff says, as a fallback would.",
+        ),
+    ] = False,
 ) -> None:
     """Run every test downwind of your working-tree changes, or the full suite when it cannot tell."""
     cli_overrides = {
+        "full_suite": full_suite,
         "profile_path": profile_path,
         "downwind_file_path": downwind_file_path,
         "downwind_pytest_args": pytest_args,

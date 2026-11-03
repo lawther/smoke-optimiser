@@ -9,7 +9,14 @@ import typer
 from typer.testing import CliRunner
 
 from smoke_optimiser.cli import _reject_parallel_durations, app
-from smoke_optimiser.config import CovSourceOrigin, OperationMode, ProfilingRunConfig, ResolvedConfig
+from smoke_optimiser.config import (
+    CovSourceOrigin,
+    DownwindConfig,
+    DownwindSelection,
+    OperationMode,
+    ProfilingRunConfig,
+    ResolvedConfig,
+)
 from smoke_optimiser.environment import MachineEnvironment
 from smoke_optimiser.profiler.models import (
     PROFILE_SCHEMA_VERSION,
@@ -383,3 +390,37 @@ def test_the_negative_form_of_a_flag_turns_off_a_setting_the_file_turned_on(
 
     assert result.exit_code == EXIT_CODE_SUCCESS
     assert _resolved_config_from_a_run(mock_run).allow_ordered is False
+
+
+def _downwind_selection(args: list[str], env: dict[str, str | None]) -> DownwindSelection:
+    """What the downwind command was told to select, with the run itself stubbed out."""
+    with patch("smoke_optimiser.cli.run_downwind", return_value=EXIT_CODE_SUCCESS) as run_downwind:
+        result = runner.invoke(app, ["downwind", *args], env=env)
+    assert result.exit_code == EXIT_CODE_SUCCESS, result.output
+    config: DownwindConfig = run_downwind.call_args.args[0]
+    return config.selection
+
+
+@pytest.mark.parametrize(
+    ("args", "env", "expected"),
+    [
+        # The variable is removed rather than trusted to be absent: a developer
+        # running the suite with it exported must not flip the default case.
+        pytest.param([], {"SMOKE_OPTIMISER_FULL_SUITE": None}, DownwindSelection.FROM_DIFF, id="default"),
+        pytest.param(["--full-suite"], {"SMOKE_OPTIMISER_FULL_SUITE": None}, DownwindSelection.FULL_SUITE, id="flag"),
+        # The variable is what reaches a repo through the shared `just downwind`
+        # snippet, which passes downwind no arguments of its own.
+        pytest.param([], {"SMOKE_OPTIMISER_FULL_SUITE": "1"}, DownwindSelection.FULL_SUITE, id="envvar"),
+        pytest.param([], {"SMOKE_OPTIMISER_FULL_SUITE": "0"}, DownwindSelection.FROM_DIFF, id="envvar-off"),
+    ],
+)
+def test_downwind_full_suite_is_forced_by_the_flag_or_the_environment(
+    args: list[str],
+    env: dict[str, str | None],
+    expected: DownwindSelection,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`SMOKE_OPTIMISER_FULL_SUITE=1 just precommit` must force the full suite in any repo."""
+    monkeypatch.chdir(tmp_path)
+    assert _downwind_selection(args, env) is expected

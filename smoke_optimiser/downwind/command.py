@@ -20,8 +20,9 @@ THE FULL SUITE IS STILL RUN THROUGH ``--downwind``. A refusal writes a
 selection file carrying its blind spots and no node ids; the plugin then
 leaves collection untouched and states the reasons in pytest's own report
 header. One invocation path, and the reason travels with the run rather than
-only with our console output. The one exception is a profile that does not
-exist at all, where there is nothing to write a selection file about.
+only with our console output. The exceptions are a profile that does not
+exist at all, where there is nothing to write a selection file about, and a
+full suite forced by ``--full-suite``, where no selection was made.
 
 A FULL-SUITE FALLBACK RUNS UNDER PROFILING INSTRUMENTATION AND REWRITES THE
 PROFILE IT FELL BACK FROM. The run that pays for the fallback is the run that
@@ -51,7 +52,7 @@ from typing import TYPE_CHECKING
 
 import typer
 
-from smoke_optimiser.config import CovSourceOrigin, ProfilingRunConfig
+from smoke_optimiser.config import CovSourceOrigin, DownwindSelection, ProfilingRunConfig
 from smoke_optimiser.downwind.blind_spots import BlindSpotReason, in_report_order
 from smoke_optimiser.downwind.changes import (
     GitStatusError,
@@ -95,6 +96,11 @@ REGENERATE_COMMAND = "smoke-optimiser smoke --profile-only"
 """What rebuilds the profile by hand. Named where a message says the profile is the
 problem and this run is not going to fix it -- when regeneration is switched off, or
 when it was tried and did not produce anything trustworthy."""
+
+FULL_SUITE_FLAG = "--full-suite"
+FULL_SUITE_ENVVAR = "SMOKE_OPTIMISER_FULL_SUITE"
+"""Forces the full suite. Read by downwind itself, so ``SMOKE_OPTIMISER_FULL_SUITE=1
+just precommit`` reaches it through a justfile recipe that passes no arguments."""
 
 CORRUPT_PROFILE_SUFFIX = ".corrupt"
 """Where an unreadable profile is kept when a fallback replaces it.
@@ -355,6 +361,15 @@ def _run_pytest(invocation_dir: Path, extra_args: list[str]) -> int:
     typer.secho(f"🏃 {' '.join(command[2:])}", fg=typer.colors.CYAN)
     # Built from sys.executable plus the user's own configured arguments.
     return subprocess.run(command, cwd=invocation_dir, check=False).returncode  # noqa: S603
+
+
+def _report_forced_full_suite() -> None:
+    """Name both spellings, so whoever left the variable exported can find it."""
+    typer.secho(
+        f"⚠️ Full suite forced by {FULL_SUITE_FLAG} or {FULL_SUITE_ENVVAR}, so the diff is not read.",
+        fg=typer.colors.YELLOW,
+        err=True,
+    )
 
 
 def _report_absent_profile(config: DownwindConfig) -> None:
@@ -628,17 +643,21 @@ def _regenerate(
 
 
 def _run_full_suite(
-    config: DownwindConfig, paths: ProjectPaths, extra_args: list[str], replaced: ProfilingData | None
+    config: DownwindConfig,
+    paths: ProjectPaths,
+    extra_args: list[str],
+    replaced: ProfilingData | None,
+    *,
+    selection_written: bool,
 ) -> int:
     """Run everything, instrumented wherever that is switched on.
 
-    ``replaced`` is the profile this fallback is standing in for, where there was
-    a readable one. It decides two things: whether there is a selection file for
-    the plugin to read -- there is one exactly when the rules got far enough to
-    refuse -- and what the instrumented run instruments, since reproducing the
-    coverage root the old profile used beats guessing a new one.
+    ``replaced`` is the profile this run is standing in for, where there was a
+    readable one: reproducing the coverage root it used beats guessing a new one.
+    ``selection_written`` says whether there is a selection file for the plugin
+    to read, which there is exactly when the rules got far enough to refuse.
     """
-    downwind_args = ["--downwind", f"--downwind-file-path={config.downwind_file_path}"] if replaced is not None else []
+    downwind_args = ["--downwind", f"--downwind-file-path={config.downwind_file_path}"] if selection_written else []
 
     if not config.regenerate_on_fallback:
         return _run_pytest(paths.invocation_dir, [*downwind_args, *extra_args])
@@ -694,8 +713,11 @@ def run_downwind(config: DownwindConfig, invocation_dir: Path) -> int:
 
     extra_args = shlex.split(config.pytest_args)
 
-    if profile is None:
-        return _run_full_suite(config, paths, extra_args, replaced=None)
+    forced = config.selection is DownwindSelection.FULL_SUITE
+    if forced:
+        _report_forced_full_suite()
+    if profile is None or forced:
+        return _run_full_suite(config, paths, extra_args, replaced=profile, selection_written=False)
 
     try:
         selection = _select(profile, paths, config)
@@ -707,7 +729,7 @@ def run_downwind(config: DownwindConfig, invocation_dir: Path) -> int:
 
     if selection.refused:
         _report_refusal(selection, config)
-        return _run_full_suite(config, paths, extra_args, replaced=profile)
+        return _run_full_suite(config, paths, extra_args, replaced=profile, selection_written=True)
 
     # A test module the change deleted is still in the selection, where it
     # collects nothing, but it cannot be the reason to start pytest. Its path
