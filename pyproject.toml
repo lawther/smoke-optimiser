@@ -51,7 +51,7 @@ smoke_optimiser = "smoke_optimiser.plugin"
 testpaths = ["tests"]
 pythonpath = ["."]
 timeout = 10
-addopts = "--cov=smoke_optimiser --cov-report=term-missing --cov-branch"
+addopts = "-n auto --dist=worksteal --cov=smoke_optimiser --cov-report=term-missing --cov-branch"
 filterwarnings = [
     "error::RuntimeWarning",
     "error::pytest.PytestUnraisableExceptionWarning",
