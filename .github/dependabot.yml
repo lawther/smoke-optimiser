@@ -4,7 +4,7 @@ updates:
   # requests, and the group collects this ecosystem's security fixes into one pull request.
   # The repository's "Grouped security updates" setting must stay off, because when on it
   # overrides this group.
-  - package-ecosystem: "uv"
+  - package-ecosystem: "uv" # zizmor: ignore[dependabot-cooldown] -- security updates only, and GitHub applies no cooldown to those
     directory: "/"
     schedule:
       interval: "weekly"
@@ -16,7 +16,7 @@ updates:
         applies-to: security-updates
         patterns: ["*"]
   # Security updates only, in the same way as the entry above.
-  - package-ecosystem: "github-actions"
+  - package-ecosystem: "github-actions" # zizmor: ignore[dependabot-cooldown] -- security updates only, and GitHub applies no cooldown to those
     directory: "/"
     schedule:
       interval: "weekly"

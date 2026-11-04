@@ -22,6 +22,7 @@ lint:
     uv run ruff format
     uv run ruff check --fix
     just extra-lints
+    just lint-workflows
 
 # Check for bare dict/tuple return types and classes defined inside functions (ML001, ML002)
 extra-lints:
@@ -234,3 +235,26 @@ update-deps *args:
     ../agent_rules/run_shared_script.py --check-failed-exit 3 -- ../agent_rules/update_deps.py . {{args}}
 
 # END SHARED RECIPES (UPDATE_DEPS)
+
+# BEGIN SHARED RECIPES (ZIZMOR) sha256:06f6f81fd4153d3d
+# Generated from agent_rules/snippets/zizmor.just. Do not edit inside this block:
+#      edit snippets/zizmor.just, then run `just sync-justfile-recipes` in agent_rules.
+
+# zizmor's version is agent_rules' locked one, stamped in by the sync, so update-deps there
+# upgrades it fleet-wide. --offline keeps the audit reproducible and token-free in the git hook;
+# known-vulnerable actions reach the fleet through Dependabot security updates instead. zizmor
+# exits 3 when it collects no input, which is a repo with no workflows, actions or dependabot.yml.
+#
+# Audit this repo's GitHub Actions workflows, composite actions and dependabot.yml with zizmor.
+lint-workflows:
+    #!/usr/bin/env bash
+    set -uo pipefail
+    status=0
+    uvx zizmor@1.32.0 --offline . || status=$?
+    if [ "$status" -eq 3 ]; then
+        echo "lint-workflows: nothing to audit"
+        exit 0
+    fi
+    exit "$status"
+
+# END SHARED RECIPES (ZIZMOR)
