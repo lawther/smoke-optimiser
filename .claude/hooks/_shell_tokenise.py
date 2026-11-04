@@ -180,6 +180,51 @@ def space_operators(line: str) -> str:
     return "".join(out)
 
 
+def _closing_paren(text: str, start: int) -> int:
+    """The index of the `)` closing the `(` just before `start`, or len(text) if none does."""
+    depth = 1
+    for index in range(start, len(text)):
+        if text[index] == "(":
+            depth += 1
+        elif text[index] == ")":
+            depth -= 1
+            if depth == 0:
+                return index
+    return len(text)
+
+
+def quoted_substitutions(line: str) -> list[str]:
+    """The bodies of the `$( )` and backtick substitutions inside double quotes in `line`.
+
+    The shell runs these although they sit in a quoted word, which `space_operators` must leave
+    whole; each body is returned so it can be tokenised as commands of its own. A substitution
+    inside single quotes, or with its `$` or backtick escaped, is only text and is not returned.
+    """
+    bodies: list[str] = []
+    quote = ""
+    index = 0
+    while index < len(line):
+        char = line[index]
+        if char == "\\" and quote != "'":
+            index += 2
+            continue
+        if quote == '"' and char == "$" and line[index + 1 : index + 2] == "(":
+            end = _closing_paren(line, index + 2)
+            bodies.append(line[index + 2 : end])
+            index = end + 1
+            continue
+        if quote == '"' and char == "`":
+            end = line.find("`", index + 1)
+            end = len(line) if end == -1 else end
+            bodies.append(line[index + 1 : end])
+            index = end + 1
+            continue
+        if quote or char in "'\"":
+            quote = _quote_state(char, quote)
+        index += 1
+    return bodies
+
+
 def parse(command: str) -> Parse:
     """`command` tokenised with a synthetic `;` at each newline that ends a command.
 
@@ -193,6 +238,7 @@ def parse(command: str) -> Parse:
     pending = ""
     holding = False
     unread_heredocs: list[Heredoc] = []
+    truncated_inside = False
 
     for line in command.split("\n"):
         if unread_heredocs:
@@ -216,8 +262,14 @@ def parse(command: str) -> Parse:
         if tokens:
             tokens.append(_SYNTHETIC_SEPARATOR)
         tokens.extend(line_tokens)
+        for body in quoted_substitutions(chunk):
+            inner = parse(body)
+            truncated_inside = truncated_inside or inner.truncated
+            if inner.tokens:
+                tokens.append(_SYNTHETIC_SEPARATOR)
+                tokens.extend(inner.tokens)
 
-    return Parse(tokens=tokens, truncated=holding)
+    return Parse(tokens=tokens, truncated=holding or truncated_inside)
 
 
 def tokenise(command: str) -> list[str]:
