@@ -320,7 +320,11 @@ def downwind(  # noqa: PLR0913 # special case for this function since Typer work
         typer.Option(
             FULL_SUITE_FLAG,
             envvar=FULL_SUITE_ENVVAR,
-            help="Run the full suite whatever the diff says, as a fallback would.",
+            help=(
+                "Run the full suite whatever the diff says, e.g. as a clean-tree baseline for "
+                "'does this fail without my change?'. Runs as a fallback would, instrumented "
+                "unless --no-regenerate-on-fallback."
+            ),
         ),
     ] = False,
 ) -> None:
