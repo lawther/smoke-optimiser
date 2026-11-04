@@ -16,6 +16,24 @@
   recording the coverage targets and test paths the profiling run measured. A version 1
   profile is rejected on load -- re-run the profiling phase to regenerate it.
 
+## [0.3.4](https://github.com/lawther/smoke-optimiser/compare/v0.3.3...v0.3.4) (2026-11-04)
+
+
+### Features
+
+* **downwind:** force the full suite with --full-suite or SMOKE_OPTIMISER_FULL_SUITE ([41476e4](https://github.com/lawther/smoke-optimiser/commit/41476e413f59e295762f9b1089cc844af9fe2b60))
+
+
+### Bug Fixes
+
+* **deps:** bump the security group across 1 directory with 2 updates ([2754b31](https://github.com/lawther/smoke-optimiser/commit/2754b31dbd7edba857658d57cb769a8b260ec3b6))
+* **downwind:** count changed test modules' tests in the selection headline ([d264ff4](https://github.com/lawther/smoke-optimiser/commit/d264ff440790b5e1f34814a65870ba6f8bd1889b))
+
+
+### Documentation
+
+* **downwind:** say what --full-suite is for in its help text ([4915edb](https://github.com/lawther/smoke-optimiser/commit/4915edb8f23934a64fb011dd60e97d65f0a50037))
+
 ## [0.3.3](https://github.com/lawther/smoke-optimiser/compare/v0.3.2...v0.3.3) (2026-09-30)
 
 
