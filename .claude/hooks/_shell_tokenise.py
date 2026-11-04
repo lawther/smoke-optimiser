@@ -61,6 +61,12 @@ COMMAND_SEPARATORS = frozenset({"&&", "||", ";", "|", "&"})
 # boundary that shlex would otherwise have swallowed as ordinary whitespace.
 _SYNTHETIC_SEPARATOR = ";"
 
+# Characters that end one command and start another wherever they stand unquoted, even pressed
+# against a word: shlex.split keeps "status;" and "hi&&git" whole, which would hide a boundary.
+# "(" and ")" open and close a subshell, "`" a command substitution.
+_ALWAYS_SEPARATE = frozenset({";", "(", ")", "`"})
+_REDIRECT_CHARS = frozenset({"<", ">"})
+
 # A heredoc redirection: an optional fd, `<<` or `<<-`, and the delimiter word, which may
 # instead be the next token. `[^<]` keeps `<<<` (a here-string, which has no body) out.
 _HEREDOC_OPERATOR_RE = re.compile(r"^\d*<<(?P<dash>-?)(?P<delimiter>[^<].*)?$")
@@ -118,6 +124,62 @@ def ends_mid_escape(chunk: str) -> bool:
     return True
 
 
+def _quote_state(char: str, quote: str) -> str:
+    """The quote in force after `char`: "" outside quotes, or the quote character inside."""
+    if quote:
+        return "" if char == quote else quote
+    return char if char in "'\"" else ""
+
+
+def space_operators(line: str) -> str:
+    """`line` with a space either side of each unquoted control operator.
+
+    shlex then returns each operator as a token of its own. `;`, `|`, `||`, `|&`, `&`, `&&`,
+    subshell parentheses, `$(` and backticks become boundaries; the `&` in a redirection (`>&`,
+    `<&`, `&>`, `2>&1`) and the `|` in `>|` do not. A backslash-escaped character and quoted
+    text are left alone, and a comment is dropped.
+
+    A substitution inside double quotes still runs, but splitting there would break the quoted
+    token, so it is not seen as a boundary.
+    """
+    out: list[str] = []
+    quote = ""
+    index = 0
+    while index < len(line):
+        char = line[index]
+        following = line[index + 1] if index + 1 < len(line) else ""
+        previous = line[index - 1] if index else ""
+        if char == "\\" and quote != "'":
+            out.append(line[index : index + 2])
+            index += 2
+            continue
+        if quote or char in "'\"":
+            quote = _quote_state(char, quote)
+            out.append(char)
+        elif char == "#" and (not previous or previous.isspace()):
+            break  # a comment: the shell runs none of it
+        elif char == "$" and following == "(":
+            out.append(" ; ")
+            index += 1
+        elif char in _ALWAYS_SEPARATE:
+            out.append(" ; ")
+        elif char == "|" and previous != ">":
+            pair = char + following
+            if pair in {"||", "|&"}:
+                index += 1
+            out.append(f" {'||' if pair == '||' else '|'} ")
+        elif char == "&" and previous not in _REDIRECT_CHARS and following != ">":
+            if following == "&":
+                index += 1
+                out.append(" && ")
+            else:
+                out.append(" & ")
+        else:
+            out.append(char)
+        index += 1
+    return "".join(out)
+
+
 def parse(command: str) -> Parse:
     """`command` tokenised with a synthetic `;` at each newline that ends a command.
 
@@ -140,7 +202,7 @@ def parse(command: str) -> Parse:
             continue
         chunk = pending + line if holding else line
         try:
-            line_tokens = shlex.split(chunk)
+            line_tokens = shlex.split(space_operators(chunk))
         except ValueError:
             # The line stops inside something that continues below: drop a continuation's
             # backslash-newline the way a shell does, and keep a quoted value's newline.
