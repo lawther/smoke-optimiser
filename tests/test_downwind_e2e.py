@@ -15,6 +15,7 @@ from pathlib import Path
 import pytest
 
 from smoke_optimiser.downwind.blind_spots import BlindSpotReason
+from smoke_optimiser.downwind.command import FULL_SUITE_ENVVAR
 from smoke_optimiser.reports.downwind_suite import DownwindSuiteFile, read_downwind_suite
 
 from .conftest import git_subprocess_env
@@ -38,6 +39,10 @@ def _git(project_dir: Path, *args: str) -> None:
 
 def _env(project_dir: Path) -> dict[str, str]:
     env = os.environ.copy()
+    # Inherited from a caller running the whole suite under it, the variable
+    # would force every downwind started here to run the full suite, defeating
+    # the selective runs these tests assert on.
+    env.pop(FULL_SUITE_ENVVAR, None)
     env["PYTHONPATH"] = str(Path.cwd()) + os.pathsep + str(project_dir)
     return env
 
