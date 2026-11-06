@@ -1,0 +1,226 @@
+{
+  "families": {
+    "claude_hooks": {
+      "blocks": [],
+      "files": [
+        {
+          "executable": true,
+          "path": ".claude/hooks/_hook_log.py",
+          "sha256": "1c46fc08b8d1701d6762a4d0c05fdb0261d503f4d5cecd1fdc0f51805f707df2"
+        },
+        {
+          "executable": true,
+          "path": ".claude/hooks/_shell_tokenise.py",
+          "sha256": "a7dbdfc748afece8b561b32f3d038948404501ee2b19bb679e4eb61afa87991d"
+        },
+        {
+          "executable": true,
+          "path": ".claude/hooks/block-override-flags.sh",
+          "sha256": "2a27e3ff623ba0d482447e5749e669c4874a3c53411dd1d0fec438a1a4968b19"
+        },
+        {
+          "executable": true,
+          "path": ".claude/hooks/block_override_flags.py",
+          "sha256": "c6e950c5a2254a072ac7e6e41e5d66f51349435f302e8a17fcc0b598c9e57d87"
+        },
+        {
+          "executable": true,
+          "path": ".claude/hooks/check_bead_model.py",
+          "sha256": "8aa0504d2362357bfbcfca9bd750ac02240ed657368f7c383a255808aac63028"
+        },
+        {
+          "executable": true,
+          "path": ".claude/hooks/check_diary_prose.py",
+          "sha256": "2f4d2e09be55095722d05efbae404bc3e3b44f50154bebeecde0edc0fe0afdf9"
+        },
+        {
+          "executable": true,
+          "path": ".claude/hooks/check_no_em_dash.py",
+          "sha256": "4294776cd9ec9006b0c60b7879460e967ef66f10e12f3622831c0d401a2f128d"
+        },
+        {
+          "executable": true,
+          "path": ".claude/hooks/require_npm_deps.py",
+          "sha256": "fab1143a44afa8b1e6a3365192b7b5bf57d1816e53768007964ea5500a6c4ca6"
+        },
+        {
+          "executable": true,
+          "path": ".claude/hooks/update_deps_staleness.py",
+          "sha256": "6361d4525539f04c90c0c045648ed1d404fb54d39d56a96b224aa6a798070948"
+        },
+        {
+          "executable": true,
+          "path": ".claude/hooks/validate_dep_type.py",
+          "sha256": "6063fc917d39fbeed920ab93fd1498460196a460790658055d3f959a3cee8f1e"
+        }
+      ],
+      "registrations": [
+        {
+          "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/block-override-flags.sh",
+          "event": "PreToolUse",
+          "matcher": "Bash"
+        },
+        {
+          "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/check_bead_model.py",
+          "event": "PreToolUse",
+          "matcher": "Bash"
+        },
+        {
+          "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/require_npm_deps.py",
+          "event": "PreToolUse",
+          "matcher": "Bash"
+        },
+        {
+          "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/validate_dep_type.py",
+          "event": "PreToolUse",
+          "matcher": "Bash"
+        },
+        {
+          "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/check_diary_prose.py",
+          "event": "PreToolUse",
+          "matcher": "Bash|Write|Edit"
+        },
+        {
+          "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/check_no_em_dash.py",
+          "event": "PreToolUse",
+          "matcher": "Bash|Write|Edit"
+        },
+        {
+          "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/update_deps_staleness.py",
+          "event": "SessionStart",
+          "matcher": ""
+        },
+        {
+          "command": "bd prime --memories-only --hook-json",
+          "event": "SessionStart",
+          "matcher": ""
+        }
+      ],
+      "source": "agent_rules@cb42e82-dirty"
+    },
+    "core": {
+      "blocks": [
+        {
+          "begin": "# BEGIN FLEET RECIPES (CORE)",
+          "end": "# END FLEET RECIPES (CORE)",
+          "path": "Justfile",
+          "sha256": "41320c9c5c903803146fe792a130e7de0333ab72dc8e665230b347becf0725fa"
+        }
+      ],
+      "files": [
+        {
+          "executable": false,
+          "path": ".fleet/core/check_integrity.py",
+          "sha256": "a8c082e5e07ddd3c62834282fd74254ec40c7b3dc1c05f967f327cbb008db83a"
+        }
+      ],
+      "registrations": [],
+      "source": "agent_rules@df73fca"
+    },
+    "git_hooks": {
+      "blocks": [
+        {
+          "begin": "# BEGIN FLEET RECIPES (GIT_HOOKS)",
+          "end": "# END FLEET RECIPES (GIT_HOOKS)",
+          "path": "Justfile",
+          "sha256": "d4cd6048c00eae8d8a33b1e128bc2888c78fbae22e138ba70850ba7277ab8376"
+        }
+      ],
+      "files": [
+        {
+          "executable": true,
+          "path": ".githooks/pre-commit",
+          "sha256": "39271d6b02cb3d5599b1b3fd2611dc82f9d89e42109ffe57221060a5a53728dc"
+        },
+        {
+          "executable": true,
+          "path": ".githooks/pre-merge-commit",
+          "sha256": "e21f3ba66b4b0326e48b5574c4d9c04f9aae9fed28ba770f5c49c4fa43ee041c"
+        },
+        {
+          "executable": true,
+          "path": ".githooks/pre-push",
+          "sha256": "c476f508d17996295bf79f57815c579b34b7110525ec9b664097a6ceae5b3a5c"
+        }
+      ],
+      "registrations": [],
+      "source": "agent_rules@cb42e82-dirty"
+    },
+    "github": {
+      "blocks": [
+        {
+          "begin": "# BEGIN FLEET RECIPES (GITHUB)",
+          "end": "# END FLEET RECIPES (GITHUB)",
+          "path": "Justfile",
+          "sha256": "1c0d55bb2197e0684ae648b1bad50da55b9bba3bd780828de26f627a22c4fd00"
+        }
+      ],
+      "files": [],
+      "registrations": [],
+      "source": "agent_rules@cb42e82-dirty"
+    },
+    "lint": {
+      "blocks": [],
+      "files": [
+        {
+          "executable": false,
+          "path": "ruff_shared.toml",
+          "sha256": "89e2c93e4e35e77d4120be32af7eaa40b749db25e156871735c8315b33f909f5"
+        },
+        {
+          "executable": false,
+          "path": "ty.toml",
+          "sha256": "4940289fbe5b404418baf0d4146ef5fc936d96e48afd4f16a2fb1ca33786d65f"
+        }
+      ],
+      "registrations": [],
+      "source": "agent_rules@cb42e82-dirty"
+    },
+    "rules": {
+      "blocks": [
+        {
+          "begin": "<!-- BEGIN FLEET RULES -->",
+          "end": "<!-- END FLEET RULES -->",
+          "path": "GEMINI.md",
+          "sha256": "e8e336955d46162ea4f2ccba6620aeaa953c5aa735c836aaa302410dd34fa821"
+        }
+      ],
+      "files": [],
+      "registrations": [],
+      "source": "agent_rules@cb42e82-dirty"
+    },
+    "scripts": {
+      "blocks": [
+        {
+          "begin": "# BEGIN FLEET RECIPES (SCRIPTS)",
+          "end": "# END FLEET RECIPES (SCRIPTS)",
+          "path": "Justfile",
+          "sha256": "38a429142025aa7a1d2fd0802786adf604e4ef2bac980a59990a1fa680697042"
+        }
+      ],
+      "files": [
+        {
+          "executable": false,
+          "path": "shared_scripts/analyse_ai_readiness.py",
+          "sha256": "bda93e1bcdbac7c5e5bdb484fbe346f1e9a31826a7b2ec943eb4928580ea4fcb"
+        }
+      ],
+      "registrations": [],
+      "source": "agent_rules@cb42e82-dirty"
+    },
+    "smoke": {
+      "blocks": [
+        {
+          "begin": "# BEGIN FLEET RECIPES (SMOKE)",
+          "end": "# END FLEET RECIPES (SMOKE)",
+          "path": "Justfile",
+          "sha256": "ccabf028ae546d9741071a7f1a6242b0b0adb40f3db1fb0d1aebea61d00b8d57"
+        }
+      ],
+      "files": [],
+      "registrations": [],
+      "source": "agent_rules@cb42e82-dirty"
+    }
+  },
+  "schema": 1
+}

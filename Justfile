@@ -1,12 +1,42 @@
-# BEGIN SHARED RECIPES (DEFAULT) sha256:18670817947290ab
-# Generated from agent_rules/snippets/default.just. Do not edit inside this block:
-#      edit snippets/default.just, then run `just sync-justfile-recipes` in agent_rules.
+# BEGIN FLEET RECIPES (CORE)
+# Generated from agent_rules payload/core/recipes.just. Do not edit inside this block:
+#      edit it there, then run `just sync` in agent_rules.
 
 # List available recipes
 default:
     @just --list
 
-# END SHARED RECIPES (DEFAULT)
+# Fail if a file, block or hook registration the fleet manages here has changed since sync
+# wrote it. Reads only this repo, so it runs the same in the git hook and in CI.
+check-fleet:
+    @uv run --script .fleet/core/check_integrity.py
+
+# Every check the fleet requires of this repo. This repo's own precommit depends on it, so a
+# check added here reaches every repo's gate with the next sync.
+precommit-fleet: check-fleet
+
+# Land this repo's open Dependabot PRs on main, one tested commit per PR. Never pushes.
+apply-dependabot *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [[ ! -x ../agent_rules/apply_dependabot.py ]]; then
+        echo "error: ../agent_rules/apply_dependabot.py not found -- clone the agent_rules repo as a sibling" >&2
+        exit 2
+    fi
+    ../agent_rules/run_shared_script.py --check-failed-exit 3 -- ../agent_rules/apply_dependabot.py . {{args}}
+
+# Apply this repo's Dependabot security fixes, then upgrade every other dependency locally,
+# one tested commit each. Never pushes.
+update-deps *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [[ ! -x ../agent_rules/update_deps.py ]]; then
+        echo "error: ../agent_rules/update_deps.py not found -- clone the agent_rules repo as a sibling" >&2
+        exit 2
+    fi
+    ../agent_rules/run_shared_script.py --check-failed-exit 3 -- ../agent_rules/update_deps.py . {{args}}
+
+# END FLEET RECIPES (CORE)
 
 # The runner the shared ai_readiness recipes call; declared in agent_rules/repos.toml.
 uv_run := "uv run"
@@ -111,9 +141,9 @@ setup-git-hooks:
     @chmod +x .githooks/pre-commit
     @echo "✅ Git hooks set up!"
 
-# BEGIN SHARED RECIPES (AI_READINESS) sha256:45e10abdfa181601
-# Generated from agent_rules/snippets/ai_readiness.just. Do not edit inside this block:
-#      edit snippets/ai_readiness.just, then run `just sync-justfile-recipes` in agent_rules.
+# BEGIN FLEET RECIPES (SCRIPTS)
+# Generated from agent_rules payload/scripts/recipes.just. Do not edit inside this block:
+#      edit it there, then run `just sync` in agent_rules.
 
 # Analyse project source files to evaluate AI agent readiness
 analyse-ai-readiness *args:
@@ -123,33 +153,20 @@ analyse-ai-readiness *args:
 check-ai-readiness *args:
     @{{uv_run}} shared_scripts/analyse_ai_readiness.py --fail-on {{args}}
 
-# END SHARED RECIPES (AI_READINESS)
+# Type-check the synced PEP 723 scripts in shared_scripts/ in an ephemeral env built from each
+# script's own inline metadata. ty resolves imports against the project's .venv and has no
+# notion of PEP 723 isolation, so checking them via the project's own `ty check` fails or
+# silently passes depending on whether the .venv happens to carry the same packages. Keep
+# shared_scripts/ out of the project's own `ty check` invocation, and call this recipe from
+# the project's lint recipe. Drop both once astral-sh/ty#691 lands.
+lint-pep723:
+    @uvx --with-requirements shared_scripts/analyse_ai_readiness.py ty check shared_scripts/analyse_ai_readiness.py
 
-# BEGIN SHARED RECIPES (CHECK_HOOKS_DRIFT) sha256:35dc21f648469e76
-# Generated from agent_rules/snippets/check_hooks_drift.just. Do not edit inside this block:
-#      edit snippets/check_hooks_drift.just, then run `just sync-justfile-recipes` in agent_rules.
+# END FLEET RECIPES (SCRIPTS)
 
-# Verify .claude/hooks/ still matches agent_rules/hooks/. Requires the
-# agent_rules repo as a sibling checkout; local/pre-commit only for now.
-# Wiring this into CI needs agent_rules reachable there — see agent_rules-403.
-check-hooks-drift:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    if [[ ! -x ../agent_rules/sync_hooks.py ]]; then
-        echo "error: ../agent_rules/sync_hooks.py not found -- clone the agent_rules repo as a sibling" >&2
-        exit 2
-    fi
-    if ! command -v uv >/dev/null; then
-        echo "error: uv not found -- install uv; ../agent_rules/sync_hooks.py needs it to provision Python 3.13" >&2
-        exit 2
-    fi
-    ../agent_rules/run_shared_script.py --check-failed-exit 3 -- ../agent_rules/sync_hooks.py check .
-
-# END SHARED RECIPES (CHECK_HOOKS_DRIFT)
-
-# BEGIN SHARED RECIPES (DOWNWIND) sha256:8af83ba867138284
-# Generated from agent_rules/snippets/downwind.just. Do not edit inside this block:
-#      edit snippets/downwind.just, then run `just sync-justfile-recipes` in agent_rules.
+# BEGIN FLEET RECIPES (SMOKE)
+# Generated from agent_rules payload/smoke/recipes.just. Do not edit inside this block:
+#      edit it there, then run `just sync` in agent_rules.
 
 # Run every test downwind of the working-tree diff; full suite when it cannot tell.
 downwind:
@@ -168,26 +185,11 @@ downwind:
         uv run smoke-optimiser downwind
     fi
 
-# END SHARED RECIPES (DOWNWIND)
+# END FLEET RECIPES (SMOKE)
 
-# BEGIN SHARED RECIPES (PEP723) sha256:0eedb944b6ad5f5a
-# Generated from agent_rules/snippets/pep723.just. Do not edit inside this block:
-#      edit snippets/pep723.just, then run `just sync-justfile-recipes` in agent_rules.
-
-# Type-check the synced PEP 723 scripts in shared_scripts/ in an ephemeral env built from each
-# script's own inline metadata. ty resolves imports against the project's .venv and has no
-# notion of PEP 723 isolation, so checking them via the project's own `ty check` fails or
-# silently passes depending on whether the .venv happens to carry the same packages. Keep
-# shared_scripts/ out of the project's own `ty check` invocation, and call this recipe from
-# the project's lint recipe. Drop both once astral-sh/ty#691 lands.
-lint-pep723:
-    @uvx --with-requirements shared_scripts/analyse_ai_readiness.py ty check shared_scripts/analyse_ai_readiness.py
-
-# END SHARED RECIPES (PEP723)
-
-# BEGIN SHARED RECIPES (LINEAR_HISTORY) sha256:06d5bf7ed4629f17
-# Generated from agent_rules/snippets/linear_history.just. Do not edit inside this block:
-#      edit snippets/linear_history.just, then run `just sync-justfile-recipes` in agent_rules.
+# BEGIN FLEET RECIPES (GIT_HOOKS)
+# Generated from agent_rules payload/git_hooks/recipes.just. Do not edit inside this block:
+#      edit it there, then run `just sync` in agent_rules.
 
 # Sets this repo's own local git config to prefer linear history, overriding whatever
 # a clone's global config says. `pull.rebase` and `merge.ff` live in .git/config, which
@@ -201,44 +203,11 @@ setup-linear-history:
     @git config merge.ff only
     @echo "Linear history preferences set for this clone"
 
-# END SHARED RECIPES (LINEAR_HISTORY)
+# END FLEET RECIPES (GIT_HOOKS)
 
-# BEGIN SHARED RECIPES (DEPENDABOT) sha256:3678816b1cdec7d5
-# Generated from agent_rules/snippets/dependabot.just. Do not edit inside this block:
-#      edit snippets/dependabot.just, then run `just sync-justfile-recipes` in agent_rules.
-
-# Land this repo's open Dependabot PRs on main, one tested commit per PR. Never pushes.
-apply-dependabot *args:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    if [[ ! -x ../agent_rules/apply_dependabot.py ]]; then
-        echo "error: ../agent_rules/apply_dependabot.py not found -- clone the agent_rules repo as a sibling" >&2
-        exit 2
-    fi
-    ../agent_rules/run_shared_script.py --check-failed-exit 3 -- ../agent_rules/apply_dependabot.py . {{args}}
-
-# END SHARED RECIPES (DEPENDABOT)
-
-# BEGIN SHARED RECIPES (UPDATE_DEPS) sha256:20cc8173a6ab50d1
-# Generated from agent_rules/snippets/update_deps.just. Do not edit inside this block:
-#      edit snippets/update_deps.just, then run `just sync-justfile-recipes` in agent_rules.
-
-# Apply this repo's Dependabot security fixes, then upgrade every other dependency locally,
-# one tested commit each. Never pushes.
-update-deps *args:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    if [[ ! -x ../agent_rules/update_deps.py ]]; then
-        echo "error: ../agent_rules/update_deps.py not found -- clone the agent_rules repo as a sibling" >&2
-        exit 2
-    fi
-    ../agent_rules/run_shared_script.py --check-failed-exit 3 -- ../agent_rules/update_deps.py . {{args}}
-
-# END SHARED RECIPES (UPDATE_DEPS)
-
-# BEGIN SHARED RECIPES (ZIZMOR) sha256:06f6f81fd4153d3d
-# Generated from agent_rules/snippets/zizmor.just. Do not edit inside this block:
-#      edit snippets/zizmor.just, then run `just sync-justfile-recipes` in agent_rules.
+# BEGIN FLEET RECIPES (GITHUB)
+# Generated from agent_rules payload/github/recipes.just. Do not edit inside this block:
+#      edit it there, then run `just sync` in agent_rules.
 
 # zizmor's version is agent_rules' locked one, stamped in by the sync, so update-deps there
 # upgrades it fleet-wide. --offline keeps the audit reproducible and token-free in the git hook;
@@ -257,4 +226,4 @@ lint-workflows:
     fi
     exit "$status"
 
-# END SHARED RECIPES (ZIZMOR)
+# END FLEET RECIPES (GITHUB)
