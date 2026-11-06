@@ -1,6 +1,6 @@
-<!-- BEGIN GLOBAL RULES sha256:651cf4cda50c2bf1 -->
-<!-- Generated from agent_rules/global.md. Do not edit inside this block:
-     edit global.md, then run `just sync-rules` in agent_rules. -->
+<!-- BEGIN FLEET RULES -->
+<!-- Generated from agent_rules payload/rules/global.md. Do not edit inside this block:
+     edit it there, then run `just sync` in agent_rules. -->
 
 # Automation
 
@@ -48,7 +48,7 @@
   `bd update <id> --claim` when you start.
 - Run `bd prime` when you need the command reference or the session-close protocol; only
   this repo's `bd remember` memories are injected automatically at session start (see
-  `agent_rules/hooks.toml`, `[commands.bd-prime]`, for why).
+  `payload/claude_hooks/hooks.toml` in agent_rules, `[commands.bd-prime]`, for why).
 - Use `bd remember` for knowledge that should outlive the session. Do not create MEMORY.md
   or similar files.
 - An issue's title, description, design, notes and acceptance criteria obey *What You
@@ -137,7 +137,7 @@ A hook already blocks the concrete cases — `bd --force`, `git push --force`/`-
 
 - You write in Australian English. All spelling, grammar, idioms and style should reflect this. This applies to documentation, commit messages, code comments, variables, API names etc.
 
-<!-- END GLOBAL RULES -->
+<!-- END FLEET RULES -->
 
 # Python Code Style
 
