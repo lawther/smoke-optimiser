@@ -35,15 +35,25 @@ even for a command a subagent runs, so it is the right file only when the payloa
 no `agent_id`. Claude Code sets `agent_id` when, and only when, the hook fires inside a
 subagent, and that subagent's own transcript sits beside the session's:
 `<session>.jsonl` has its subagents at `<session>/subagents/agent-<agent_id>.jsonl`. A
-subagent's model is read from that file and never from the session's, because the
-session's model is the wrong answer for it, not a weaker one.
+subagent's model is read from that file and never from the session's assistant turns,
+because the session's model is the wrong answer for it, not a weaker one.
 
-A claim of a labelled bead whose issuing agent has no model on record is denied, not
-allowed. That is the ordinary state of a subagent whose first action is the claim: the
-assistant entry for the tool call being checked is not in the transcript when the hook
-runs, so until the agent has completed one tool call there is nothing to read. The
-denial tells the agent to make any other call first and retry, and the retry is then
-checked against the real model.
+The assistant entry for the tool call being checked is not in the transcript when the
+hook runs, so a subagent whose first tool call is the claim has no turn of its own on
+record. For that case the session's transcript holds the subagent's launch record: a
+background launch writes a `toolUseResult` carrying the subagent's `agentId` and the
+`resolvedModel` Claude Code picked for it (after the Agent call's model input, agent
+frontmatter and the configured subagent default) before the subagent starts. The
+launch record is read only when the subagent's own transcript has no model, and only
+the entry naming this `agent_id` counts. Both layouts are Claude Code's, not
+documented; `just check-subagent-spawn-model` in agent_rules replays this fallback
+against real transcripts so that a layout change fails a check rather than quietly
+reinstating the denial below.
+
+A claim of a labelled bead whose issuing agent has no model on record by either route
+is denied, not allowed: a foreground subagent has no launch record until it finishes,
+and a layout change removes it. The denial tells the agent to make a separate tool call
+first and retry, and the retry is then checked against the real model.
 
 A failure denies the command, which surfaces the reason to the agent so it stops and
 asks the user rather than proceeding. Everything else -- no model label on the bead at
@@ -146,6 +156,7 @@ _MODEL_SWITCH_RE = re.compile(r"<local-command-stdout>Set model to `(?P<model>[^
 # are accepted; anything else could name a file outside the subagents directory.
 _AGENT_ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 _SUBAGENTS_DIR = "subagents"
+_ASYNC_LAUNCHED = "async_launched"
 _BD_SHOW_TIMEOUT_SECS = 15
 
 # Subcommands of `bd` that mint a new issue. `new` is an alias of `create`; `q` is
@@ -191,6 +202,10 @@ class IssuingAgent(NamedTuple):
 
     description: str
     transcript_path: str
+    # The session transcript holding a subagent's launch record; empty for the session itself,
+    # which has no launch record.
+    launch_record_path: str
+    agent_id: str
 
 
 class Mismatch(NamedTuple):
@@ -380,15 +395,54 @@ def issuing_agent(hook_input: dict) -> IssuingAgent:
     session_transcript = hook_input.get("transcript_path") or ""
     agent_id = hook_input.get("agent_id") or ""
     if not agent_id:
-        return IssuingAgent(description="this session", transcript_path=session_transcript)
+        return IssuingAgent(
+            description="this session", transcript_path=session_transcript, launch_record_path="", agent_id=""
+        )
     description = f"subagent {agent_id}"
     if not session_transcript or not _AGENT_ID_RE.match(agent_id):
         # No transcript can be named for this subagent. An empty path reads as "no model on
         # record", which denies the claim -- the session's transcript is never substituted.
-        return IssuingAgent(description=description, transcript_path="")
+        return IssuingAgent(description=description, transcript_path="", launch_record_path="", agent_id="")
     session_dir = Path(session_transcript).with_suffix("")
     subagent_transcript = session_dir / _SUBAGENTS_DIR / f"agent-{agent_id}.jsonl"
-    return IssuingAgent(description=description, transcript_path=str(subagent_transcript))
+    return IssuingAgent(
+        description=description,
+        transcript_path=str(subagent_transcript),
+        launch_record_path=session_transcript,
+        agent_id=agent_id,
+    )
+
+
+def launch_record_family(session_transcript: str, agent_id: str) -> str | None:
+    """Model family Claude Code resolved for subagent `agent_id`, from its launch record."""
+    if not session_transcript or not agent_id:
+        return None
+    try:
+        with Path(session_transcript).open(encoding="utf-8") as f:
+            lines = [line for line in f if agent_id in line]
+    except OSError:
+        return None
+    for raw_line in lines:
+        try:
+            # Standard-library-only script (see module docstring); every field access below
+            # is type-checked, so a malformed line degrades to "no launch record".
+            entry = json.loads(raw_line)  # noqa: ML400
+        except json.JSONDecodeError:
+            continue
+        result = entry.get("toolUseResult") if isinstance(entry, dict) else None
+        if not isinstance(result, dict):
+            continue
+        if result.get("agentId") != agent_id or result.get("status") != _ASYNC_LAUNCHED:
+            continue
+        resolved = result.get("resolvedModel")
+        match = _MODEL_FAMILY_RE.search(resolved) if isinstance(resolved, str) else None
+        return match.group(0).lower() if match else None
+    return None
+
+
+def agent_model_family(agent: IssuingAgent) -> str | None:
+    """The issuing agent's model family: its own transcript first, then its launch record."""
+    return current_model_family(agent.transcript_path) or launch_record_family(agent.launch_record_path, agent.agent_id)
 
 
 def bead_model_labels(issue_ids: list[str]) -> dict[str, list[str]]:
@@ -463,13 +517,14 @@ def main() -> None:
         return
 
     agent = issuing_agent(hook_input)
-    current_family = current_model_family(agent.transcript_path)
+    current_family = agent_model_family(agent)
     if current_family is None:
         deny(
             f"Blocked: the model of {agent.description} is not on record yet, so this claim cannot be "
             "checked against the bead's model label. A model is recorded once the agent has completed "
-            "a tool call. Make any other call first (for example `bd show "
-            f"{issue_ids[0]}`), then retry the claim."
+            "a tool call. Make a separate tool call first (for example `bd show "
+            f"{issue_ids[0]}`), then retry the claim. A chained command such as `bd show "
+            f"{issue_ids[0]} && bd update {issue_ids[0]} --claim` is a single tool call and does not count."
         )
         return
 
