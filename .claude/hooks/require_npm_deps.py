@@ -67,7 +67,7 @@ _hook_log = _load_sibling("_hook_log")
 
 _HOOK_NAME = "require_npm_deps.py"
 _INSTALL_RECIPE = "_npm-deps"
-_BLOCK_MARKER = "# BEGIN SHARED RECIPES (NPM_DEPS)"
+_BLOCK_MARKER = "# BEGIN FLEET RECIPES (NPM)"
 _JUSTFILE_NAMES = ("justfile", "Justfile", ".justfile")
 _CHAIN = "&&"
 

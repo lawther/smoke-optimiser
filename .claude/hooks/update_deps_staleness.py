@@ -10,13 +10,13 @@ the only way patched Docker base images and Rust toolchains arrive. Nothing runs
 schedule, so this reminds the agent, in every enrolled repo, to tell the user when it is
 overdue. A week matches the weekly cadence Dependabot version updates had.
 
-The stamp is written by update_deps.py when a fleet run finishes: one ISO 8601 timestamp with
+The stamp is written by `agent-rules ops update-deps` when a fleet run finishes: one ISO 8601 timestamp with
 a timezone. A missing or unreadable stamp reads as never run. A fresh one prints nothing.
 
 Standard library only: this file is synced standalone into `.claude/hooks/`, and runs in its
 own PEP 723 environment.
 
-A fix-up agent that update_deps.py launches sets AGENT_RULES_NO_STALENESS_NOTICE, so its report
+A fix-up agent that `agent-rules ops update-deps` launches sets AGENT_RULES_NO_STALENESS_NOTICE, so its report
 stays about the one bump.
 """
 
