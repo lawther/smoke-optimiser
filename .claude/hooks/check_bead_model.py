@@ -5,15 +5,17 @@
 # ///
 """PreToolUse(Bash) guard: keep each bead's `model:` label present, single and honoured.
 
-Every bead in this project carries exactly one `model:sonnet` or `model:opus` label
-recording which model the work was scoped for -- `model:sonnet` for mechanical work,
-`model:opus` for work that needs design decisions. This hook enforces that rule at the
-two points where it can be broken.
+Every bead in this project carries exactly one model label recording which model the
+work was scoped for: `model:haiku` for rote, fully specified work, `model:sonnet` for
+mechanical work that still needs some judgement, `model:opus` for work that needs design
+decisions. This hook enforces that rule at the two points where it can be broken.
 
 CREATE. `bd create` (and its `new` alias, and `bd q`) must produce exactly one model
-label. Labels are inherited from `--parent` unless `--no-inherit-labels` is passed, so
-the effective set is the explicit `--labels` plus the parent's -- which is why an
-explicit label that disagrees with an inherited one yields two, not an override.
+label, naming one of the families in `ModelFamily`. An unknown family -- a typo such as
+`model:haku` -- is denied here, because no agent could ever claim the bead it makes.
+Labels are inherited from `--parent` unless `--no-inherit-labels` is passed, so the
+effective set is the explicit `--labels` plus the parent's -- which is why an explicit
+label that disagrees with an inherited one yields two, not an override.
 
 CLAIM. `bd update <id> --claim` is the only atomic claim path, so the hook watches for
 that flag combination, reads each target's model label via `bd show`, and compares it
@@ -93,6 +95,7 @@ import json
 import re
 import subprocess
 import sys
+from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple
 
@@ -156,9 +159,20 @@ _BATCH_CREATE_FLAGS = frozenset({"-f", "--file", "--graph"})
 _LABEL_FLAGS = frozenset({"-l", "--labels"})
 _PARENT_FLAGS = frozenset({"--parent"})
 
+
+class ModelFamily(StrEnum):
+    """The model families a bead's `model:` label may name."""
+
+    HAIKU = "haiku"
+    SONNET = "sonnet"
+    OPUS = "opus"
+
+
 _HOW_TO_LABEL = (
-    "Every bead needs exactly one model label: `model:sonnet` for mechanical work, "
-    "`model:opus` for work needing design decisions. Add `-l model:<family>`."
+    "Every bead needs exactly one model label: `model:haiku` for rote, fully specified work "
+    "(the bead says exactly what to change and how to verify it), `model:sonnet` for mechanical "
+    "work that still needs some judgement, `model:opus` for work needing design decisions. "
+    "Add `-l model:<family>`."
 )
 
 
@@ -261,6 +275,10 @@ def create_commands(tokens: list[str]) -> list[CreateCommand]:
 def create_denial(create: CreateCommand) -> str | None:
     """Why this create must be blocked, or None if its model labelling is correct."""
     families = model_families(create.explicit_labels)
+    known = {str(family) for family in ModelFamily}
+    if unknown := families - known:
+        named = ", ".join(f"model:{family}" for family in sorted(unknown))
+        return f"Blocked: this `bd create` names unknown model family {named}. {_HOW_TO_LABEL}"
     inherited: set[str] = set()
     if create.parent_id and create.inherits_labels:
         parent_families = bead_model_labels([create.parent_id]).get(create.parent_id)
