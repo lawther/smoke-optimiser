@@ -25,16 +25,30 @@ which is strictly worse than an unlabelled bead: unlabelled fails open by design
 visibly, dual-labelled looks guarded while guarding nothing.
 
 No env var or hook input field exposes the active model directly, so it is read from
-the transcript instead: `transcript_path` (given in the hook payload) is a JSONL file
-where each assistant turn's `message.model` records what actually generated it. That
-is the model of record -- more reliable than anything the agent could self-report.
+the issuing agent's transcript instead: a JSONL file where each assistant turn's
+`message.model` records what actually generated it. That is the model of record -- more
+reliable than anything the agent could self-report. Which transcript depends on who
+issued the command. The payload's `transcript_path` is always the top-level session's,
+even for a command a subagent runs, so it is the right file only when the payload has
+no `agent_id`. Claude Code sets `agent_id` when, and only when, the hook fires inside a
+subagent, and that subagent's own transcript sits beside the session's:
+`<session>.jsonl` has its subagents at `<session>/subagents/agent-<agent_id>.jsonl`. A
+subagent's model is read from that file and never from the session's, because the
+session's model is the wrong answer for it, not a weaker one.
+
+A claim of a labelled bead whose issuing agent has no model on record is denied, not
+allowed. That is the ordinary state of a subagent whose first action is the claim: the
+assistant entry for the tool call being checked is not in the transcript when the hook
+runs, so until the agent has completed one tool call there is nothing to read. The
+denial tells the agent to make any other call first and retry, and the retry is then
+checked against the real model.
 
 A failure denies the command, which surfaces the reason to the agent so it stops and
 asks the user rather than proceeding. Everything else -- no model label on the bead at
-claim time, no resolvable transcript, a `bd show` failure, a batch create from a file
-or graph whose labels cannot be attributed per issue -- allows the command through:
-this is a policy nudge, not a safety boundary, and a false block costs more than an
-occasional unlabelled bead slipping past it.
+claim time, a `bd show` failure, a batch create from a file or graph whose labels cannot
+be attributed per issue -- allows the command through: this is a policy nudge, not a
+safety boundary, and a false block costs more than an occasional unlabelled bead
+slipping past it.
 
 `bd` DETECTION IS COMMAND-POSITION, NOT MEMBERSHIP. `create_commands()` and
 `claim_commands()` split the token stream on bare `&&`/`||`/`;`/`|`, treat a segment as
@@ -125,6 +139,10 @@ _hook_log = _load_hook_log()
 _MODEL_LABEL_RE = re.compile(r"^model:(?P<family>\w+)$")
 _MODEL_FAMILY_RE = re.compile(r"opus|sonnet|haiku|fable", re.IGNORECASE)
 _MODEL_SWITCH_RE = re.compile(r"<local-command-stdout>Set model to `(?P<model>[^`]*)`")
+# An agent_id becomes part of a file path, so only the characters Claude Code uses for it
+# are accepted; anything else could name a file outside the subagents directory.
+_AGENT_ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+_SUBAGENTS_DIR = "subagents"
 _BD_SHOW_TIMEOUT_SECS = 15
 
 # Subcommands of `bd` that mint a new issue. `new` is an alias of `create`; `q` is
@@ -152,6 +170,13 @@ class CreateCommand(NamedTuple):
     explicit_labels: list[str]
     parent_id: str
     inherits_labels: bool
+
+
+class IssuingAgent(NamedTuple):
+    """The agent that issued the command, and the transcript holding its model of record."""
+
+    description: str
+    transcript_path: str
 
 
 class Mismatch(NamedTuple):
@@ -332,6 +357,22 @@ def current_model_family(transcript_path: str) -> str | None:
     return None
 
 
+def issuing_agent(hook_input: dict) -> IssuingAgent:
+    """Who issued this command: the top-level session, or the subagent named by `agent_id`."""
+    session_transcript = hook_input.get("transcript_path") or ""
+    agent_id = hook_input.get("agent_id") or ""
+    if not agent_id:
+        return IssuingAgent(description="this session", transcript_path=session_transcript)
+    description = f"subagent {agent_id}"
+    if not session_transcript or not _AGENT_ID_RE.match(agent_id):
+        # No transcript can be named for this subagent. An empty path reads as "no model on
+        # record", which denies the claim -- the session's transcript is never substituted.
+        return IssuingAgent(description=description, transcript_path="")
+    session_dir = Path(session_transcript).with_suffix("")
+    subagent_transcript = session_dir / _SUBAGENTS_DIR / f"agent-{agent_id}.jsonl"
+    return IssuingAgent(description=description, transcript_path=str(subagent_transcript))
+
+
 def bead_model_labels(issue_ids: list[str]) -> dict[str, list[str]]:
     """Map of issue_id -> its model:<family> label values (e.g. ['opus']), missing if unknown."""
     try:
@@ -397,11 +438,21 @@ def main() -> None:
         )
         return
 
-    # An unlabelled bead is a deliberate fail-open (see module docstring), as is an
-    # unreadable transcript -- neither can be compared against, so neither blocks.
-    current_family = current_model_family(hook_input.get("transcript_path", ""))
-    if current_family is None:
+    # An unlabelled bead is a deliberate fail-open (see module docstring): with nothing to
+    # compare against, the issuing agent's model is not even looked up.
+    if not any(labels_by_id.get(issue_id) for issue_id in issue_ids):
         allow()
+        return
+
+    agent = issuing_agent(hook_input)
+    current_family = current_model_family(agent.transcript_path)
+    if current_family is None:
+        deny(
+            f"Blocked: the model of {agent.description} is not on record yet, so this claim cannot be "
+            "checked against the bead's model label. A model is recorded once the agent has completed "
+            "a tool call. Make any other call first (for example `bd show "
+            f"{issue_ids[0]}`), then retry the claim."
+        )
         return
 
     mismatches = [
@@ -415,8 +466,9 @@ def main() -> None:
 
     details = "; ".join(f"{m.issue_id} wants {'/'.join(m.wanted_families)}" for m in mismatches)
     deny(
-        f"Blocked: this session is running on '{current_family}', but {details}. Stop and ask "
-        "the user whether to switch model, reassign the bead's model label, or claim it anyway."
+        f"Blocked: {agent.description} is running on '{current_family}', but {details}. Stop and ask "
+        "the user whether to switch model, delegate the bead to an agent on the wanted model, "
+        "reassign the bead's model label, or claim it anyway."
     )
 
 

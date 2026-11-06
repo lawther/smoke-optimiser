@@ -26,7 +26,7 @@
         {
           "executable": true,
           "path": ".claude/hooks/check_bead_model.py",
-          "sha256": "8aa0504d2362357bfbcfca9bd750ac02240ed657368f7c383a255808aac63028"
+          "sha256": "0e07c14203127c83731d3619b2ce33f127cb2c2f5ab583be6499cda37374cf6d"
         },
         {
           "executable": true,
@@ -96,7 +96,7 @@
           "matcher": ""
         }
       ],
-      "source": "agent_rules@d772b4f"
+      "source": "agent_rules@53e83a3-dirty"
     },
     "core": {
       "blocks": [
