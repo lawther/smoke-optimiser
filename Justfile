@@ -84,7 +84,7 @@ test-cov:
 
 # Run formatting, linting and tests (quiet on success, shows errors on failure)
 # This Justfile is the Single Source Of Truth (SSOT) for all pre-commit checks.
-precommit:
+precommit: precommit-fleet
     #!/usr/bin/env bash
     if [[ "$(git config core.hooksPath 2>/dev/null)" != ".githooks" ]]; then
         echo "Git hooks not configured — installing now..."
