@@ -220,24 +220,24 @@
           "begin": "<!-- BEGIN FLEET RULES -->",
           "end": "<!-- END FLEET RULES -->",
           "path": "GEMINI.md",
-          "sha256": "9dfafc532a0ec3ab98b21fb4e884a9cef3b91149712d02706c8f2549520c4166"
+          "sha256": "cbffc3a0a1d882c4d6f4e91d76873f7d0e1114a844a99cc821b13ea381a46947"
         },
         {
           "begin": "# BEGIN FLEET RECIPES (RULES)",
           "end": "# END FLEET RECIPES (RULES)",
           "path": "Justfile",
-          "sha256": "ffcbe1c080ec1ece978a64811fbd8c48fe6a370a179f2b1a628e3ef0b787ccb1"
+          "sha256": "b306c72a907a8bc38d08c50a641a12c24034c19b437f7c460b1db7abd46a402b"
         }
       ],
       "files": [
         {
           "executable": true,
           "path": ".fleet/rules/check_beads_block.py",
-          "sha256": "6c1ae6b9e93484bb1c0598f3cc5d9c8d0a09c8476bc5244897f3f1d65ef6b262"
+          "sha256": "5b27ffa40c5281971d17075232462b9f673339a40bf824017afefd93dc4edf8a"
         }
       ],
       "registrations": [],
-      "source": "agent_rules@131e5d2"
+      "source": "fleet@078af69-dirty"
     },
     "scripts": {
       "blocks": [

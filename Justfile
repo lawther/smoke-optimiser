@@ -231,8 +231,8 @@ fleet-gate-github: lint-workflows
 # END FLEET RECIPES (GITHUB)
 
 # BEGIN FLEET RECIPES (RULES)
-# Generated from agent_rules payload/rules/recipes.just. Do not edit inside this block:
-#      edit it there, then run `just sync` in agent_rules.
+# Generated from fleet payload/rules/recipes.just. Do not edit inside this block:
+#      edit it there, then run `just sync` in fleet.
 
 # Fail if a generated Beads integration block has reappeared in the repo's root markdown.
 fleet-gate-rules:
