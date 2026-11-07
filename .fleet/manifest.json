@@ -46,7 +46,7 @@
         {
           "executable": true,
           "path": ".fleet/claude_hooks/update_deps_staleness.py",
-          "sha256": "16bece915c5def973734bef55f68a8ee393fc4e65bd911a5c23c5bb98a2765bc"
+          "sha256": "eaefc5fe93d9c0be6d8a9380f144b9a8dfadcd62f6f5c868d21cb4a74827e79b"
         },
         {
           "executable": true,
@@ -96,7 +96,7 @@
           "matcher": ""
         }
       ],
-      "source": "agent_rules@c1fa7f7"
+      "source": "agent_rules@7869efd-dirty"
     },
     "core": {
       "blocks": [

@@ -5,9 +5,9 @@
 # requires-python = ">=3.13"
 # dependencies = []
 # ///
-"""SessionStart: say so when `just update-deps-fleet` has not finished for a week.
+"""SessionStart: say so when `just update-deps` in agent_rules has not finished for a week.
 
-update-deps-fleet in agent_rules is the only thing that brings routine dependency upgrades, and
+`just update-deps` in agent_rules is the only thing that brings routine dependency upgrades, and
 the only way patched Docker base images and Rust toolchains arrive. Nothing runs it on a
 schedule, so this reminds the agent, in every enrolled repo, to tell the user when it is
 overdue. A week matches the weekly cadence Dependabot version updates had.
@@ -70,7 +70,7 @@ def message(reading: Reading) -> str:
         else f"last finished {reading.age.days} days ago"
     )
     return (
-        f"Dependency upkeep is overdue: `just update-deps-fleet` in agent_rules {when}. It brings "
+        f"Dependency upkeep is overdue: `just update-deps` in agent_rules {when}. It brings "
         "every routine dependency upgrade and the only patched Docker base images and Rust "
         "toolchains. Tell the user this at the start of your reply, and suggest they run it."
     )
