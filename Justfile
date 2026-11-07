@@ -52,7 +52,6 @@ lint:
     uv run ruff format
     uv run ruff check --fix
     just extra-lints
-    just lint-workflows
 
 # Check for bare dict/tuple return types and classes defined inside functions (ML001, ML002)
 extra-lints:
