@@ -174,16 +174,16 @@
         {
           "executable": true,
           "path": ".fleet/github/check_actions_pinned.py",
-          "sha256": "ed9d40f2f011f1caf84aae89a9a436e98f1557027d6ef58b6dc306fa2704f3ba"
+          "sha256": "785de7c479380ad26b2216999fa3910180623deb951abd6d804f1aeac09b88a1"
         },
         {
           "executable": true,
           "path": ".fleet/github/check_dependabot_security.py",
-          "sha256": "507711b0467d3e3abf447378be16465871b010313931bdf6f4af496be46bd26d"
+          "sha256": "f2db4ac2f16769115856b3d3feb6efd2548daaee15e284c64f92daf8a3446716"
         }
       ],
       "registrations": [],
-      "source": "agent_rules@20dd6a2-dirty"
+      "source": "agent_rules@32ba131-dirty"
     },
     "lint": {
       "blocks": [
