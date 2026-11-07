@@ -228,3 +228,13 @@ lint-workflows:
     exit "$status"
 
 # END FLEET RECIPES (GITHUB)
+
+# BEGIN FLEET RECIPES (RULES)
+# Generated from agent_rules payload/rules/recipes.just. Do not edit inside this block:
+#      edit it there, then run `just sync` in agent_rules.
+
+# Fail if a generated Beads integration block has reappeared in the repo's root markdown.
+fleet-gate-rules:
+    @uv run --script .fleet/rules/check_beads_block.py
+
+# END FLEET RECIPES (RULES)

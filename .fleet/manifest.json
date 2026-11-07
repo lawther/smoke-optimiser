@@ -183,11 +183,23 @@
           "end": "<!-- END FLEET RULES -->",
           "path": "GEMINI.md",
           "sha256": "9dfafc532a0ec3ab98b21fb4e884a9cef3b91149712d02706c8f2549520c4166"
+        },
+        {
+          "begin": "# BEGIN FLEET RECIPES (RULES)",
+          "end": "# END FLEET RECIPES (RULES)",
+          "path": "Justfile",
+          "sha256": "ffcbe1c080ec1ece978a64811fbd8c48fe6a370a179f2b1a628e3ef0b787ccb1"
         }
       ],
-      "files": [],
+      "files": [
+        {
+          "executable": true,
+          "path": ".fleet/rules/check_beads_block.py",
+          "sha256": "6c1ae6b9e93484bb1c0598f3cc5d9c8d0a09c8476bc5244897f3f1d65ef6b262"
+        }
+      ],
       "registrations": [],
-      "source": "agent_rules@c1fa7f7"
+      "source": "agent_rules@20dd6a2-dirty"
     },
     "scripts": {
       "blocks": [
