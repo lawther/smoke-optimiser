@@ -134,8 +134,8 @@ check-ai-readiness *args:
 # END FLEET RECIPES (SCRIPTS)
 
 # BEGIN FLEET RECIPES (SMOKE)
-# Generated from agent_rules payload/smoke/recipes.just. Do not edit inside this block:
-#      edit it there, then run `just sync` in agent_rules.
+# Generated from fleet payload/smoke/recipes.just. Do not edit inside this block:
+#      edit it there, then run `just sync` in fleet.
 
 # Run every test downwind of the working-tree diff; full suite when it cannot tell.
 downwind:

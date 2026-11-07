@@ -264,12 +264,12 @@
           "begin": "# BEGIN FLEET RECIPES (SMOKE)",
           "end": "# END FLEET RECIPES (SMOKE)",
           "path": "Justfile",
-          "sha256": "ccabf028ae546d9741071a7f1a6242b0b0adb40f3db1fb0d1aebea61d00b8d57"
+          "sha256": "8f67778ee449c0d985fa8b8f54bf3d4faf923259b60612cbd75deb9176f53186"
         }
       ],
       "files": [],
       "registrations": [],
-      "source": "agent_rules@f921519"
+      "source": "fleet@078af69"
     }
   },
   "schema": 1
