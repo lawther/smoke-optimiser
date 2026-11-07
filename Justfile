@@ -23,27 +23,6 @@ fleet-gate-core:
     @uv run --script .fleet/core/check_recipes_wired.py
     @uv run --script .fleet/core/fleet_config.py
 
-# Land this repo's open Dependabot PRs on main, one tested commit per PR. Never pushes.
-apply-dependabot *args:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    if [[ ! -x ../agent_rules/apply_dependabot.py ]]; then
-        echo "error: ../agent_rules/apply_dependabot.py not found -- clone the agent_rules repo as a sibling" >&2
-        exit 2
-    fi
-    ../agent_rules/run_shared_script.py --check-failed-exit 3 -- ../agent_rules/apply_dependabot.py . {{args}}
-
-# Apply this repo's Dependabot security fixes, then upgrade every other dependency locally,
-# one tested commit each. Never pushes.
-update-deps *args:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    if [[ ! -x ../agent_rules/update_deps.py ]]; then
-        echo "error: ../agent_rules/update_deps.py not found -- clone the agent_rules repo as a sibling" >&2
-        exit 2
-    fi
-    ../agent_rules/run_shared_script.py --check-failed-exit 3 -- ../agent_rules/update_deps.py . {{args}}
-
 # END FLEET RECIPES (CORE)
 
 # The runner the shared ai_readiness recipes call; declared in agent_rules/repos.toml.
