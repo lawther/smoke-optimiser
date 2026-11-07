@@ -11,9 +11,17 @@ default:
 check-fleet:
     @uv run --script .fleet/core/check_integrity.py
 
-# Every check the fleet requires of this repo. This repo's own precommit depends on it, so a
-# check added here reaches every repo's gate with the next sync.
-precommit-fleet: check-fleet
+# sync writes the gate list into the next line, so it differs between repos. This repo's own
+# precommit depends on it, so a check added to a family reaches the gate of every repo that
+# carries the family with the next sync.
+#
+# Run every check the fleet requires of this repo: the integrity check and each family's gate.
+precommit-fleet: check-fleet fleet-gate-core fleet-gate-rules fleet-gate-lint fleet-gate-github
+
+# Fail if the repo's precommit skips precommit-fleet, its CI lacks uv, or its fleet.toml is invalid.
+fleet-gate-core:
+    @uv run --script .fleet/core/check_recipes_wired.py
+    @uv run --script .fleet/core/fleet_config.py
 
 # Land this repo's open Dependabot PRs on main, one tested commit per PR. Never pushes.
 apply-dependabot *args:
@@ -227,6 +235,13 @@ lint-workflows:
     fi
     exit "$status"
 
+# Exemptions from these checks are the repo's own, in its fleet.toml.
+#
+# Fail if a workflow fails zizmor, an action is not pinned to a commit SHA, or dependabot.yml can open version updates.
+fleet-gate-github: lint-workflows
+    @uv run --script .fleet/github/check_actions_pinned.py
+    @uv run --script .fleet/github/check_dependabot_security.py
+
 # END FLEET RECIPES (GITHUB)
 
 # BEGIN FLEET RECIPES (RULES)
@@ -238,3 +253,13 @@ fleet-gate-rules:
     @uv run --script .fleet/rules/check_beads_block.py
 
 # END FLEET RECIPES (RULES)
+
+# BEGIN FLEET RECIPES (LINT)
+# Generated from agent_rules payload/lint/recipes.just. Do not edit inside this block:
+#      edit it there, then run `just sync` in agent_rules.
+
+# Fail if the repo's ruff config does not extend the shared one, or pyproject.toml carries a table the delivered config overrides.
+fleet-gate-lint:
+    @uv run --script .fleet/lint/check_lint_config.py
+
+# END FLEET RECIPES (LINT)

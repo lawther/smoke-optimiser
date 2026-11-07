@@ -104,7 +104,7 @@
           "begin": "# BEGIN FLEET RECIPES (CORE)",
           "end": "# END FLEET RECIPES (CORE)",
           "path": "Justfile",
-          "sha256": "41320c9c5c903803146fe792a130e7de0333ab72dc8e665230b347becf0725fa"
+          "sha256": "355beacff2c523b550a68397ed9a5d583e028f0233f93c957f0877cd317ba9e1"
         }
       ],
       "files": [
@@ -112,10 +112,20 @@
           "executable": false,
           "path": ".fleet/core/check_integrity.py",
           "sha256": "9aa9f03137b5ee2ed440cdf1240789f0441d6e183068a37c897263716526d911"
+        },
+        {
+          "executable": true,
+          "path": ".fleet/core/check_recipes_wired.py",
+          "sha256": "792ba58a304b849f676c008087d250e175ed81e319ee2b29e9441637e29938ff"
+        },
+        {
+          "executable": true,
+          "path": ".fleet/core/fleet_config.py",
+          "sha256": "78d190d3c2d3a23bde7eebf428c2771e08c1a9bc2946729e86baa367e9d1de9b"
         }
       ],
       "registrations": [],
-      "source": "agent_rules@b2076f1"
+      "source": "agent_rules@20dd6a2-dirty"
     },
     "git_hooks": {
       "blocks": [
@@ -152,16 +162,44 @@
           "begin": "# BEGIN FLEET RECIPES (GITHUB)",
           "end": "# END FLEET RECIPES (GITHUB)",
           "path": "Justfile",
-          "sha256": "1c0d55bb2197e0684ae648b1bad50da55b9bba3bd780828de26f627a22c4fd00"
+          "sha256": "9ae911590cb4848bfa5dc9c49ce54a6065d7a625271cfb45ef3ede36408a5764"
         }
       ],
-      "files": [],
+      "files": [
+        {
+          "executable": false,
+          "path": ".fleet/github/actions_refs.py",
+          "sha256": "66b74bd9d50634ae819335ab37a049e5c91f413ed9d88514b574eb5c156acb9f"
+        },
+        {
+          "executable": true,
+          "path": ".fleet/github/check_actions_pinned.py",
+          "sha256": "ed9d40f2f011f1caf84aae89a9a436e98f1557027d6ef58b6dc306fa2704f3ba"
+        },
+        {
+          "executable": true,
+          "path": ".fleet/github/check_dependabot_security.py",
+          "sha256": "507711b0467d3e3abf447378be16465871b010313931bdf6f4af496be46bd26d"
+        }
+      ],
       "registrations": [],
-      "source": "agent_rules@f921519"
+      "source": "agent_rules@20dd6a2-dirty"
     },
     "lint": {
-      "blocks": [],
+      "blocks": [
+        {
+          "begin": "# BEGIN FLEET RECIPES (LINT)",
+          "end": "# END FLEET RECIPES (LINT)",
+          "path": "Justfile",
+          "sha256": "d5d56f51b0c2287929f8b9c710159d24343f5e5b3eb10f549966b4ebb48b2a1b"
+        }
+      ],
       "files": [
+        {
+          "executable": true,
+          "path": ".fleet/lint/check_lint_config.py",
+          "sha256": "87c87baa1da32fce6c340d8e7fdcc450a0cfb8155c4a7e9f6b7d8f6c67fa1eb0"
+        },
         {
           "executable": false,
           "path": "ruff_shared.toml",
@@ -174,7 +212,7 @@
         }
       ],
       "registrations": [],
-      "source": "agent_rules@1e2a380"
+      "source": "agent_rules@20dd6a2-dirty"
     },
     "rules": {
       "blocks": [
