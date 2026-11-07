@@ -8,7 +8,7 @@
             "type": "command"
           },
           {
-            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/update_deps_staleness.py",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.fleet/claude_hooks/update_deps_staleness.py",
             "type": "command"
           }
         ],
@@ -20,22 +20,22 @@
         "matcher": "Bash",
         "hooks": [
           {
-            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/block-override-flags.sh",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.fleet/claude_hooks/block-override-flags.sh",
             "type": "command",
             "statusMessage": "Checking for override flags..."
           },
           {
-            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/check_bead_model.py",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.fleet/claude_hooks/check_bead_model.py",
             "type": "command",
             "statusMessage": "Checking bead model label..."
           },
           {
-            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/validate_dep_type.py",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.fleet/claude_hooks/validate_dep_type.py",
             "type": "command",
             "statusMessage": "Checking dependency type..."
           },
           {
-            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/require_npm_deps.py",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.fleet/claude_hooks/require_npm_deps.py",
             "type": "command",
             "statusMessage": "Checking npm tooling runs after _npm-deps..."
           }
@@ -45,12 +45,12 @@
         "matcher": "Bash|Write|Edit",
         "hooks": [
           {
-            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/check_diary_prose.py",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.fleet/claude_hooks/check_diary_prose.py",
             "type": "command",
             "statusMessage": "Checking for diary prose..."
           },
           {
-            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/check_no_em_dash.py",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.fleet/claude_hooks/check_no_em_dash.py",
             "type": "command",
             "statusMessage": "Checking for em dashes..."
           }
