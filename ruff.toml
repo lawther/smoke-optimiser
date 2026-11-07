@@ -12,6 +12,3 @@ extend-select = ["EM101", "EM102", "TRY003"]
 "tests/*" = [
     "S101", # assert: allow use of assert statements in test files
 ]
-# agent_rules' own script, deployed verbatim fleet-wide -- not smoke-optimiser's code, so
-# not held to the stricter bar above.
-"shared_scripts/analyse_ai_readiness.py" = ["EM101", "TRY003"]
