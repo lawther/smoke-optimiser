@@ -245,18 +245,18 @@
           "begin": "# BEGIN FLEET RECIPES (SCRIPTS)",
           "end": "# END FLEET RECIPES (SCRIPTS)",
           "path": "Justfile",
-          "sha256": "4de582b0e5b5e0bb4566b501e803ddd055a49ac63a1d95abb6b8e9b8963788e6"
+          "sha256": "8cbbdd047c9e025446e55b53906e30176f77a270b6c4ed26ba565dd3b5d9d870"
         }
       ],
       "files": [
         {
           "executable": false,
           "path": ".fleet/scripts/analyse_ai_readiness.py",
-          "sha256": "7a22d4597be139346302d5fe0b1cb114c4cce03bd5326d36bcacec2167c8ee13"
+          "sha256": "b51ca8b34c4815e00d6c65846abae7d341956cc76db298a560ccac0dfc668d81"
         }
       ],
       "registrations": [],
-      "source": "agent_rules@73de815"
+      "source": "fleet@078af69"
     },
     "smoke": {
       "blocks": [

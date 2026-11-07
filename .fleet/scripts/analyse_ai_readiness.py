@@ -1,5 +1,5 @@
-# Fleet-managed copy of agent_rules payload/scripts/analyse_ai_readiness.py. Do not edit it here:
-#      edit it there, then run `just sync` in agent_rules.
+# Fleet-managed copy of fleet payload/scripts/analyse_ai_readiness.py. Do not edit it here:
+#      edit it there, then run `just sync` in fleet.
 # /// script
 # requires-python = ">=3.12"
 # dependencies = [

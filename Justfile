@@ -120,8 +120,8 @@ setup-dev:
     @echo "✅ Development environment setup complete!"
 
 # BEGIN FLEET RECIPES (SCRIPTS)
-# Generated from agent_rules payload/scripts/recipes.just. Do not edit inside this block:
-#      edit it there, then run `just sync` in agent_rules.
+# Generated from fleet payload/scripts/recipes.just. Do not edit inside this block:
+#      edit it there, then run `just sync` in fleet.
 
 # Analyse project source files to evaluate AI agent readiness
 analyse-ai-readiness *args:
