@@ -48,7 +48,7 @@
   `bd update <id> --claim` when you start.
 - Run `bd prime` when you need the command reference or the session-close protocol; only
   this repo's `bd remember` memories are injected automatically at session start (see
-  `payload/claude_hooks/hooks.toml` in agent_rules, `[commands.bd-prime]`, for why).
+  `payload/claude_hooks/family.toml` in agent_rules, `[commands.bd-prime]`, for why).
 - Use `bd remember` for knowledge that should outlive the session. Do not create MEMORY.md
   or similar files.
 - An issue's title, description, design, notes and acceptance criteria obey *What You

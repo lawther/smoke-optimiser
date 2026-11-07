@@ -5,88 +5,88 @@
       "files": [
         {
           "executable": true,
-          "path": ".claude/hooks/_hook_log.py",
-          "sha256": "1c46fc08b8d1701d6762a4d0c05fdb0261d503f4d5cecd1fdc0f51805f707df2"
+          "path": ".fleet/claude_hooks/_hook_log.py",
+          "sha256": "6c2ecfa0c057d5477579f901f33c72cda9d454ccdd5ed18f4c3cf4136a7825e4"
         },
         {
           "executable": true,
-          "path": ".claude/hooks/_shell_tokenise.py",
-          "sha256": "a7dbdfc748afece8b561b32f3d038948404501ee2b19bb679e4eb61afa87991d"
+          "path": ".fleet/claude_hooks/_shell_tokenise.py",
+          "sha256": "9017df4b4f839b26b1eb6e2372ef6812c1351c7d58a74846b4f34aacdb77e806"
         },
         {
           "executable": true,
-          "path": ".claude/hooks/block-override-flags.sh",
-          "sha256": "2a27e3ff623ba0d482447e5749e669c4874a3c53411dd1d0fec438a1a4968b19"
+          "path": ".fleet/claude_hooks/block-override-flags.sh",
+          "sha256": "3bcdce66284cfa5376733aa42d43915a5737f20dd6ad810d9ecb9d91dd9e5be8"
         },
         {
           "executable": true,
-          "path": ".claude/hooks/block_override_flags.py",
-          "sha256": "c6e950c5a2254a072ac7e6e41e5d66f51349435f302e8a17fcc0b598c9e57d87"
+          "path": ".fleet/claude_hooks/block_override_flags.py",
+          "sha256": "e4add0a17f883dad324f80f6856dd2638f3a252cc5cd8d43d88bb8f80393a52b"
         },
         {
           "executable": true,
-          "path": ".claude/hooks/check_bead_model.py",
-          "sha256": "d8d745ccd40dc393a2fc074dc344e3a7ad89548177076ff1f3c627b263833afe"
+          "path": ".fleet/claude_hooks/check_bead_model.py",
+          "sha256": "1d767705cd75e21754e082d900a687567facae342ffd7514797349b769b0ebee"
         },
         {
           "executable": true,
-          "path": ".claude/hooks/check_diary_prose.py",
-          "sha256": "2f4d2e09be55095722d05efbae404bc3e3b44f50154bebeecde0edc0fe0afdf9"
+          "path": ".fleet/claude_hooks/check_diary_prose.py",
+          "sha256": "afa7d15a55aba4ab219ba9bce8765a188a4f61bb353a966a728a34960e7ada37"
         },
         {
           "executable": true,
-          "path": ".claude/hooks/check_no_em_dash.py",
-          "sha256": "4294776cd9ec9006b0c60b7879460e967ef66f10e12f3622831c0d401a2f128d"
+          "path": ".fleet/claude_hooks/check_no_em_dash.py",
+          "sha256": "fcbba11ce9b230fa2bb4b01a50db4ac2d912d1bf219c3fea45a5eab1684ca363"
         },
         {
           "executable": true,
-          "path": ".claude/hooks/require_npm_deps.py",
-          "sha256": "fab1143a44afa8b1e6a3365192b7b5bf57d1816e53768007964ea5500a6c4ca6"
+          "path": ".fleet/claude_hooks/require_npm_deps.py",
+          "sha256": "92fd829201365c41b80532398513fb082f8ed1c6052f7bc63f3367f6334aee6f"
         },
         {
           "executable": true,
-          "path": ".claude/hooks/update_deps_staleness.py",
-          "sha256": "6361d4525539f04c90c0c045648ed1d404fb54d39d56a96b224aa6a798070948"
+          "path": ".fleet/claude_hooks/update_deps_staleness.py",
+          "sha256": "16bece915c5def973734bef55f68a8ee393fc4e65bd911a5c23c5bb98a2765bc"
         },
         {
           "executable": true,
-          "path": ".claude/hooks/validate_dep_type.py",
-          "sha256": "6063fc917d39fbeed920ab93fd1498460196a460790658055d3f959a3cee8f1e"
+          "path": ".fleet/claude_hooks/validate_dep_type.py",
+          "sha256": "e71abec5f08b854d96601738603d9705f216f5b2188a295eb35bb3de0182187c"
         }
       ],
       "registrations": [
         {
-          "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/block-override-flags.sh",
+          "command": "\"$CLAUDE_PROJECT_DIR\"/.fleet/claude_hooks/block-override-flags.sh",
           "event": "PreToolUse",
           "matcher": "Bash"
         },
         {
-          "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/check_bead_model.py",
+          "command": "\"$CLAUDE_PROJECT_DIR\"/.fleet/claude_hooks/check_bead_model.py",
           "event": "PreToolUse",
           "matcher": "Bash"
         },
         {
-          "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/require_npm_deps.py",
+          "command": "\"$CLAUDE_PROJECT_DIR\"/.fleet/claude_hooks/require_npm_deps.py",
           "event": "PreToolUse",
           "matcher": "Bash"
         },
         {
-          "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/validate_dep_type.py",
+          "command": "\"$CLAUDE_PROJECT_DIR\"/.fleet/claude_hooks/validate_dep_type.py",
           "event": "PreToolUse",
           "matcher": "Bash"
         },
         {
-          "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/check_diary_prose.py",
+          "command": "\"$CLAUDE_PROJECT_DIR\"/.fleet/claude_hooks/check_diary_prose.py",
           "event": "PreToolUse",
           "matcher": "Bash|Write|Edit"
         },
         {
-          "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/check_no_em_dash.py",
+          "command": "\"$CLAUDE_PROJECT_DIR\"/.fleet/claude_hooks/check_no_em_dash.py",
           "event": "PreToolUse",
           "matcher": "Bash|Write|Edit"
         },
         {
-          "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/update_deps_staleness.py",
+          "command": "\"$CLAUDE_PROJECT_DIR\"/.fleet/claude_hooks/update_deps_staleness.py",
           "event": "SessionStart",
           "matcher": ""
         },
@@ -96,7 +96,7 @@
           "matcher": ""
         }
       ],
-      "source": "agent_rules@3290259"
+      "source": "agent_rules@b2076f1-dirty"
     },
     "core": {
       "blocks": [
@@ -111,11 +111,11 @@
         {
           "executable": false,
           "path": ".fleet/core/check_integrity.py",
-          "sha256": "a8c082e5e07ddd3c62834282fd74254ec40c7b3dc1c05f967f327cbb008db83a"
+          "sha256": "9aa9f03137b5ee2ed440cdf1240789f0441d6e183068a37c897263716526d911"
         }
       ],
       "registrations": [],
-      "source": "agent_rules@df73fca"
+      "source": "agent_rules@b2076f1"
     },
     "git_hooks": {
       "blocks": [
@@ -123,28 +123,28 @@
           "begin": "# BEGIN FLEET RECIPES (GIT_HOOKS)",
           "end": "# END FLEET RECIPES (GIT_HOOKS)",
           "path": "Justfile",
-          "sha256": "d4cd6048c00eae8d8a33b1e128bc2888c78fbae22e138ba70850ba7277ab8376"
+          "sha256": "ad344e7e4ecdcbcd2d08d093059c9a2201d4a48686848f5019badc434627f56d"
         }
       ],
       "files": [
         {
           "executable": true,
-          "path": ".githooks/pre-commit",
-          "sha256": "39271d6b02cb3d5599b1b3fd2611dc82f9d89e42109ffe57221060a5a53728dc"
+          "path": ".fleet/git_hooks/pre-commit",
+          "sha256": "df8c92c392a23d555523ac7288140cf64ea584c6f02529b024af5a211c8c97aa"
         },
         {
           "executable": true,
-          "path": ".githooks/pre-merge-commit",
-          "sha256": "e21f3ba66b4b0326e48b5574c4d9c04f9aae9fed28ba770f5c49c4fa43ee041c"
+          "path": ".fleet/git_hooks/pre-merge-commit",
+          "sha256": "81e5493e28d8e253698ea1542e23f5f6ca1a26af5c94647c795db228e9ccbb8b"
         },
         {
           "executable": true,
-          "path": ".githooks/pre-push",
-          "sha256": "c476f508d17996295bf79f57815c579b34b7110525ec9b664097a6ceae5b3a5c"
+          "path": ".fleet/git_hooks/pre-push",
+          "sha256": "05ee2fc6c88c5b3f53863d4d38d6c2a46222d0f4bd86922a61305409255110d3"
         }
       ],
       "registrations": [],
-      "source": "agent_rules@45ce523"
+      "source": "agent_rules@b2076f1-dirty"
     },
     "github": {
       "blocks": [
@@ -165,16 +165,16 @@
         {
           "executable": false,
           "path": "ruff_shared.toml",
-          "sha256": "89e2c93e4e35e77d4120be32af7eaa40b749db25e156871735c8315b33f909f5"
+          "sha256": "dfb462dce7485e0c6ccc922d5239500212289d676d7f315714be61430156dc5d"
         },
         {
           "executable": false,
           "path": "ty.toml",
-          "sha256": "4940289fbe5b404418baf0d4146ef5fc936d96e48afd4f16a2fb1ca33786d65f"
+          "sha256": "355d734ecd7803a738bcdfead4111fb4c93c289a2c54dd76473e54c2f0182f3a"
         }
       ],
       "registrations": [],
-      "source": "agent_rules@45ce523"
+      "source": "agent_rules@b2076f1-dirty"
     },
     "rules": {
       "blocks": [
@@ -182,12 +182,12 @@
           "begin": "<!-- BEGIN FLEET RULES -->",
           "end": "<!-- END FLEET RULES -->",
           "path": "GEMINI.md",
-          "sha256": "e8e336955d46162ea4f2ccba6620aeaa953c5aa735c836aaa302410dd34fa821"
+          "sha256": "9dfafc532a0ec3ab98b21fb4e884a9cef3b91149712d02706c8f2549520c4166"
         }
       ],
       "files": [],
       "registrations": [],
-      "source": "agent_rules@d772b4f"
+      "source": "agent_rules@c1fa7f7"
     },
     "scripts": {
       "blocks": [
@@ -195,18 +195,18 @@
           "begin": "# BEGIN FLEET RECIPES (SCRIPTS)",
           "end": "# END FLEET RECIPES (SCRIPTS)",
           "path": "Justfile",
-          "sha256": "38a429142025aa7a1d2fd0802786adf604e4ef2bac980a59990a1fa680697042"
+          "sha256": "4de582b0e5b5e0bb4566b501e803ddd055a49ac63a1d95abb6b8e9b8963788e6"
         }
       ],
       "files": [
         {
           "executable": false,
-          "path": "shared_scripts/analyse_ai_readiness.py",
-          "sha256": "bda93e1bcdbac7c5e5bdb484fbe346f1e9a31826a7b2ec943eb4928580ea4fcb"
+          "path": ".fleet/scripts/analyse_ai_readiness.py",
+          "sha256": "7a22d4597be139346302d5fe0b1cb114c4cce03bd5326d36bcacec2167c8ee13"
         }
       ],
       "registrations": [],
-      "source": "agent_rules@f1bdeab"
+      "source": "agent_rules@b2076f1-dirty"
     },
     "smoke": {
       "blocks": [
