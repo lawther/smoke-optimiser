@@ -1,3 +1,5 @@
+# Fleet-managed copy of agent_rules payload/core/check_integrity.py. Do not edit it here:
+#      edit it there, then run `just sync` in agent_rules.
 # /// script
 # requires-python = ">=3.12"
 # dependencies = [
