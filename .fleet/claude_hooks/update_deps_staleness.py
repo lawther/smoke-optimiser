@@ -1,24 +1,24 @@
 #!/usr/bin/env -S uv run --script
-# Fleet-managed copy of agent_rules payload/claude_hooks/update_deps_staleness.py. Do not edit it here:
-#      edit it there, then run `just sync` in agent_rules.
+# Fleet-managed copy of fleet payload/claude_hooks/update_deps_staleness.py. Do not edit it here:
+#      edit it there, then run `just sync` in fleet.
 # /// script
 # requires-python = ">=3.13"
 # dependencies = []
 # ///
-"""SessionStart: say so when `just update-deps` in agent_rules has not finished for a week.
+"""SessionStart: say so when `just update-deps` in fleet has not finished for a week.
 
-`just update-deps` in agent_rules is the only thing that brings routine dependency upgrades, and
+`just update-deps` in fleet is the only thing that brings routine dependency upgrades, and
 the only way patched Docker base images and Rust toolchains arrive. Nothing runs it on a
 schedule, so this reminds the agent, in every enrolled repo, to tell the user when it is
 overdue. A week matches the weekly cadence Dependabot version updates had.
 
-The stamp is written by `agent-rules ops update-deps` when a fleet run finishes: one ISO 8601 timestamp with
+The stamp is written by `fleet ops update-deps` when a fleet run finishes: one ISO 8601 timestamp with
 a timezone. A missing or unreadable stamp reads as never run. A fresh one prints nothing.
 
 Standard library only: this file is synced standalone into `.fleet/claude_hooks/`, and runs in its
 own PEP 723 environment.
 
-A fix-up agent that `agent-rules ops update-deps` launches sets AGENT_RULES_NO_STALENESS_NOTICE, so its report
+A fix-up agent that `fleet ops update-deps` launches sets FLEET_NO_STALENESS_NOTICE, so its report
 stays about the one bump.
 """
 
@@ -32,8 +32,8 @@ import sys
 from pathlib import Path
 from typing import NamedTuple
 
-QUIET_ENV = "AGENT_RULES_NO_STALENESS_NOTICE"
-STAMP = Path.home() / ".agent_rules" / "update-deps" / "last-run"
+QUIET_ENV = "FLEET_NO_STALENESS_NOTICE"
+STAMP = Path.home() / ".fleet" / "update-deps" / "last-run"
 STALE_AFTER = dt.timedelta(weeks=1)
 
 
@@ -70,7 +70,7 @@ def message(reading: Reading) -> str:
         else f"last finished {reading.age.days} days ago"
     )
     return (
-        f"Dependency upkeep is overdue: `just update-deps` in agent_rules {when}. It brings "
+        f"Dependency upkeep is overdue: `just update-deps` in fleet {when}. It brings "
         "every routine dependency upgrade and the only patched Docker base images and Rust "
         "toolchains. Tell the user this at the start of your reply, and suggest they run it."
     )

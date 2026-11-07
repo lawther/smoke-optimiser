@@ -1,6 +1,6 @@
 #!/usr/bin/env -S uv run --script
-# Fleet-managed copy of agent_rules payload/claude_hooks/check_bead_model.py. Do not edit it here:
-#      edit it there, then run `just sync` in agent_rules.
+# Fleet-managed copy of fleet payload/claude_hooks/check_bead_model.py. Do not edit it here:
+#      edit it there, then run `just sync` in fleet.
 # /// script
 # requires-python = ">=3.13"
 # dependencies = []
@@ -48,7 +48,7 @@ background launch writes a `toolUseResult` carrying the subagent's `agentId` and
 frontmatter and the configured subagent default) before the subagent starts. The
 launch record is read only when the subagent's own transcript has no model, and only
 the entry naming this `agent_id` counts. Both layouts are Claude Code's, not
-documented; `just check-subagent-spawn-model` in agent_rules replays this fallback
+documented; `just check-subagent-spawn-model` in fleet replays this fallback
 against real transcripts so that a layout change fails a check rather than quietly
 reinstating the denial below.
 

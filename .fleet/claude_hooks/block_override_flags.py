@@ -1,6 +1,6 @@
 #!/usr/bin/env -S uv run --script
-# Fleet-managed copy of agent_rules payload/claude_hooks/block_override_flags.py. Do not edit it here:
-#      edit it there, then run `just sync` in agent_rules.
+# Fleet-managed copy of fleet payload/claude_hooks/block_override_flags.py. Do not edit it here:
+#      edit it there, then run `just sync` in fleet.
 # /// script
 # requires-python = ">=3.13"
 # dependencies = []

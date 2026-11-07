@@ -6,52 +6,52 @@
         {
           "executable": true,
           "path": ".fleet/claude_hooks/_hook_log.py",
-          "sha256": "6c2ecfa0c057d5477579f901f33c72cda9d454ccdd5ed18f4c3cf4136a7825e4"
+          "sha256": "9ea2e7ae3a6534644010d0e41cae06c962e942a8644b396493bd50d43f06b593"
         },
         {
           "executable": true,
           "path": ".fleet/claude_hooks/_shell_tokenise.py",
-          "sha256": "9017df4b4f839b26b1eb6e2372ef6812c1351c7d58a74846b4f34aacdb77e806"
+          "sha256": "094fe8060a38105baafac6af921d92370e3f3e4074a91cff2d482467390fc72b"
         },
         {
           "executable": true,
           "path": ".fleet/claude_hooks/block-override-flags.sh",
-          "sha256": "3bcdce66284cfa5376733aa42d43915a5737f20dd6ad810d9ecb9d91dd9e5be8"
+          "sha256": "cb2dcb9e0db8d6f6042cfaac67a4d508ea6ad1adbba85f7ad810d64e2fdff84f"
         },
         {
           "executable": true,
           "path": ".fleet/claude_hooks/block_override_flags.py",
-          "sha256": "e4add0a17f883dad324f80f6856dd2638f3a252cc5cd8d43d88bb8f80393a52b"
+          "sha256": "16ef0d02175288fa93b60b655e5ea11570cc67e2f27d8ec54fd33b0b8241f77b"
         },
         {
           "executable": true,
           "path": ".fleet/claude_hooks/check_bead_model.py",
-          "sha256": "1d767705cd75e21754e082d900a687567facae342ffd7514797349b769b0ebee"
+          "sha256": "b9b047d0672dedf349413eb66e495f729b290ce8fa3af127604649124480a0b6"
         },
         {
           "executable": true,
           "path": ".fleet/claude_hooks/check_diary_prose.py",
-          "sha256": "afa7d15a55aba4ab219ba9bce8765a188a4f61bb353a966a728a34960e7ada37"
+          "sha256": "7b3d56a02048e5b966fc2e97601e224db69c6e8550400f2153c5b1d9446e4ec2"
         },
         {
           "executable": true,
           "path": ".fleet/claude_hooks/check_no_em_dash.py",
-          "sha256": "fcbba11ce9b230fa2bb4b01a50db4ac2d912d1bf219c3fea45a5eab1684ca363"
+          "sha256": "f60e60ade0eee1b42496c880140926ff66df07e98418acc2b2004f6271dc557c"
         },
         {
           "executable": true,
           "path": ".fleet/claude_hooks/require_npm_deps.py",
-          "sha256": "92fd829201365c41b80532398513fb082f8ed1c6052f7bc63f3367f6334aee6f"
+          "sha256": "91da44d7edd30bca0b839ed68885be425367e5c0dcd78ea34e7e5c7e18e1d292"
         },
         {
           "executable": true,
           "path": ".fleet/claude_hooks/update_deps_staleness.py",
-          "sha256": "eaefc5fe93d9c0be6d8a9380f144b9a8dfadcd62f6f5c868d21cb4a74827e79b"
+          "sha256": "e4a7c92116552485af7b80f494c4ad75643cc78a9d7201b71ef84c0cbd046a50"
         },
         {
           "executable": true,
           "path": ".fleet/claude_hooks/validate_dep_type.py",
-          "sha256": "e71abec5f08b854d96601738603d9705f216f5b2188a295eb35bb3de0182187c"
+          "sha256": "f22e6df466344ea0b7246f7c7faaf5540f0e608cc05572cb37e90e0e39fa3a83"
         }
       ],
       "registrations": [
@@ -96,7 +96,7 @@
           "matcher": ""
         }
       ],
-      "source": "agent_rules@fb49182"
+      "source": "fleet@078af69-dirty"
     },
     "core": {
       "blocks": [

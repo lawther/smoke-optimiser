@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Fleet-managed copy of agent_rules payload/claude_hooks/block-override-flags.sh. Do not edit it here:
-#      edit it there, then run `just sync` in agent_rules.
+# Fleet-managed copy of fleet payload/claude_hooks/block-override-flags.sh. Do not edit it here:
+#      edit it there, then run `just sync` in fleet.
 # PreToolUse(Bash) guard: refuse commands whose only purpose is to override a refusal.
 #
 # Rationale: when bd refuses to close a blocked issue, or git refuses a non-fast-forward

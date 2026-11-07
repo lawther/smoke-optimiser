@@ -1,6 +1,6 @@
 #!/usr/bin/env -S uv run --script
-# Fleet-managed copy of agent_rules payload/claude_hooks/_hook_log.py. Do not edit it here:
-#      edit it there, then run `just sync` in agent_rules.
+# Fleet-managed copy of fleet payload/claude_hooks/_hook_log.py. Do not edit it here:
+#      edit it there, then run `just sync` in fleet.
 # /// script
 # requires-python = ">=3.13"
 # dependencies = []
@@ -8,11 +8,11 @@
 """Shared decision logger for the fleet's synced hooks.
 
 Every hook's `allow()`/`deny()` calls `log_decision()` here, so each fired decision is
-recorded to `~/.agent_rules/logs/<date>.jsonl` -- one file per day, one JSON object per
+recorded to `~/.fleet/logs/<date>.jsonl` -- one file per day, one JSON object per
 line. The location is deliberately outside every enrolled repo (these hooks run across
 all of them, so a per-repo log would scatter the record the same way per-repo hook
 registration used to) and outside `~/.claude` (that tree is Claude Code's own, not this
-fleet's). `AGENT_RULES_LOG_DIR` overrides the directory, which is how tests -- and
+fleet's). `FLEET_LOG_DIR` overrides the directory, which is how tests -- and
 nothing else -- avoid writing into the real log.
 
 Never raises: a logging failure must not turn a working hook into a blocked tool call,
@@ -32,7 +32,7 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
-_DEFAULT_LOG_DIR = Path.home() / ".agent_rules" / "logs"
+_DEFAULT_LOG_DIR = Path.home() / ".fleet" / "logs"
 
 # A sentence ends at terminal punctuation followed by whitespace, or at a newline. Requiring the
 # whitespace keeps "casey-719.4" and "e.g." from splitting a sentence in the middle.
@@ -44,7 +44,7 @@ _MAX_CONTEXT_CHARS = _CONTEXT_LINE_CHARS * _CONTEXT_MAX_LINES
 
 
 def _log_dir() -> Path:
-    override = os.environ.get("AGENT_RULES_LOG_DIR")
+    override = os.environ.get("FLEET_LOG_DIR")
     return Path(override) if override else _DEFAULT_LOG_DIR
 
 
