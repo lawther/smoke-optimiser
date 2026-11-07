@@ -176,14 +176,21 @@ setup-linear-history:
 # overwriting core.hooksPath disables whatever was there -- which is precisely how four
 # repos lost their beads integration without a word (ar-x4l). `bd init` does exactly
 # this, so the refusal is needed; `check-git-hooks-active` is what reports it if bd wins the
-# race anyway. An unset value and the legacy `.githooks` are both safe to replace.
+# race anyway. An unset value and the legacy `.githooks` are both safe to replace, and a value is
+# judged by the directory it names, so an absolute path to either counts as that directory.
 #
 # Point git at .fleet/git_hooks/, so `just precommit` runs before each commit here.
 setup-git-hooks:
     #!/usr/bin/env bash
     set -euo pipefail
     current=$(git config core.hooksPath || true)
-    if [ -n "$current" ] && [ "$current" != ".githooks" ] && [ "$current" != ".fleet/git_hooks" ]; then
+    root=$(git rev-parse --show-toplevel)
+    case "$current" in
+        /*) named="$current" ;;
+        *) named="$root/$current" ;;
+    esac
+    named="${named%/}"
+    if [ -n "$current" ] && [ "$named" != "$root/.githooks" ] && [ "$named" != "$root/.fleet/git_hooks" ]; then
         echo "core.hooksPath is already $current -- refusing to overwrite it." >&2
         echo "git reads one hooks directory only; merge the two before setting this." >&2
         exit 1

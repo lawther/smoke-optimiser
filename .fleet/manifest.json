@@ -133,7 +133,7 @@
           "begin": "# BEGIN FLEET RECIPES (GIT_HOOKS)",
           "end": "# END FLEET RECIPES (GIT_HOOKS)",
           "path": "Justfile",
-          "sha256": "ad344e7e4ecdcbcd2d08d093059c9a2201d4a48686848f5019badc434627f56d"
+          "sha256": "9ba6713e770a2acb5ea92efcbaa18bafcf842045adcf56b2dc39a3df62dfeda6"
         }
       ],
       "files": [
@@ -154,7 +154,7 @@
         }
       ],
       "registrations": [],
-      "source": "agent_rules@1e2a380"
+      "source": "agent_rules@5cd3d9c-dirty"
     },
     "github": {
       "blocks": [
