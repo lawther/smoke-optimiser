@@ -96,7 +96,7 @@
           "matcher": ""
         }
       ],
-      "source": "agent_rules@7869efd-dirty"
+      "source": "agent_rules@fb49182"
     },
     "core": {
       "blocks": [
