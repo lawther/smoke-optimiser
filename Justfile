@@ -201,10 +201,10 @@ setup-git-hooks:
 # END FLEET RECIPES (GIT_HOOKS)
 
 # BEGIN FLEET RECIPES (GITHUB)
-# Generated from agent_rules payload/github/recipes.just. Do not edit inside this block:
-#      edit it there, then run `just sync` in agent_rules.
+# Generated from fleet payload/github/recipes.just. Do not edit inside this block:
+#      edit it there, then run `just sync` in fleet.
 
-# zizmor's version is agent_rules' locked one, stamped in by the sync, so update-deps there
+# zizmor's version is fleet's locked one, stamped in by the sync, so update-deps there
 # upgrades it fleet-wide. --offline keeps the audit reproducible and token-free in the git hook;
 # known-vulnerable actions reach the fleet through Dependabot security updates instead. zizmor
 # exits 3 when it collects no input, which is a repo with no workflows, actions or dependabot.yml.

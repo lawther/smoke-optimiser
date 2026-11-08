@@ -1,5 +1,5 @@
-# Fleet-managed copy of agent_rules payload/github/actions_refs.py. Do not edit it here:
-#      edit it there, then run `just sync` in agent_rules.
+# Fleet-managed copy of fleet payload/github/actions_refs.py. Do not edit it here:
+#      edit it there, then run `just sync` in fleet.
 """The `uses:` references in a GitHub Actions workflow, and whether each is pinned.
 
 A pinned reference names a full 40-character commit SHA and carries, as a trailing comment,
@@ -7,7 +7,7 @@ the ref it tracks: `actions/checkout@<sha> # v7.0.1`, `dtolnay/rust-toolchain@<s
 The SHA makes what CI runs immutable; the comment is what update-deps follows to move it.
 Local actions (`./...`) and `docker://` images are not GitHub actions and are never pinned here.
 
-A library for `check_actions_pinned.py`, its sibling in `.fleet/github/`. agent_rules' update-deps
+A library for `check_actions_pinned.py`, its sibling in `.fleet/github/`. fleet's update-deps
 loads it by path to pin and move the references, so there is one definition of what a pinned
 reference is. Standard library only.
 """

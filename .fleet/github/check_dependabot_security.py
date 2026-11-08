@@ -1,6 +1,6 @@
 #!/usr/bin/env -S uv run --script
-# Fleet-managed copy of agent_rules payload/github/check_dependabot_security.py. Do not edit it here:
-#      edit it there, then run `just sync` in agent_rules.
+# Fleet-managed copy of fleet payload/github/check_dependabot_security.py. Do not edit it here:
+#      edit it there, then run `just sync` in fleet.
 # /// script
 # requires-python = ">=3.12"
 # dependencies = [
@@ -24,7 +24,7 @@ A repo with no GitHub origin remote has no Dependabot and is skipped.
 Second, every entry that can open version-update pull requests. The fleet takes only security
 updates from Dependabot: an entry turns version updates off with `open-pull-requests-limit: 0`,
 which leaves its security updates open, and carries no group that applies to version updates.
-Routine upgrades, base-image digests and Rust toolchains included, come from agent_rules'
+Routine upgrades, base-image digests and Rust toolchains included, come from fleet'
 update-deps instead.
 
 The repository's "Grouped security updates" toggle overrides the file's groups when on, and
