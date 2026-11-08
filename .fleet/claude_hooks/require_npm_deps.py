@@ -53,6 +53,11 @@ if TYPE_CHECKING:
     from types import ModuleType
 
 
+# Loading a sibling would otherwise leave a __pycache__ beside the delivered copies, an
+# untracked directory in .fleet/ that nothing owns.
+sys.dont_write_bytecode = True
+
+
 def _load_sibling(name: str) -> ModuleType:
     path = Path(__file__).resolve().parent / f"{name}.py"
     spec = importlib.util.spec_from_file_location(name, path)

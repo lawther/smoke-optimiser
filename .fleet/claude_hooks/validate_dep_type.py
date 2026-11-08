@@ -56,6 +56,11 @@ if TYPE_CHECKING:
     from types import ModuleType
 
 
+# Loading a sibling would otherwise leave a __pycache__ beside the delivered copies, an
+# untracked directory in .fleet/ that nothing owns.
+sys.dont_write_bytecode = True
+
+
 def _load_hook_log() -> ModuleType:
     """The sibling `_hook_log.py`, loaded by path.
 

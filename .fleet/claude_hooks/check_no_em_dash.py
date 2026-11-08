@@ -52,6 +52,11 @@ if TYPE_CHECKING:
     from types import ModuleType
 
 
+# Loading a sibling would otherwise leave a __pycache__ beside the delivered copies, an
+# untracked directory in .fleet/ that nothing owns.
+sys.dont_write_bytecode = True
+
+
 def _load_shell_tokenise() -> ModuleType:
     path = Path(__file__).resolve().parent / "_shell_tokenise.py"
     spec = importlib.util.spec_from_file_location("_shell_tokenise", path)
