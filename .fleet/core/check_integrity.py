@@ -1,5 +1,5 @@
-# Fleet-managed copy of agent_rules payload/core/check_integrity.py. Do not edit it here:
-#      edit it there, then run `just sync` in agent_rules.
+# Fleet-managed copy of fleet payload/core/check_integrity.py. Do not edit it here:
+#      edit it there, then run `just sync` in fleet.
 # /// script
 # requires-python = ">=3.12"
 # dependencies = [
@@ -14,9 +14,9 @@ wrote, and every Claude Code hook registration it owns in .claude/settings.json.
 script reads only this repo, so it runs the same in the git hook and in CI.
 
 A failure means a managed copy was edited in place, or deleted. Make the change in
-agent_rules, under the payload path the block header or manifest names, and sync it back.
+fleet, under the payload path the block header or manifest names, and sync it back.
 
-The models below are the manifest's only definition: agent_rules' sync writes the file by
+The models below are the manifest's only definition: fleet's sync writes the file by
 loading this module, so the writer and the checker cannot disagree about its shape.
 """
 
@@ -74,7 +74,7 @@ class Registration(_Record):
 
 
 class FamilyRecord(_Record):
-    """What one family's sync wrote, and the agent_rules revision it wrote it from."""
+    """What one family's sync wrote, and the fleet revision it wrote it from."""
 
     source: str
     files: tuple[FileRecord, ...] = ()
@@ -237,7 +237,7 @@ def main() -> int:
     try:
         manifest = load(root)
     except FileNotFoundError:
-        print(f"FAIL  {MANIFEST_PATH} not found: this repo has not been synced by agent_rules", file=sys.stderr)
+        print(f"FAIL  {MANIFEST_PATH} not found: this repo has not been synced by fleet", file=sys.stderr)
         return 1
     except pydantic.ValidationError as error:
         print(f"FAIL  {MANIFEST_PATH} is not a manifest sync wrote:\n{error}", file=sys.stderr)
@@ -247,7 +247,7 @@ def main() -> int:
         print(f"FAIL  [{finding.family}] {finding.subject}: {finding.problem.value}", file=sys.stderr)
     if findings:
         print(
-            "\nA fleet-managed copy was changed here. Make the change in agent_rules' payload and sync it,"
+            "\nA fleet-managed copy was changed here. Make the change in fleet's payload and sync it,"
             " or restore the copy with git.",
             file=sys.stderr,
         )

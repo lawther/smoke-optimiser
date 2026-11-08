@@ -1,6 +1,6 @@
 # BEGIN FLEET RECIPES (CORE)
-# Generated from agent_rules payload/core/recipes.just. Do not edit inside this block:
-#      edit it there, then run `just sync` in agent_rules.
+# Generated from fleet payload/core/recipes.just. Do not edit inside this block:
+#      edit it there, then run `just sync` in fleet.
 
 # List available recipes
 default:

@@ -104,28 +104,28 @@
           "begin": "# BEGIN FLEET RECIPES (CORE)",
           "end": "# END FLEET RECIPES (CORE)",
           "path": "Justfile",
-          "sha256": "c67f1c07d67eff88678e8b95ee5fc610c5295248f1948f69efdb0f41d86bc4a3"
+          "sha256": "5635eb195aa7e013dff4df2ccf9cb2bf31bb28c8c76517e542663e62764c8437"
         }
       ],
       "files": [
         {
           "executable": false,
           "path": ".fleet/core/check_integrity.py",
-          "sha256": "9aa9f03137b5ee2ed440cdf1240789f0441d6e183068a37c897263716526d911"
+          "sha256": "1cf0fff0ab9b7594bf1eab8463ee68fe2a2b242e125428a8c8b8826f6e70af5e"
         },
         {
           "executable": true,
           "path": ".fleet/core/check_recipes_wired.py",
-          "sha256": "792ba58a304b849f676c008087d250e175ed81e319ee2b29e9441637e29938ff"
+          "sha256": "d1c293fb2c8724932900eaa526ce85f8661ef5e467a0c7006a813c87633a811a"
         },
         {
           "executable": true,
           "path": ".fleet/core/fleet_config.py",
-          "sha256": "78d190d3c2d3a23bde7eebf428c2771e08c1a9bc2946729e86baa367e9d1de9b"
+          "sha256": "44df0e4e7d9ad1da761a1dbb10c701c4779f33fa8ed53e73a3b9738e4db62d78"
         }
       ],
       "registrations": [],
-      "source": "agent_rules@81891c8"
+      "source": "fleet@078af69-dirty"
     },
     "git_hooks": {
       "blocks": [

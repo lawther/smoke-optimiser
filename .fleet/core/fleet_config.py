@@ -1,6 +1,6 @@
 #!/usr/bin/env -S uv run --script
-# Fleet-managed copy of agent_rules payload/core/fleet_config.py. Do not edit it here:
-#      edit it there, then run `just sync` in agent_rules.
+# Fleet-managed copy of fleet payload/core/fleet_config.py. Do not edit it here:
+#      edit it there, then run `just sync` in fleet.
 # /// script
 # requires-python = ">=3.12"
 # dependencies = [
@@ -9,13 +9,13 @@
 # ///
 """Validate this repo's fleet.toml, the file where the repo says what the fleet's checks should tolerate.
 
-`fleet.toml` sits at the repo root and belongs to the repo, not to agent_rules: sync never
+`fleet.toml` sits at the repo root and belongs to the repo, not to fleet: sync never
 writes it. Each family's checks read the section named for that family, so a repo records a
 deliberate exception beside the code it excuses, and the check that honours the exception is
 delivered into the repo with it. A repo with no fleet.toml takes every default.
 
 The models below are the file's only definition. Family checks import this module from
-`.fleet/core/`, which every repo carries, and agent_rules loads it by path for the
+`.fleet/core/`, which every repo carries, and fleet loads it by path for the
 same reason: the reader and the validator cannot disagree about the file's shape.
 
 Running the script validates the file at the working directory, or at the repo root given as
