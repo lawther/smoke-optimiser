@@ -241,8 +241,8 @@ fleet-gate-rules:
 # END FLEET RECIPES (RULES)
 
 # BEGIN FLEET RECIPES (LINT)
-# Generated from agent_rules payload/lint/recipes.just. Do not edit inside this block:
-#      edit it there, then run `just sync` in agent_rules.
+# Generated from fleet payload/lint/recipes.just. Do not edit inside this block:
+#      edit it there, then run `just sync` in fleet.
 
 # Fail if the repo's ruff config does not extend the shared one, or pyproject.toml carries a table the delivered config overrides.
 fleet-gate-lint:

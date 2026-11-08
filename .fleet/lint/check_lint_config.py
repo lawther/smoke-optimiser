@@ -1,6 +1,6 @@
 #!/usr/bin/env -S uv run --script
-# Fleet-managed copy of agent_rules payload/lint/check_lint_config.py. Do not edit it here:
-#      edit it there, then run `just sync` in agent_rules.
+# Fleet-managed copy of fleet payload/lint/check_lint_config.py. Do not edit it here:
+#      edit it there, then run `just sync` in fleet.
 # /// script
 # requires-python = ">=3.12"
 # dependencies = [
@@ -27,7 +27,7 @@ all four of these the delivered bytes still compare equal, so the integrity chec
     ty.toml overrides outright, so it reads as configuration and is not
 
 This script judges the repo at the working directory, or at the repo root given as its only
-argument. agent_rules loads it as well, and runs `check_config_dir` over a target before it
+argument. fleet loads it as well, and runs `check_config_dir` over a target before it
 will deliver the shared config there.
 """
 
@@ -200,7 +200,7 @@ def judge(root: pathlib.Path) -> list[Finding]:
     try:
         config_dir = delivered_config_dir(root)
     except FileNotFoundError:
-        return [Finding(manifest, Problem.NOT_RECORDED, "not found: this repo has not been synced by agent_rules")]
+        return [Finding(manifest, Problem.NOT_RECORDED, "not found: this repo has not been synced by fleet")]
     except check_integrity.pydantic.ValidationError:
         return [Finding(manifest, Problem.NOT_RECORDED, "is not a manifest sync wrote")]
     if config_dir is None:

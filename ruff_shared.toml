@@ -1,5 +1,5 @@
-# Fleet-managed copy of agent_rules payload/lint/ruff_shared.toml. Do not edit it here:
-#      edit it there, then run `just sync` in agent_rules.
+# Fleet-managed copy of fleet payload/lint/ruff_shared.toml. Do not edit it here:
+#      edit it there, then run `just sync` in fleet.
 # The fleet's shared ruff configuration.
 #
 # This file is never read on its own: ruff does not auto-discover a file by this name.
@@ -11,7 +11,7 @@
 #   - add to `ignore` with `extend-ignore`, never `ignore`
 #   - add to per-file-ignores with `extend-per-file-ignores`, never `per-file-ignores`
 # The plain forms REPLACE what this file sets rather than adding to it, so the shared
-# rules vanish while this file's own bytes still check out as in sync. `agent-rules sync
+# rules vanish while this file's own bytes still check out as in sync. `fleet sync
 # lint-config` refuses to write a repo whose ruff.toml gets either wrong.
 
 # Pinned rather than inferred. Ruff does infer target-version from `project.requires-python`,
@@ -27,7 +27,7 @@ line-length = 120
 # real source. Docs are docs, not code: excluding "*.md" here opts every fleet repo back
 # out of that reformatting. `ruff check` already ignores Markdown regardless.
 #
-# `.fleet/` holds the files agent_rules' sync delivers and verifies by hash. Reformatting or
+# `.fleet/` holds the files fleet's sync delivers and verifies by hash. Reformatting or
 # fixing one in place would fail the integrity check, so no linter touches that directory. It
 # is named bare, which matches it at any depth, because ruff anchors a path pattern to this
 # file's directory and casey_ai keeps this file in api/, below the repo root .fleet/ sits in.
