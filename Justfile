@@ -25,10 +25,10 @@ fleet-gate-core:
 
 # END FLEET RECIPES (CORE)
 
-# The runner the shared ai_readiness recipes call; declared in agent_rules/repos.toml.
+# The runner the shared ai_readiness recipes call; declared in fleet/repos.toml.
 uv_run := "uv run"
 
-# The directory the shared downwind recipe cds into; declared in agent_rules/repos.toml.
+# The directory the shared downwind recipe cds into; this repo's fleet.toml sets it, and its default is the repo root.
 python_project_dir := "."
 
 # Run all checks (lint, typecheck, test)

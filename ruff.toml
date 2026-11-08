@@ -1,5 +1,5 @@
 # smoke-optimiser's own ruff config. `extend` pulls in the fleet's shared config, synced
-# here verbatim by agent_rules' sync_lint_config.py (ar-vlz) -- do not hand-edit
+# here verbatim by fleet's lint sync (ar-vlz) -- do not hand-edit
 # ruff_shared.toml. Everything below is smoke-optimiser-only.
 extend = "ruff_shared.toml"
 
