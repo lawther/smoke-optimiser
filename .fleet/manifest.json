@@ -133,28 +133,28 @@
           "begin": "# BEGIN FLEET RECIPES (GIT_HOOKS)",
           "end": "# END FLEET RECIPES (GIT_HOOKS)",
           "path": "Justfile",
-          "sha256": "9ba6713e770a2acb5ea92efcbaa18bafcf842045adcf56b2dc39a3df62dfeda6"
+          "sha256": "70839cba32f80d3fe9d14b26ffda9961525ee7afaa0b14555cf75e090595ea0f"
         }
       ],
       "files": [
         {
           "executable": true,
           "path": ".fleet/git_hooks/pre-commit",
-          "sha256": "df8c92c392a23d555523ac7288140cf64ea584c6f02529b024af5a211c8c97aa"
+          "sha256": "f8592f82ef37a4e12913d9159c81b7ae05882a026b81a525ae7fef70f005f90d"
         },
         {
           "executable": true,
           "path": ".fleet/git_hooks/pre-merge-commit",
-          "sha256": "81e5493e28d8e253698ea1542e23f5f6ca1a26af5c94647c795db228e9ccbb8b"
+          "sha256": "dd9267f5dac405abac95dcaad046a01419bdc8bfd05ac903fe1a86f8792e833a"
         },
         {
           "executable": true,
           "path": ".fleet/git_hooks/pre-push",
-          "sha256": "05ee2fc6c88c5b3f53863d4d38d6c2a46222d0f4bd86922a61305409255110d3"
+          "sha256": "6c34edb4fa910fd0fe01054ca2030b112b36af07a7226bccec42753249ca1c6e"
         }
       ],
       "registrations": [],
-      "source": "agent_rules@82d6787"
+      "source": "fleet@078af69"
     },
     "github": {
       "blocks": [

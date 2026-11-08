@@ -1,6 +1,6 @@
 #!/bin/sh
-# Fleet-managed copy of agent_rules payload/git_hooks/pre-commit. Do not edit it here:
-#      edit it there, then run `just sync` in agent_rules.
+# Fleet-managed copy of fleet payload/git_hooks/pre-commit. Do not edit it here:
+#      edit it there, then run `just sync` in fleet.
 # Git pre-commit hook — runs the full justfile precommit suite before each commit.
 #
 # This file is version-controlled in .fleet/git_hooks/. To activate it on a fresh clone:

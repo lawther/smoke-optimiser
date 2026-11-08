@@ -1,6 +1,6 @@
 #!/bin/sh
-# Fleet-managed copy of agent_rules payload/git_hooks/pre-push. Do not edit it here:
-#      edit it there, then run `just sync` in agent_rules.
+# Fleet-managed copy of fleet payload/git_hooks/pre-push. Do not edit it here:
+#      edit it there, then run `just sync` in fleet.
 # Git pre-push hook — refuses to push any merge commit.
 #
 # `pre-merge-commit` stops a merge commit being created locally, but that is not the
