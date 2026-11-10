@@ -209,7 +209,7 @@
         {
           "executable": false,
           "path": "ruff_shared.toml",
-          "sha256": "9c51f24a9a3be39b273b3aff22fb60a87d7b422008d0efb96b55d4a64d8f5cf7"
+          "sha256": "f3df6adb3950beda86af8380d032849dd3e7eea837f9858e974858a985fc3261"
         },
         {
           "executable": false,
@@ -218,7 +218,7 @@
         }
       ],
       "registrations": [],
-      "source": "fleet@66bccf7"
+      "source": "fleet@734fee6"
     },
     "rules": {
       "blocks": [

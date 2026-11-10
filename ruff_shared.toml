@@ -51,6 +51,26 @@ ignore = [
     "EM101",  # raw-string-in-exception: exception must not use a string literal, assign to a variable first
     "EM102",  # f-string-in-exception: exception must not use an f-string literal, assign to a variable first
     "TRY003", # raise-vanilla-args: avoid specifying long messages outside the exception class
+    # TC001-TC003 (move an annotation-only import into an `if TYPE_CHECKING:` block) are off
+    # fleet-wide by a fleet decision, not a per-repo choice: a repo's ruff.toml must not turn
+    # them back on. pydantic, FastAPI, typer and SQLModel read annotations at runtime, so an
+    # import moved under TYPE_CHECKING becomes a NameError that only a code path reaching it
+    # finds -- ruff cannot see that, and casey_ai carried a growing exemption list for exactly
+    # this. The startup saving they buy is negligible here: nearly every hit is a stdlib or
+    # first-party module the program loads anyway. TC004 (an import inside TYPE_CHECKING
+    # that is used at runtime) stays on.
+    "TC001",  # typing-only-first-party-import
+    "TC002",  # typing-only-third-party-import
+    "TC003",  # typing-only-standard-library-import
+]
+
+[lint.flake8-type-checking]
+# With TC001-TC003 off (see `ignore` above), this setting serves TC004: it makes an annotation on
+# a subclass of these count as a runtime use, so a model field whose type is imported only under
+# TYPE_CHECKING fails lint instead of raising NameError when the model is built.
+runtime-evaluated-base-classes = [
+    "pydantic.BaseModel", # field annotations are read and validated at runtime
+    "sqlmodel.SQLModel",  # field annotations are read and validated at runtime
 ]
 
 [lint.mccabe]
