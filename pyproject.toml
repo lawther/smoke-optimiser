@@ -24,7 +24,8 @@ classifiers = [
 dependencies = [
     "typer~=0.9",
     "pydantic~=2.0",
-    "coverage~=7.0",
+    # 7.9 is the first release that reads the [run] core setting the profiling rcfile names.
+    "coverage~=7.9",
     "pytest~=9.0",
     "pytest-cov~=7.0",
 ]

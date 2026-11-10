@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import sys
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from types import SimpleNamespace
@@ -15,6 +16,7 @@ from smoke_optimiser.profiler.import_tracer import write_graph
 from smoke_optimiser.profiler.models import ImportGraph, ReadMap
 from smoke_optimiser.profiler.read_tracer import write_read_map
 from smoke_optimiser.profiler.runner import (
+    COVERAGERC_CONTENT,
     PYTEST_HOOK_CODE,
     ArtefactFileCounts,
     IterationOutcomes,
@@ -366,6 +368,93 @@ def test_the_profiling_hook_keeps_the_plain_filename_when_serial(tmp_path: Path)
 
     assert outcomes_json.exists()
     assert _read_iteration_outcomes(_artefact_files(outcomes_json)).xdist_workers == 1
+
+
+# Starts a real Coverage from the profiling rcfile, switches context the way pytest-cov's
+# --cov-context=test does, and reports the core coverage chose. CoverageWarning is an
+# error, so a core that would drop the context fails the script outright.
+_CONTEXT_PROBE = """
+import sys
+import warnings
+
+import coverage
+from coverage.exceptions import CoverageWarning
+
+warnings.simplefilter("error", CoverageWarning)
+cov = coverage.Coverage(config_file=sys.argv[1], data_file=None)
+cov.start()
+try:
+    cov.switch_context("tests/test_x.py::test_x")
+finally:
+    cov.stop()
+print(dict(cov.sys_info())["core"])
+"""
+
+
+def test_the_profiling_rcfile_selects_a_core_that_records_per_test_contexts(
+    pytester: pytest.Pytester,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Per-test coverage is the whole profile, so the core must keep dynamic contexts.
+
+    From Python 3.14 coverage.py defaults to the sys.monitoring core, which cannot record
+    the contexts pytest-cov switches between tests: it warns no-sysmon-context and the
+    profile comes out with no per-test data. Run in a fresh interpreter so the probe's
+    Coverage does not displace the one measuring this test suite, and without
+    COVERAGE_CORE so the rcfile alone decides -- the runner strips that variable too.
+    """
+    for name in os.environ:
+        if name.startswith("COVERAGE_"):
+            monkeypatch.delenv(name)
+    rcfile = pytester.path / ".coveragerc"
+    rcfile.write_text(COVERAGERC_CONTENT)
+    probe = pytester.makepyfile(probe=_CONTEXT_PROBE)
+
+    result = pytester.run(sys.executable, probe, rcfile)
+
+    assert result.ret == 0, result.stderr.str()
+    assert result.stdout.str().strip() in {"CTracer", "PyTracer"}
+
+
+@patch("subprocess.run")
+@patch("smoke_optimiser.profiler.runner.build_profiling_data")
+def test_an_inherited_coverage_core_does_not_override_the_profiling_rcfile(
+    mock_ingest: MagicMock,
+    mock_run: MagicMock,
+    tmp_path: Path,
+) -> None:
+    """COVERAGE_CORE outranks the rcfile's core setting in coverage.py.
+
+    A developer who exports COVERAGE_CORE=sysmon for their own runs would otherwise hand
+    the profiled pytest the one core that cannot record per-test contexts, and every
+    profile would come out empty of them.
+    """
+    config = ProfilingRunConfig(
+        cov_source="smoke_optimiser",
+        cov_source_origin=CovSourceOrigin.CONFIGURED,
+        pytest_args="",
+        allow_ordered=True,
+        iterations=1,
+    )
+
+    mock_run.side_effect = _pytest_exit_codes(0)
+    mock_ingest.return_value = MagicMock()
+
+    with (
+        patch.dict(os.environ, {"COVERAGE_CORE": "sysmon"}, clear=False),
+        patch("shutil.which", return_value="/usr/bin/pytest"),
+    ):
+        run_profiling(config, _flat(tmp_path))
+
+    # Every git call passes capture_output and the pytest launch does not.
+    pytest_envs = [
+        call.kwargs["env"]
+        for call in mock_run.call_args_list
+        if "env" in call.kwargs and "capture_output" not in call.kwargs
+    ]
+    assert pytest_envs
+    for child_env in pytest_envs:
+        assert "COVERAGE_CORE" not in child_env
 
 
 @patch("subprocess.run")

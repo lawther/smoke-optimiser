@@ -528,7 +528,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "coverage", specifier = "~=7.0" },
+    { name = "coverage", specifier = "~=7.9" },
     { name = "psutil", marker = "extra == 'machine'", specifier = "~=7.0" },
     { name = "pydantic", specifier = "~=2.0" },
     { name = "pytest", specifier = "~=9.0" },

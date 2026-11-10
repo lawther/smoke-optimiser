@@ -321,9 +321,15 @@ def pytest_unconfigure(config):
             json.dump(payload, f)
 """
 
+# Per-test contexts come from pytest-cov switching coverage's dynamic context, which
+# the sys.monitoring core (the default from Python 3.14) cannot record: it warns
+# no-sysmon-context and drops them. Naming a settrace core here keeps every context on
+# all Python versions; ctrace falls back to pytrace, which records them too, where the C
+# tracer is not built.
 COVERAGERC_CONTENT = """
 [run]
 branch = True
+core = ctrace
 """
 
 
@@ -735,6 +741,10 @@ def _profiling_env(
     # these itself in the workers it spawns.
     env.pop("PYTEST_XDIST_WORKER", None)
     env.pop("PYTEST_XDIST_WORKER_COUNT", None)
+
+    # COVERAGE_CORE outranks the rcfile's core setting, so an inherited sysmon would
+    # bring back the core that cannot record per-test contexts.
+    env.pop("COVERAGE_CORE", None)
 
     return env
 
