@@ -127,11 +127,11 @@
         {
           "executable": true,
           "path": ".fleet/core/fleet_config.py",
-          "sha256": "44df0e4e7d9ad1da761a1dbb10c701c4779f33fa8ed53e73a3b9738e4db62d78"
+          "sha256": "2bd983e7cca728603ebb0f1c8d99838d3227aac66387f0777a5a4562567fcef0"
         }
       ],
       "registrations": [],
-      "source": "fleet@c3f3e12"
+      "source": "fleet@dad4bee"
     },
     "git_hooks": {
       "blocks": [

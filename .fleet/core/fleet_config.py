@@ -33,6 +33,9 @@ dependabot_exempt = ["cargo"]
 
 [smoke]
 python_project_dir = "api"
+
+[python]
+floor = "3.12"
 ```
 """
 
@@ -41,6 +44,7 @@ from __future__ import annotations
 import argparse
 import enum
 import pathlib
+import re
 import sys
 import tomllib
 from typing import Literal, NamedTuple
@@ -50,6 +54,8 @@ import pydantic
 FLEET_TOML = pathlib.Path("fleet.toml")
 SCHEMA = 1
 REPO_ROOT_DIR = "."
+NO_FLOOR_PIN = ""
+_MAJOR_MINOR = re.compile(r"\d+\.\d+")
 
 
 class Ecosystem(enum.Enum):
@@ -109,6 +115,26 @@ class Smoke(_Section):
     python_project_dir: str = REPO_ROOT_DIR
 
 
+class Python(_Section):
+    """The `[python]` section, read by the Python floor sync.
+
+    `floor` pins this repo's Python floor to a `major.minor` version, such as `"3.12"`, when it
+    cannot follow the fleet's derived floor because the runtime it deploys to is older. The
+    default, `NO_FLOOR_PIN`, means the repo follows the fleet's floor. Record the reason in a
+    comment beside it.
+    """
+
+    floor: str = NO_FLOOR_PIN
+
+    @pydantic.field_validator("floor")
+    @classmethod
+    def _floor_is_major_minor(cls, value: str) -> str:
+        if value != NO_FLOOR_PIN and not _MAJOR_MINOR.fullmatch(value):
+            message = f"must be a major.minor version such as '3.12', not {value!r}"
+            raise ValueError(message)
+        return value
+
+
 class FleetConfig(_Section):
     """The whole of fleet.toml: a schema version and one optional section per family."""
 
@@ -116,6 +142,7 @@ class FleetConfig(_Section):
     npm: Npm = pydantic.Field(default_factory=Npm)
     github: Github = pydantic.Field(default_factory=Github)
     smoke: Smoke = pydantic.Field(default_factory=Smoke)
+    python: Python = pydantic.Field(default_factory=Python)
 
     model_config = pydantic.ConfigDict(extra="forbid", frozen=True, populate_by_name=True)
 
