@@ -244,8 +244,9 @@ fleet-gate-rules:
 # Generated from fleet payload/lint/recipes.just. Do not edit inside this block:
 #      edit it there, then run `just sync` in fleet.
 
-# Fail if the repo's ruff config does not extend the shared one, or pyproject.toml carries a table the delivered config overrides.
+# Fail if the repo's ruff config does not extend the shared one, pyproject.toml carries a table the delivered config overrides, or anything names a Python version other than .python-version.
 fleet-gate-lint:
     @uv run --script .fleet/lint/check_lint_config.py
+    @uv run --script .fleet/lint/check_python_version.py
 
 # END FLEET RECIPES (LINT)

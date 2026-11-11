@@ -197,7 +197,7 @@
           "begin": "# BEGIN FLEET RECIPES (LINT)",
           "end": "# END FLEET RECIPES (LINT)",
           "path": "Justfile",
-          "sha256": "9054991b084f4555977a2bab85414e88810d7c07c6a7567219d8151cf774c737"
+          "sha256": "02ccb0122d7e86a76e1278a2a93179a7639b5faebf06ed304c96085f5e9da29f"
         }
       ],
       "files": [
@@ -205,6 +205,11 @@
           "executable": true,
           "path": ".fleet/lint/check_lint_config.py",
           "sha256": "71c066c6d9879567a8c803b1830abc76280cfba1739f12ace134f9d8cecb3453"
+        },
+        {
+          "executable": true,
+          "path": ".fleet/lint/check_python_version.py",
+          "sha256": "620c59ed2b9fa161000a94a66a0da6b03fd6b24f9a8e03f9acdd53c6196c3a52"
         },
         {
           "executable": false,
@@ -218,7 +223,7 @@
         }
       ],
       "registrations": [],
-      "source": "fleet@38c641f"
+      "source": "fleet@273ac56"
     },
     "rules": {
       "blocks": [
