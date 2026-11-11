@@ -1,7 +1,7 @@
 # Fleet-managed copy of fleet payload/core/check_integrity.py. Do not edit it here:
 #      edit it there, then run `just sync` in fleet.
 # /// script
-# requires-python = ">=3.12"
+# requires-python = ">=3.14"
 # dependencies = [
 #     "pydantic>=2.12",
 # ]
@@ -209,7 +209,7 @@ def _check_registrations(root: pathlib.Path, family: FamilyName, records: Sequen
     path = root / SETTINGS_PATH
     try:
         present = registered(json.loads(path.read_text(encoding="utf-8")))
-    except (OSError, ValueError):
+    except OSError, ValueError:
         present = frozenset()
     return [
         Finding(family, f"{record.event} {record.matcher!r} {record.command}", Problem.UNREGISTERED)

@@ -2,7 +2,7 @@
 # Fleet-managed copy of fleet payload/core/check_recipes_wired.py. Do not edit it here:
 #      edit it there, then run `just sync` in fleet.
 # /// script
-# requires-python = ">=3.12"
+# requires-python = ">=3.14"
 # dependencies = []
 # ///
 """Fail if this repo's gate does not run the fleet's checks, or its CI cannot run them.

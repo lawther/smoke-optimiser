@@ -117,21 +117,21 @@
         {
           "executable": false,
           "path": ".fleet/core/check_integrity.py",
-          "sha256": "1cf0fff0ab9b7594bf1eab8463ee68fe2a2b242e125428a8c8b8826f6e70af5e"
+          "sha256": "17453caacca51cac79bd1129f5f4390bd944df239bd4922ccf38bed7b24e993f"
         },
         {
           "executable": true,
           "path": ".fleet/core/check_recipes_wired.py",
-          "sha256": "d1c293fb2c8724932900eaa526ce85f8661ef5e467a0c7006a813c87633a811a"
+          "sha256": "951eadd1253407c7c850272e422b806cf36f99e4ec48edb8e82f7378e33a9552"
         },
         {
           "executable": true,
           "path": ".fleet/core/fleet_config.py",
-          "sha256": "2bd983e7cca728603ebb0f1c8d99838d3227aac66387f0777a5a4562567fcef0"
+          "sha256": "d5ab9743752823be23b4cd732ab89a602cc97b8eb97b55090873879844567303"
         }
       ],
       "registrations": [],
-      "source": "fleet@dad4bee"
+      "source": "fleet@38c641f"
     },
     "git_hooks": {
       "blocks": [
