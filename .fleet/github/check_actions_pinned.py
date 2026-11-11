@@ -2,7 +2,7 @@
 # Fleet-managed copy of fleet payload/github/check_actions_pinned.py. Do not edit it here:
 #      edit it there, then run `just sync` in fleet.
 # /// script
-# requires-python = ">=3.12"
+# requires-python = ">=3.14"
 # dependencies = []
 # ///
 """Fail if this repo's workflows use a GitHub Action not pinned to a commit SHA.

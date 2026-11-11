@@ -2,7 +2,7 @@
 # Fleet-managed copy of fleet payload/github/check_dependabot_security.py. Do not edit it here:
 #      edit it there, then run `just sync` in fleet.
 # /// script
-# requires-python = ">=3.12"
+# requires-python = ">=3.14"
 # dependencies = [
 #     "pydantic>=2.12",
 #     "pyyaml>=6",
@@ -217,7 +217,7 @@ def check_repo(root: pathlib.Path, exempt: frozenset[str], tracked: list[str]) -
         ]
     try:
         config = load_config(dependabot_file.read_text(encoding="utf-8"))
-    except (yaml.YAMLError, ValidationError):
+    except yaml.YAMLError, ValidationError:
         return [
             Finding(lockfile, Verdict.EXEMPT if lockfile.ecosystem in exempt else Verdict.BAD_FILE)
             for lockfile in found
@@ -236,7 +236,7 @@ def check_entries(root: pathlib.Path) -> list[EntryFinding]:
         return []
     try:
         config = load_config(dependabot_file.read_text(encoding="utf-8"))
-    except (yaml.YAMLError, ValidationError):
+    except yaml.YAMLError, ValidationError:
         return []
     return [EntryFinding(update.package_ecosystem, update.location, judge_entry(update)) for update in config.updates]
 
