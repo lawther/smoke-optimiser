@@ -6,12 +6,12 @@
         {
           "executable": true,
           "path": ".fleet/claude_hooks/_hook_log.py",
-          "sha256": "9ea2e7ae3a6534644010d0e41cae06c962e942a8644b396493bd50d43f06b593"
+          "sha256": "c26dbd49cc093da5939b3ef8b425a7b2785a438dcf27ad45a26b8239fb3b3b97"
         },
         {
           "executable": true,
           "path": ".fleet/claude_hooks/_shell_tokenise.py",
-          "sha256": "094fe8060a38105baafac6af921d92370e3f3e4074a91cff2d482467390fc72b"
+          "sha256": "09f70642076531d87bd62b5823811da94c9644834edea113f9fae53aee1218f5"
         },
         {
           "executable": true,
@@ -21,37 +21,37 @@
         {
           "executable": true,
           "path": ".fleet/claude_hooks/block_override_flags.py",
-          "sha256": "f1236633dc847952b23264c04084a4ae38176d5a369c836e586271e9f9e7b59e"
+          "sha256": "9afe89794655feb30af4267310d760c9804fe844ef6034ad4c7ab48328721ff8"
         },
         {
           "executable": true,
           "path": ".fleet/claude_hooks/check_bead_model.py",
-          "sha256": "5cdb6296e73b786eae6498bc9b8f85e94f39f8a600ad9382816c9c2e5462cbe9"
+          "sha256": "2c88f8b1269395c4f2bafe1b19fae6a0ea84f954ab83b77d20dc504c2d88205a"
         },
         {
           "executable": true,
           "path": ".fleet/claude_hooks/check_diary_prose.py",
-          "sha256": "5971c506959a54b95a8b9cb47a28a849eca49afca6b9fd45075aa268f9772920"
+          "sha256": "2614ffab1903b5af51b3f23e68c6305c3ce19f4e9ae113d75f70d7f0f7a4b3dd"
         },
         {
           "executable": true,
           "path": ".fleet/claude_hooks/check_no_em_dash.py",
-          "sha256": "a4af43d0ef6eeca4f693c9cdaa046f936454dafbef42ae471851cf6bc9b91703"
+          "sha256": "6cdb3896bffb8d9b858a8c9c9de355927e3c9fa607b3274b6f828b7cac99939d"
         },
         {
           "executable": true,
           "path": ".fleet/claude_hooks/require_npm_deps.py",
-          "sha256": "b2195419d7f09a2c2a34337a1eaf0c8ded50baf7ccccb4f43c5df4130f36a663"
+          "sha256": "9424b9cb6b985ec8d7bf7b26242505eec9e6a9322836024855249807e1495114"
         },
         {
           "executable": true,
           "path": ".fleet/claude_hooks/update_deps_staleness.py",
-          "sha256": "e4a7c92116552485af7b80f494c4ad75643cc78a9d7201b71ef84c0cbd046a50"
+          "sha256": "6d9541c66d7c1843f1aedb2071918fddd5e8ebd1d46615384eafbe135b75be79"
         },
         {
           "executable": true,
           "path": ".fleet/claude_hooks/validate_dep_type.py",
-          "sha256": "b8959bdc322ad97bdcc96c9f1b745249badc55b56d2bc208d07971c08c306887"
+          "sha256": "f8cbaf6058bf282b4b289ebbe9c0088749b0d03e224eb4e7fed7cfa6031518ae"
         }
       ],
       "registrations": [
@@ -96,7 +96,7 @@
           "matcher": ""
         }
       ],
-      "source": "fleet@94730a9"
+      "source": "fleet@324a0d4"
     },
     "core": {
       "blocks": [

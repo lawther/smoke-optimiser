@@ -2,7 +2,7 @@
 # Fleet-managed copy of fleet payload/claude_hooks/require_npm_deps.py. Do not edit it here:
 #      edit it there, then run `just sync` in fleet.
 # /// script
-# requires-python = ">=3.13"
+# requires-python = ">=3.14"
 # dependencies = []
 # ///
 """PreToolUse(Bash) guard: in an npm-family repo, run npm tooling only after `_npm-deps`.

@@ -2,7 +2,7 @@
 # Fleet-managed copy of fleet payload/claude_hooks/validate_dep_type.py. Do not edit it here:
 #      edit it there, then run `just sync` in fleet.
 # /// script
-# requires-python = ">=3.13"
+# requires-python = ">=3.14"
 # dependencies = []
 # ///
 """PreToolUse(Bash) guard: reject unrecognised `--type` values on `bd dep add` / `bd link`.

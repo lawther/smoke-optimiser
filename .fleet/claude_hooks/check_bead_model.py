@@ -2,7 +2,7 @@
 # Fleet-managed copy of fleet payload/claude_hooks/check_bead_model.py. Do not edit it here:
 #      edit it there, then run `just sync` in fleet.
 # /// script
-# requires-python = ">=3.13"
+# requires-python = ">=3.14"
 # dependencies = []
 # ///
 """PreToolUse(Bash) guard: keep each bead's `model:` label present, single and honoured.
@@ -465,7 +465,7 @@ def bead_model_labels(issue_ids: list[str]) -> dict[str, list[str]]:
             timeout=_BD_SHOW_TIMEOUT_SECS,
             check=False,
         )
-    except (OSError, subprocess.TimeoutExpired):
+    except OSError, subprocess.TimeoutExpired:
         return {}
     try:
         payload = json.loads(result.stdout)

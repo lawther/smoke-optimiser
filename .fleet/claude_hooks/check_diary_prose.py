@@ -2,7 +2,7 @@
 # Fleet-managed copy of fleet payload/claude_hooks/check_diary_prose.py. Do not edit it here:
 #      edit it there, then run `just sync` in fleet.
 # /// script
-# requires-python = ">=3.13"
+# requires-python = ">=3.14"
 # dependencies = []
 # ///
 """PreToolUse(Bash|Write|Edit) guard: keep diary prose out of durable artefacts.

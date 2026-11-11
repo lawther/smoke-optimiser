@@ -2,7 +2,7 @@
 # Fleet-managed copy of fleet payload/claude_hooks/_hook_log.py. Do not edit it here:
 #      edit it there, then run `just sync` in fleet.
 # /// script
-# requires-python = ">=3.13"
+# requires-python = ">=3.14"
 # dependencies = []
 # ///
 """Shared decision logger for the fleet's synced hooks.

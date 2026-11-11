@@ -2,7 +2,7 @@
 # Fleet-managed copy of fleet payload/claude_hooks/_shell_tokenise.py. Do not edit it here:
 #      edit it there, then run `just sync` in fleet.
 # /// script
-# requires-python = ">=3.13"
+# requires-python = ">=3.14"
 # dependencies = []
 # ///
 """Shared shell-command tokeniser for the PreToolUse(Bash) guards.
