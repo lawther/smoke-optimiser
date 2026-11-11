@@ -95,3 +95,9 @@ dev = [
     "ty>=0.0.94",
 ]
 
+
+[tool.ml-lints]
+# .fleet/ holds files fleet delivers and lints at its source, at the fleet's Python floor,
+# so linting them again here adds nothing and can fail on a repo pinned below that floor.
+# A fleet requirement, enforced by .fleet/lint/check_lint_config.py.
+extend-exclude = [".fleet"]
