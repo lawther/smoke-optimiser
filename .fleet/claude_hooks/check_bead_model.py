@@ -545,10 +545,13 @@ def main() -> None:
         return
 
     details = "; ".join(f"{m.issue_id} wants {'/'.join(m.wanted_families)}" for m in mismatches)
+    claim_anyway = ", ".join(f"`! bd update {m.issue_id} --claim`" for m in mismatches)
     deny(
         f"Blocked: {agent.description} is running on '{current_family}', but {details}. Stop and ask "
         "the user whether to switch model, delegate the bead to an agent on the wanted model, "
-        "reassign the bead's model label, or claim it anyway."
+        "reassign the bead's model label, or claim it anyway. To claim it anyway, the user runs the "
+        f"claim command for each bead at the Claude Code prompt: {claim_anyway}. The `!` runs it in "
+        "the user's own shell, which this hook does not check."
     )
 
 
