@@ -276,7 +276,7 @@ class ProfileScopeModel(BaseModel):
         )
 
     @classmethod
-    def from_profile_scope(cls, scope: ProfileScope) -> "ProfileScopeModel":
+    def from_profile_scope(cls, scope: ProfileScope) -> ProfileScopeModel:
         """Build the model that writes ``scope`` to a file, ordered for a stable diff."""
         return cls(
             coverage_roots=sorted(scope.coverage_roots),
@@ -297,7 +297,7 @@ class ProfileAnchorModel(BaseModel):
         return ProfileAnchor(project_offset=self.project_offset, node_id_prefix=self.node_id_prefix)
 
     @classmethod
-    def from_profile_anchor(cls, anchor: ProfileAnchor) -> "ProfileAnchorModel":
+    def from_profile_anchor(cls, anchor: ProfileAnchor) -> ProfileAnchorModel:
         """Build the model that writes ``anchor`` to the profile."""
         return cls(project_offset=anchor.project_offset, node_id_prefix=anchor.node_id_prefix)
 
@@ -386,7 +386,7 @@ class ReadMapModel(BaseModel):
         )
 
     @classmethod
-    def from_read_map(cls, read_map: ReadMap) -> "ReadMapModel":
+    def from_read_map(cls, read_map: ReadMap) -> ReadMapModel:
         """Build the model that writes ``read_map`` to a file, ordered for a stable diff."""
         return cls(
             reads_by_test={test: sorted(paths) for test, paths in sorted(read_map.reads_by_test.items())},
@@ -413,7 +413,7 @@ class ReadObservationsModel(BaseModel):
         )
 
     @classmethod
-    def from_read_observations(cls, reads: ReadObservations) -> "ReadObservationsModel":
+    def from_read_observations(cls, reads: ReadObservations) -> ReadObservationsModel:
         """Build the model that writes ``reads`` to the profile, ordered for a stable diff."""
         return cls(
             unattributed_reads=sorted(reads.unattributed_reads),

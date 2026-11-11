@@ -130,7 +130,7 @@ def _package_directory(name: str) -> Path | None:
     """Where an importable package or module lives, as coverage.py would find it."""
     try:
         spec = importlib.util.find_spec(name)
-    except (ImportError, ValueError, AttributeError, TypeError):
+    except ImportError, ValueError, AttributeError, TypeError:
         return None
     if spec is None:
         return None

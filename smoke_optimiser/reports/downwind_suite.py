@@ -37,7 +37,7 @@ class BlindSpotModel(BaseModel):
     read_errors: int | None = None
 
     @classmethod
-    def from_blind_spot(cls, blind_spot: BlindSpot) -> "BlindSpotModel":
+    def from_blind_spot(cls, blind_spot: BlindSpot) -> BlindSpotModel:
         """Build the model that writes one rule's refusal to the selection file."""
         return cls(
             reason=blind_spot.reason,
@@ -47,7 +47,7 @@ class BlindSpotModel(BaseModel):
         )
 
     @model_validator(mode="after")
-    def _check_reason_matches_fields(self) -> "BlindSpotModel":
+    def _check_reason_matches_fields(self) -> BlindSpotModel:
         if (self.file is None) != (self.reason in WHOLE_MAP_REASONS):
             file_message = "file must be set iff the reason is not a whole-map reason"
             raise ValueError(file_message)
@@ -96,7 +96,7 @@ class DownwindSuiteFile(BaseModel):
     blind_spots: list[BlindSpotModel] = []
 
     @model_validator(mode="after")
-    def _check_selection_and_blind_spots_not_both_populated(self) -> "DownwindSuiteFile":
+    def _check_selection_and_blind_spots_not_both_populated(self) -> DownwindSuiteFile:
         if (self.node_ids or self.test_modules) and self.blind_spots:
             message = "a selection (node_ids or test_modules) and blind_spots must not both be non-empty"
             raise ValueError(message)

@@ -339,7 +339,7 @@ def load_file_config(invocation_dir: Path) -> FileConfig | None:
     try:
         with pyproject_path.open("rb") as f:
             raw_data = tomllib.load(f)
-    except (OSError, tomllib.TOMLDecodeError):
+    except OSError, tomllib.TOMLDecodeError:
         return None
 
     data = PyProjectConfig.model_validate(raw_data)

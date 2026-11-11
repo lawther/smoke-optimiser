@@ -462,7 +462,7 @@ def _get_git_commit(repo_root: Path) -> str | None:
         )
         if result.returncode == 0:
             return result.stdout.strip()
-    except (OSError, subprocess.SubprocessError):
+    except OSError, subprocess.SubprocessError:
         pass
     return None
 

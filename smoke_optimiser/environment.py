@@ -41,7 +41,7 @@ def _get_cpu_model() -> str | None:
                     text=True,
                     check=False,
                 ).stdout.strip()
-            except (OSError, ValueError):
+            except OSError, ValueError:
                 return None
         return None
     if platform.system() == "Linux":
@@ -51,7 +51,7 @@ def _get_cpu_model() -> str | None:
                 for line in f:
                     if line.startswith("model name"):
                         return line.split(":")[1].strip()
-        except (OSError, IndexError):
+        except OSError, IndexError:
             pass
     elif platform.system() == "Windows":
         # On Windows, use platform
@@ -73,7 +73,7 @@ def capture_environment() -> MachineEnvironment:
             virtual_mem = psutil.virtual_memory()
             ram_total_mb = virtual_mem.total // (1024 * 1024)
             ram_available_mb = virtual_mem.available // (1024 * 1024)
-        except (OSError, AttributeError):
+        except OSError, AttributeError:
             pass
 
     return MachineEnvironment(
