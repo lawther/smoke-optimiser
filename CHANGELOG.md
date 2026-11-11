@@ -16,6 +16,14 @@
   recording the coverage targets and test paths the profiling run measured. A version 1
   profile is rejected on load -- re-run the profiling phase to regenerate it.
 
+## [0.3.5](https://github.com/lawther/smoke-optimiser/compare/v0.3.4...v0.3.5) (2026-11-10)
+
+
+### Bug Fixes
+
+* **core:** pin fleet-managed files to LF in .gitattributes ([505bb69](https://github.com/lawther/smoke-optimiser/commit/505bb69fc1edd6253345d880043667106b774d5f))
+* **profiler:** record per-test contexts on Python 3.14 by selecting the ctrace core ([682749d](https://github.com/lawther/smoke-optimiser/commit/682749d549b355a64f1a83bf73cad904cf23b893))
+
 ## [0.3.4](https://github.com/lawther/smoke-optimiser/compare/v0.3.3...v0.3.4) (2026-11-04)
 
 
