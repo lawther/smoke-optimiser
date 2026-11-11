@@ -239,11 +239,11 @@
         {
           "executable": true,
           "path": ".fleet/rules/check_beads_block.py",
-          "sha256": "5b27ffa40c5281971d17075232462b9f673339a40bf824017afefd93dc4edf8a"
+          "sha256": "ff080249cc790cee34a2e6a1b0aa2b1922bd2337ab58cb1f8d0d3577586a9846"
         }
       ],
       "registrations": [],
-      "source": "fleet@43f4373"
+      "source": "fleet@324a0d4"
     },
     "scripts": {
       "blocks": [

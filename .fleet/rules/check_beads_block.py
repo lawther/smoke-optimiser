@@ -2,7 +2,7 @@
 # Fleet-managed copy of fleet payload/rules/check_beads_block.py. Do not edit it here:
 #      edit it there, then run `just sync` in fleet.
 # /// script
-# requires-python = ">=3.12"
+# requires-python = ">=3.14"
 # dependencies = []
 # ///
 """Fail if a generated Beads integration block has reappeared in this repo.
