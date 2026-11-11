@@ -204,7 +204,7 @@
         {
           "executable": true,
           "path": ".fleet/lint/check_lint_config.py",
-          "sha256": "fc151bcbe0dff454e3bfe3055d3623ccf63ee6737045fa15baa4a07a519147e1"
+          "sha256": "71c066c6d9879567a8c803b1830abc76280cfba1739f12ace134f9d8cecb3453"
         },
         {
           "executable": false,
@@ -218,7 +218,7 @@
         }
       ],
       "registrations": [],
-      "source": "fleet@3d39e44"
+      "source": "fleet@38c641f"
     },
     "rules": {
       "blocks": [
