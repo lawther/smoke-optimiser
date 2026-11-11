@@ -1,7 +1,7 @@
 # Fleet-managed copy of fleet payload/scripts/analyse_ai_readiness.py. Do not edit it here:
 #      edit it there, then run `just sync` in fleet.
 # /// script
-# requires-python = ">=3.12"
+# requires-python = ">=3.14"
 # dependencies = [
 #     "rich>=15.0.0",
 #     "tiktoken>=0.14.0",
@@ -169,7 +169,7 @@ def get_tracked_files(root: Path) -> list[Path]:
             check=True,
         )
         return [root / line for line in result.stdout.splitlines() if line.strip()]
-    except (subprocess.SubprocessError, FileNotFoundError):
+    except subprocess.SubprocessError, FileNotFoundError:
         return walk_directory(root)
 
 
@@ -183,7 +183,7 @@ def get_staged_files(root: Path) -> list[Path]:
             check=True,
         )
         return [root / line for line in result.stdout.splitlines() if line.strip()]
-    except (subprocess.SubprocessError, FileNotFoundError):
+    except subprocess.SubprocessError, FileNotFoundError:
         return []
 
 
