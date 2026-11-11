@@ -2,7 +2,7 @@
 # Fleet-managed copy of fleet payload/lint/check_lint_config.py. Do not edit it here:
 #      edit it there, then run `just sync` in fleet.
 # /// script
-# requires-python = ">=3.12"
+# requires-python = ">=3.14"
 # dependencies = [
 #     "pydantic>=2.12",
 # ]
@@ -94,7 +94,7 @@ def _load_toml(path: pathlib.Path) -> dict[str, object] | None:
     """`path` parsed, or None when it is not valid TOML."""
     try:
         return tomllib.loads(path.read_text(encoding="utf-8"))
-    except (tomllib.TOMLDecodeError, UnicodeDecodeError):
+    except tomllib.TOMLDecodeError, UnicodeDecodeError:
         return None
 
 

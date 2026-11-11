@@ -16,10 +16,11 @@
 
 # Pinned rather than inferred. Ruff does infer target-version from `project.requires-python`,
 # but only when a pyproject.toml sits beside the config it resolved -- and it falls back to
-# py3.10 when one does not, silently. Repos that must run on 3.12 override this to py312 in
-# their own ruff.toml, so 3.13-only rewrites are not suggested there: python-lint-hooks
-# publishes `ml-lints` (requires-python >=3.12), and ha-scripts runs on AppDaemon's 3.12.
-target-version = "py313"
+# py3.10 when one does not, silently. The value is the fleet's Python floor: fleet's
+# sync-python-floor writes it here from the derived floor, so do not edit it by hand. A repo
+# that pins its own floor in fleet.toml (`[python] floor`) overrides it to match in its own
+# ruff.toml, so rewrites needing a newer Python are not suggested there.
+target-version = "py314"
 line-length = 120
 
 # Ruff 0.16 added "*.md" to its default `include`, so `ruff format` now reformats Python

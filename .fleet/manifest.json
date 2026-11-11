@@ -204,12 +204,12 @@
         {
           "executable": true,
           "path": ".fleet/lint/check_lint_config.py",
-          "sha256": "3e0314ffd0127d9d5e8401d9a2c0ec8252316f97e4007ff95da337a9a32184bf"
+          "sha256": "fc151bcbe0dff454e3bfe3055d3623ccf63ee6737045fa15baa4a07a519147e1"
         },
         {
           "executable": false,
           "path": "ruff_shared.toml",
-          "sha256": "f3df6adb3950beda86af8380d032849dd3e7eea837f9858e974858a985fc3261"
+          "sha256": "ccfbaaa82c2e128285f03d0da7bb6cfb1a0154fdb2f274fd9d9d49e1a6d53faf"
         },
         {
           "executable": false,
@@ -218,7 +218,7 @@
         }
       ],
       "registrations": [],
-      "source": "fleet@734fee6"
+      "source": "fleet@3d39e44"
     },
     "rules": {
       "blocks": [
